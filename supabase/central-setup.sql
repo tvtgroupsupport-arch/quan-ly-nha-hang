@@ -50,6 +50,9 @@ create table if not exists public.subscriptions (
 -- bị bỏ qua (bảng đã tồn tại), cột mới KHÔNG tự thêm vào bảng cũ. Vá lại bằng tay ở đây — an toàn chạy
 -- lại nhiều lần, không ảnh hưởng gì nếu cột đã có sẵn rồi.
 alter table public.subscriptions add column if not exists source text not null default 'manual';
+-- Ngày hết hạn do ADMIN cộng thêm tay cho tài khoản đang dùng Google Play. Cập nhật từ Google (record_play_purchase)
+-- không được làm mất phần này: hạn cuối = lớn hơn giữa ngày Google báo và bonus_until.
+alter table public.subscriptions add column if not exists bonus_until timestamptz;
 alter table public.subscriptions drop constraint if exists subscriptions_source_check;
 alter table public.subscriptions add constraint subscriptions_source_check check (source in ('manual', 'google_play'));
 
@@ -119,6 +122,7 @@ create or replace function public.record_play_purchase(
 ) returns void
 language plpgsql security definer set search_path = public as $$
 declare v_months int; v_best_months int; v_best_expiry timestamptz; v_has_active boolean;
+        v_bonus timestamptz; v_final timestamptz; v_active boolean;
 begin
   select plan_months into v_months from public.play_products where product_id = p_product_id;
   if v_months is null then raise exception 'Không nhận ra mã gói: %', p_product_id using errcode = '22023'; end if;
@@ -145,15 +149,20 @@ begin
     v_best_months := v_months; v_best_expiry := p_expires_at;
   end if;
 
+  -- Giữ phần admin cộng thêm tay (nếu có): hạn cuối là ngày xa hơn giữa Google và bonus_until.
+  select bonus_until into v_bonus from public.subscriptions where owner_id = p_owner;
+  v_final  := greatest(v_best_expiry, coalesce(v_bonus, v_best_expiry));
+  v_active := v_final > now() and (v_has_active or coalesce(v_bonus > now(), false));
+
   insert into public.subscriptions (owner_id, plan_months, status, source, started_at, expires_at)
-  values (p_owner, v_best_months, case when v_has_active then 'active' else 'expired' end,
-          'google_play', now(), v_best_expiry)
+  values (p_owner, v_best_months, case when v_active then 'active' else 'expired' end,
+          'google_play', now(), v_final)
   on conflict (owner_id) do update
-    set plan_months = v_best_months, source = 'google_play', expires_at = v_best_expiry,
-        status = case when v_has_active then 'active' else 'expired' end,
+    set plan_months = v_best_months, source = 'google_play', expires_at = v_final,
+        status = case when v_active then 'active' else 'expired' end,
         updated_at = now()
     -- Không cho một token HẾT HẠN ghi đè gói đang còn hiệu lực từ nguồn khác (dùng thử / admin gia hạn tay).
-    where v_has_active or public.subscriptions.source = 'google_play' or public.subscriptions.expires_at <= now();
+    where v_active or public.subscriptions.source = 'google_play' or public.subscriptions.expires_at <= now();
 end $$;
 
 /** Edge Function tra owner_id từ purchaseToken khi nhận RTDN (Google chỉ gửi kèm token, không gửi owner_id). */
@@ -279,6 +288,10 @@ begin
   values (p_owner, p_months, 'active', now() + make_interval(months => p_months))
   on conflict (owner_id) do update
     set expires_at  = greatest(now(), public.subscriptions.expires_at) + make_interval(months => p_months),
+        -- Tài khoản đang dùng Google Play: ghi nhớ hạn mới làm "bonus" để lần cập nhật từ Google không ghi đè mất.
+        bonus_until = case when public.subscriptions.source = 'google_play'
+                           then greatest(now(), public.subscriptions.expires_at) + make_interval(months => p_months)
+                           else null end,
         plan_months = p_months, status = 'active', updated_at = now();
 end $$;
 
