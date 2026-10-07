@@ -29,6 +29,21 @@ if (!/android:windowSoftInputMode=/.test(x)) x = x.replace('<activity', '<activi
 fs.writeFileSync(file, x);
 console.log('✓ Đã cập nhật AndroidManifest.xml');
 
+/* Google Play yêu cầu targetSdk >= 36 (Capacitor 7 mặc định 35 → Play Console báo lỗi khi tải .aab).
+   Chỉ nâng targetSdk, giữ nguyên compileSdk để không phụ thuộc bản AGP/SDK của Capacitor 7. */
+const MIN_TARGET_SDK = 36;
+const varsFile = path.join(ROOT, 'android/variables.gradle');
+if (fs.existsSync(varsFile)) {
+  let v = fs.readFileSync(varsFile, 'utf8');
+  const m = v.match(/targetSdkVersion\s*=\s*(\d+)/);
+  if (!m) throw new Error('variables.gradle không có targetSdkVersion — cấu trúc Capacitor đã đổi, cần xem lại script này.');
+  if (Number(m[1]) < MIN_TARGET_SDK) {
+    v = v.replace(/targetSdkVersion\s*=\s*\d+/, `targetSdkVersion = ${MIN_TARGET_SDK}`);
+    fs.writeFileSync(varsFile, v);
+    console.log(`✓ Đã nâng targetSdkVersion ${m[1]} → ${MIN_TARGET_SDK} (yêu cầu của Google Play)`);
+  }
+}
+
 /* ---------- Ký bản release (chỉ khi đã có android/app/release.keystore — xem android-play.yml) ----------
    Mật khẩu KHÔNG được ghi cứng vào file này — đọc từ biến môi trường lúc Gradle chạy, giữ ở
    GitHub Secrets, không bao giờ nằm trong mã nguồn. */
