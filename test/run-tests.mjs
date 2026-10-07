@@ -739,6 +739,7 @@ t.group('29. Gói cước qua Google Play — mua gói, xác minh qua Edge Funct
   await A.playPurchase('goi_1_thang');
   t.ok(A.lastPurchaseCall && A.lastPurchaseCall.productId === 'goi_1_thang', 'gọi đúng plugin mua với đúng mã gói');
   t.ok(!!A.lastPurchaseCall.appAccountToken, 'có gửi kèm appAccountToken (để Edge Function đối chiếu đúng người mua)');
+  t.eq(A.lastPurchaseCall.planIdentifier, 'goi-1-thang', 'có truyền base plan ID (plugin bắt buộc với gói đăng ký trên Android)');
   t.ok(verifyCalled && verifyCalled.url.includes('/functions/v1/verify-purchase'), 'gọi đúng Edge Function verify-purchase');
   t.eq(verifyCalled.body.purchaseToken, 'tok-abc-123', 'gửi đúng purchaseToken nhận được từ plugin');
   t.eq(A.playBusy, false, 'xong việc thì tắt trạng thái đang xử lý');

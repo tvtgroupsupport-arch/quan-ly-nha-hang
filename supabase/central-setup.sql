@@ -151,7 +151,9 @@ begin
   on conflict (owner_id) do update
     set plan_months = v_best_months, source = 'google_play', expires_at = v_best_expiry,
         status = case when v_has_active then 'active' else 'expired' end,
-        updated_at = now();
+        updated_at = now()
+    -- Không cho một token HẾT HẠN ghi đè gói đang còn hiệu lực từ nguồn khác (dùng thử / admin gia hạn tay).
+    where v_has_active or public.subscriptions.source = 'google_play' or public.subscriptions.expires_at <= now();
 end $$;
 
 /** Edge Function tra owner_id từ purchaseToken khi nhận RTDN (Google chỉ gửi kèm token, không gửi owner_id). */

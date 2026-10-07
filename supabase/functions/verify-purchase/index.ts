@@ -13,11 +13,20 @@ import { fetchSubscription, acknowledgeSubscription, isActiveState } from '../_s
 const PACKAGE_NAME = Deno.env.get('PLAY_PACKAGE_NAME') ?? '';
 const SA_JSON = Deno.env.get('PLAY_SERVICE_ACCOUNT_JSON') ?? '';
 
+// App chạy trong WebView (origin https://localhost) gọi hàm này khác nguồn → trình duyệt gửi OPTIONS "preflight"
+// trước; thiếu các header CORS này thì fetch báo "Failed to fetch" và việc xác minh gói không bao giờ chạy.
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
 }
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Chỉ nhận POST' }, 405);
   if (!PACKAGE_NAME || !SA_JSON) return json({ error: 'Máy chủ chưa cấu hình đủ (thiếu PLAY_PACKAGE_NAME/PLAY_SERVICE_ACCOUNT_JSON)' }, 500);
 

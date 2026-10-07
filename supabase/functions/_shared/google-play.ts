@@ -62,7 +62,7 @@ export interface SubscriptionPurchaseV2 {
     đơn đó có hợp lệ hay không, KHÔNG BAO GIỜ tin dữ liệu app tự gửi lên. */
 export async function fetchSubscription(sa: ServiceAccountKey, packageName: string, purchaseToken: string): Promise<SubscriptionPurchaseV2> {
   const token = await getAccessToken(sa);
-  const url = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${packageName}/purchases/subscriptionsv2/tokens/${purchaseToken}`;
+  const url = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${encodeURIComponent(packageName)}/purchases/subscriptionsv2/tokens/${encodeURIComponent(purchaseToken)}`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const j = await r.json();
   if (!r.ok) throw new Error(`Google Play API báo lỗi (${r.status}): ${JSON.stringify(j)}`);
@@ -72,7 +72,7 @@ export async function fetchSubscription(sa: ServiceAccountKey, packageName: stri
 /** Bắt buộc gọi trong vòng 3 ngày sau lần mua ĐẦU TIÊN — không gọi là Google tự hoàn tiền. */
 export async function acknowledgeSubscription(sa: ServiceAccountKey, packageName: string, productId: string, purchaseToken: string): Promise<void> {
   const token = await getAccessToken(sa);
-  const url = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}:acknowledge`;
+  const url = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${encodeURIComponent(packageName)}/purchases/subscriptions/${encodeURIComponent(productId)}/tokens/${encodeURIComponent(purchaseToken)}:acknowledge`;
   const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}' });
   if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(`Xác nhận giao dịch thất bại (${r.status}): ${JSON.stringify(j)}`); }
 }

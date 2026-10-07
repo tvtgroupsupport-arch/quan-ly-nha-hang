@@ -29,6 +29,18 @@ if (!/android:windowSoftInputMode=/.test(x)) x = x.replace('<activity', '<activi
 fs.writeFileSync(file, x);
 console.log('✓ Đã cập nhật AndroidManifest.xml');
 
+/* Google Play từ chối .aab có versionCode trùng bản đã tải lên trước đó → mỗi lần build trên GitHub Actions
+   lấy số lần chạy workflow làm versionCode (luôn tăng dần). Build trên máy riêng (không có biến này) giữ nguyên. */
+const runNo = parseInt(process.env.GITHUB_RUN_NUMBER || '', 10);
+const appGradle = path.join(ROOT, 'android/app/build.gradle');
+if (runNo > 0 && fs.existsSync(appGradle)) {
+  let a = fs.readFileSync(appGradle, 'utf8');
+  if (!/versionCode\s+\d+/.test(a)) throw new Error('build.gradle không có versionCode — cấu trúc Capacitor đã đổi, cần xem lại script này.');
+  a = a.replace(/versionCode\s+\d+/, `versionCode ${runNo}`).replace(/versionName\s+"[^"]*"/, `versionName "1.0.${runNo}"`);
+  fs.writeFileSync(appGradle, a);
+  console.log(`✓ versionCode = ${runNo}, versionName = 1.0.${runNo}`);
+}
+
 /* Google Play yêu cầu targetSdk >= 36 (Capacitor 7 mặc định 35 → Play Console báo lỗi khi tải .aab).
    Chỉ nâng targetSdk, giữ nguyên compileSdk để không phụ thuộc bản AGP/SDK của Capacitor 7. */
 const MIN_TARGET_SDK = 36;
