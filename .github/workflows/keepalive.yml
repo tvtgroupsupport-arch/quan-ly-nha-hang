@@ -1,0 +1,24 @@
+name: Đánh thức Supabase (tránh tự tạm ngừng)
+
+# Gói Supabase miễn phí tự TẠM NGỪNG dự án sau 7 ngày không có hoạt động. Chạy mỗi 3 ngày —
+# đủ an toàn dưới mốc 7 ngày (cron không hỗ trợ "mỗi 6 ngày" nên chọn 3 ngày cho chắc).
+# Đánh thức CẢ Supabase trung tâm lẫn Supabase của TỪNG quán đã liên kết (đọc danh sách từ
+# bảng store_links trên Supabase trung tâm) — không cần biết trước có bao nhiêu quán.
+on:
+  schedule:
+    - cron: '0 20 */3 * *'   # 03:00 giờ Việt Nam (UTC+7), cách ngày lẻ — xem README mục "Đổi giờ chạy" nếu muốn đổi
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Đánh thức Supabase trung tâm + mọi quán
+        run: node scripts/keepalive.mjs
+        env:
+          CENTRAL_SUPABASE_URL: ${{ secrets.CENTRAL_SUPABASE_URL }}
+          CENTRAL_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.CENTRAL_SUPABASE_SERVICE_ROLE_KEY }}

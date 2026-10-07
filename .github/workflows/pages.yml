@@ -1,0 +1,40 @@
+name: Đăng trang gọi món lên GitHub Pages
+
+# Chạy khi các file liên quan tới trang khách thay đổi, hoặc bấm chạy tay.
+# Trang này DÙNG CHUNG cho mọi quán (không chứa thông tin riêng quán nào),
+# nên chỉ cần đăng MỘT LẦN — các lần sau tự cập nhật nếu bạn sửa giao diện trang khách.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/cloud/guest-page.js'
+      - 'scripts/build-guest-page.mjs'
+      - '.github/workflows/pages.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Dựng trang gọi món tĩnh
+        run: node scripts/build-guest-page.mjs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: docs }
+      - id: deployment
+        uses: actions/deploy-pages@v4

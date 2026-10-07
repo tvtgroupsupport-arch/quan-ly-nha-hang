@@ -1,0 +1,10 @@
+{
+  "appId": "vn.quanly.nhahang",
+  "appName": "Quản Lý Nhà Hàng",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "android": { "allowMixedContent": false },
+  "plugins": {
+    "CapacitorSQLite": { "androidIsEncryption": false }
+  }
+}

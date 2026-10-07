@@ -1,0 +1,87 @@
+name: Build bản Google Play (AAB)
+
+# Bản RIÊNG dành cho Google Play — package name khác bản chuyển khoản (xem build.mjs).
+# Google Play Billing CHỈ hoạt động với app cài qua chính Google Play (kể cả kênh thử nội bộ),
+# không hoạt động với APK cài tay — nên bản này cần build file .aab đã KÝ rồi tự tay tải lên
+# Play Console (Internal testing) để thử, không có đường tắt nào khác.
+on:
+  workflow_dispatch:
+
+jobs:
+  aab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+
+      - name: Cài thư viện
+        run: npm install
+
+      - name: Build giao diện (www/) — billingMode=play
+        run: npm run build
+        env:
+          CENTRAL_SUPABASE_URL: ${{ secrets.CENTRAL_SUPABASE_URL }}
+          CENTRAL_SUPABASE_ANON_KEY: ${{ secrets.CENTRAL_SUPABASE_ANON_KEY }}
+          SUPPORT_TEXT: ${{ vars.SUPPORT_TEXT }}
+          GUEST_PAGE_URL: ${{ vars.GUEST_PAGE_URL }}
+          BILLING_MODE: play
+          PLAY_APP_ID: ${{ vars.PLAY_APP_ID }}
+
+      - name: Thêm nền tảng Android
+        run: test -d android || npx cap add android
+
+      - name: Đồng bộ vào Android và vá AndroidManifest
+        run: npm run sync
+        env:
+          CENTRAL_SUPABASE_URL: ${{ secrets.CENTRAL_SUPABASE_URL }}
+          CENTRAL_SUPABASE_ANON_KEY: ${{ secrets.CENTRAL_SUPABASE_ANON_KEY }}
+          SUPPORT_TEXT: ${{ vars.SUPPORT_TEXT }}
+          GUEST_PAGE_URL: ${{ vars.GUEST_PAGE_URL }}
+          BILLING_MODE: play
+          PLAY_APP_ID: ${{ vars.PLAY_APP_ID }}
+
+      # Có khoá ký (secrets.ANDROID_KEYSTORE_BASE64) → build bản .aab đã ký, tải thẳng lên Play
+      # Console được luôn. Chưa có khoá → build bản .apk debug để BẠN TỰ XEM GIAO DIỆN cho biết,
+      # nhưng Play Billing SẼ KHÔNG hoạt động (Google chỉ cho Billing chạy với app cài qua chính
+      # Play Store) — xem HUONG-DAN-GOOGLE-PLAY.md mục "Tạo khoá ký" trước khi thử mua thật.
+      - name: Giải mã khoá ký (nếu đã cấu hình)
+        id: keystore
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+            echo "has_keystore=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_keystore=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Biên dịch bản .aab đã ký (nộp lên Play Console được luôn)
+        if: steps.keystore.outputs.has_keystore == 'true'
+        working-directory: android
+        run: ./gradlew bundleRelease --no-daemon
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Biên dịch bản .apk debug (CHƯA cấu hình khoá ký — chỉ xem giao diện, Billing chưa chạy được)
+        if: steps.keystore.outputs.has_keystore != 'true'
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        if: steps.keystore.outputs.has_keystore == 'true'
+        with:
+          name: quan-ly-nha-hang-play-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: steps.keystore.outputs.has_keystore != 'true'
+        with:
+          name: quan-ly-nha-hang-play-debug-apk-XEM-GIAO-DIEN-THOI
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

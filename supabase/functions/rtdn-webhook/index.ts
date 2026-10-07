@@ -1,0 +1,72 @@
+// ============================================================
+// rtdn-webhook — Google gọi tới đây MỖI KHI một gói cước đổi trạng thái (tự gia hạn,
+// khách huỷ, hết hạn, vào thời gian ân hạn do thẻ bị từ chối...). Không có bước này,
+// app sẽ không biết khi nào khách HUỶ gói trên Google — vẫn tưởng còn hạn mãi.
+//
+// Luồng: Google Play → Google Cloud Pub/Sub (topic bạn tạo) → Pub/Sub "push" tới đúng
+// URL của hàm này. KHÔNG đọc thẳng thông báo để quyết định — luôn gọi lại Google hỏi
+// trạng thái THẬT (đúng khuyến cáo chính thức), vì nội dung thông báo có thể đến trễ/cũ.
+//
+// Triển khai: supabase functions deploy rtdn-webhook --no-verify-jwt
+//   (bắt buộc --no-verify-jwt vì Pub/Sub không gửi JWT người dùng Supabase — thay vào đó
+//   hàm tự kiểm một mã bí mật riêng trong đường dẫn, xem RTDN_SECRET bên dưới)
+// Sau khi deploy, tạo Pub/Sub push subscription trỏ về:
+//   https://<project-ref>.functions.supabase.co/rtdn-webhook?secret=<RTDN_SECRET>
+// ============================================================
+import { createClient } from 'npm:@supabase/supabase-js@2';
+import { fetchSubscription, isActiveState } from '../_shared/google-play.ts';
+
+const PACKAGE_NAME = Deno.env.get('PLAY_PACKAGE_NAME') ?? '';
+const SA_JSON = Deno.env.get('PLAY_SERVICE_ACCOUNT_JSON') ?? '';
+const RTDN_SECRET = Deno.env.get('RTDN_SECRET') ?? '';
+
+Deno.serve(async (req) => {
+  // Pub/Sub chỉ cần nhận HTTP 200 là coi như đã giao — mọi lỗi dưới đây vẫn trả 200 để
+  // Google không lặp lại gửi vô tận, nhưng ghi log rõ để bạn tự biết nếu có vấn đề.
+  const ok = (extra?: unknown) => new Response(JSON.stringify({ ok: true, ...(extra as object) }), { status: 200 });
+
+  try {
+    if (req.method !== 'POST') return ok({ skipped: 'not POST' });
+    const url = new URL(req.url);
+    if (!RTDN_SECRET || url.searchParams.get('secret') !== RTDN_SECRET) {
+      console.error('rtdn-webhook: sai hoặc thiếu secret — có thể không phải Google gọi tới');
+      return new Response('forbidden', { status: 403 });
+    }
+    if (!PACKAGE_NAME || !SA_JSON) { console.error('rtdn-webhook: thiếu cấu hình PLAY_PACKAGE_NAME/PLAY_SERVICE_ACCOUNT_JSON'); return ok(); }
+
+    const envelope = await req.json();
+    const dataB64 = envelope?.message?.data;
+    if (!dataB64) return ok({ skipped: 'không có message.data' });
+    const payload = JSON.parse(atob(dataB64));
+
+    // Gói có log test "chào hỏi" riêng (testNotification), không phải sự kiện thật — bỏ qua êm
+    const n = payload.subscriptionNotification;
+    if (!n?.purchaseToken) return ok({ skipped: 'không phải thông báo gói cước' });
+
+    const sa = JSON.parse(SA_JSON);
+    const sub = await fetchSubscription(sa, PACKAGE_NAME, n.purchaseToken);
+    const line = sub.lineItems?.[0];
+    if (!line) return ok({ skipped: 'không có lineItem' });
+
+    const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+    // RTDN của lần mua ĐẦU TIÊN có thể tới TRƯỚC cả khi verify-purchase (do máy khách) kịp chạy
+    // xong — lúc đó record chưa có owner_id. Tra theo obfuscatedExternalAccountId để vẫn ghi nhận
+    // đúng người, không bỏ sót.
+    let owner: string | null = null;
+    const { data: found } = await admin.rpc('find_play_purchase_owner', { p_purchase_token: n.purchaseToken });
+    owner = found ?? sub.externalAccountIdentifiers?.obfuscatedExternalAccountId ?? null;
+    if (!owner) { console.error('rtdn-webhook: không tra được chủ sở hữu cho token', n.purchaseToken); return ok({ skipped: 'không rõ chủ sở hữu' }); }
+
+    const { error } = await admin.rpc('record_play_purchase', {
+      p_owner: owner, p_purchase_token: n.purchaseToken, p_product_id: line.productId,
+      p_expires_at: line.expiryTime, p_state: isActiveState(sub.subscriptionState) ? 'active' : 'expired',
+      p_raw: { ...sub, _rtdn_notificationType: n.notificationType },
+    });
+    if (error) console.error('rtdn-webhook: ghi nhận thất bại:', error.message);
+    return ok({ state: sub.subscriptionState });
+  } catch (e) {
+    console.error('rtdn-webhook: lỗi không mong đợi:', (e as Error).message);
+    return ok({ error: (e as Error).message });
+  }
+});
