@@ -47,9 +47,11 @@ if (fs.existsSync(gradleFile) && fs.existsSync(keystoreFile)) {
     }
 `;
     if (!g.includes('android {')) throw new Error('build.gradle không có khối "android {" như mong đợi — cấu trúc Capacitor đã đổi, cần xem lại script này.');
+    // Vá khối release TRONG buildTypes TRƯỚC, rồi mới chèn signingConfigs — nếu làm ngược, regex sẽ khớp nhầm "release {" của signingConfigs.
+    const buildTypesRelease = /(buildTypes\s*\{[\s\S]*?)release\s*\{/;
+    if (!buildTypesRelease.test(g)) throw new Error('build.gradle không có khối "release {" trong buildTypes — không vá được chữ ký.');
+    g = g.replace(buildTypesRelease, '$1release {\n            signingConfig signingConfigs.release');
     g = g.replace('android {', 'android {\n' + signingBlock);
-    if (!/release\s*\{/.test(g)) throw new Error('build.gradle không có khối "release {" trong buildTypes — không vá được chữ ký.');
-    g = g.replace(/release\s*\{/, 'release {\n            signingConfig signingConfigs.release');
     fs.writeFileSync(gradleFile, g);
     console.log('✓ Đã thêm cấu hình ký bản release vào build.gradle');
   }

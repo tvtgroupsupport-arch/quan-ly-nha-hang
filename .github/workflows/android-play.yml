@@ -34,6 +34,18 @@ jobs:
       - name: Thêm nền tảng Android
         run: test -d android || npx cap add android
 
+      # PHẢI giải mã khoá ký TRƯỚC bước đồng bộ/vá bên dưới — script vá build.gradle chỉ thêm cấu hình ký
+      # khi thấy android/app/release.keystore đã tồn tại; nếu giải mã sau, .aab ra không có chữ ký.
+      - name: Giải mã khoá ký (nếu đã cấu hình)
+        id: keystore
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+            echo "has_keystore=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_keystore=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Đồng bộ vào Android và vá AndroidManifest
         run: npm run sync
         env:
@@ -48,16 +60,6 @@ jobs:
       # Console được luôn. Chưa có khoá → build bản .apk debug để BẠN TỰ XEM GIAO DIỆN cho biết,
       # nhưng Play Billing SẼ KHÔNG hoạt động (Google chỉ cho Billing chạy với app cài qua chính
       # Play Store) — xem HUONG-DAN-GOOGLE-PLAY.md mục "Tạo khoá ký" trước khi thử mua thật.
-      - name: Giải mã khoá ký (nếu đã cấu hình)
-        id: keystore
-        run: |
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
-            echo "has_keystore=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_keystore=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Biên dịch bản .aab đã ký (nộp lên Play Console được luôn)
         if: steps.keystore.outputs.has_keystore == 'true'
         working-directory: android
