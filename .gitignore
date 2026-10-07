@@ -5,3 +5,4 @@ android/
 app.config.json
 *.keystore
 docs/
+supabase/.temp/
