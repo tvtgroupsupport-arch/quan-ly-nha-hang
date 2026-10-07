@@ -44,6 +44,9 @@ App bấm "Mua gói"
    (Muốn đổi mã khác hoặc thêm gói: sửa bảng `play_products` trong `supabase/central-setup.sql`
    và đổi `PLAY_PRODUCT_IDS` trong `src/cloud/play-billing.js` cho khớp.)
 4. Mỗi gói cần ít nhất một **base plan** còn hiệu lực (Active) thì mới hiện giá/mua được.
+   **Base plan ID bắt buộc đặt đúng** (plugin yêu cầu khi mua gói đăng ký trên Android; chỉ gồm chữ thường, số, gạch ngang):
+   `goi-1-thang`, `goi-6-thang`, `goi-12-thang` (tương ứng từng gói ở trên). Muốn đặt khác thì sửa `PLAY_BASE_PLANS`
+   trong `src/cloud/play-billing.js`.
 
 ## Bước 2 — Google Cloud: tài khoản dịch vụ (service account)
 

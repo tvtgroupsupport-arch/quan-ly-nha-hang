@@ -42,13 +42,16 @@ Deno.serve(async (req) => {
   try { sub = await fetchSubscription(sa, PACKAGE_NAME, purchaseToken); }
   catch (e) { return json({ error: `Không xác minh được với Google: ${(e as Error).message}` }, 502); }
 
-  const line = sub.lineItems?.find((l) => l.productId === productId) ?? sub.lineItems?.[0];
+  const line = sub.lineItems?.find((l) => l.productId === productId);
   if (!line) return json({ error: 'Giao dịch không có gói nào khớp' }, 400);
 
   // Đối chiếu đúng người: lúc khởi tạo mua hàng app PHẢI gửi kèm obfuscatedAccountId = chính ownerId
   // này (xem src/cloud/play-billing.js) — nếu không khớp, token này KHÔNG PHẢI của người đang gọi.
   const tokenOwner = sub.externalAccountIdentifiers?.obfuscatedExternalAccountId;
-  if (tokenOwner && tokenOwner !== ownerId) return json({ error: 'Giao dịch này không thuộc về tài khoản đang đăng nhập' }, 403);
+  // BẮT BUỘC có và khớp — thiếu ID thì không chứng minh được token là của người gọi.
+  if (!tokenOwner || tokenOwner !== ownerId) return json({ error: 'Giao dịch này không thuộc về tài khoản đang đăng nhập' }, 403);
+
+  if (sub.subscriptionState === 'SUBSCRIPTION_STATE_PENDING') return json({ error: 'Giao dịch đang chờ thanh toán — sẽ tự kích hoạt khi Google xác nhận', pending: true }, 202);
 
   if (sub.acknowledgementState === 'ACKNOWLEDGEMENT_STATE_PENDING') {
     try { await acknowledgeSubscription(sa, PACKAGE_NAME, line.productId, purchaseToken); }

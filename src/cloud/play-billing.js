@@ -6,6 +6,8 @@
 
 const PLAY_PRODUCT_IDS = ['goi_1_thang', 'goi_6_thang', 'goi_12_thang'];   // phải khớp đúng mã đã tạo trên Play Console
 const PLAY_MONTHS = { goi_1_thang: 1, goi_6_thang: 6, goi_12_thang: 12 };
+// ID base plan của từng gói trên Play Console (chỉ chữ thường, số, gạch ngang) — plugin bắt buộc truyền khi mua gói đăng ký.
+const PLAY_BASE_PLANS = { goi_1_thang: 'goi-1-thang', goi_6_thang: 'goi-6-thang', goi_12_thang: 'goi-12-thang' };
 
 let _playProducts = null, _playLoading = false, _playBusy = false;
 
@@ -44,14 +46,14 @@ async function playPurchase(productId) {
     const ownerId = userRes?.user?.id;
     if (!ownerId) throw new Error('Chưa đăng nhập tài khoản chủ quán');
 
-    const tx = await NativeBridge.billing.purchase(productId, ownerId);
+    const tx = await NativeBridge.billing.purchase(productId, ownerId, PLAY_BASE_PLANS[productId]);
     const purchaseToken = tx?.purchaseToken || tx?.transactionId || tx?.id;
     if (!purchaseToken) throw new Error('Không nhận được mã giao dịch từ Google — thử lại');
 
     toast('Đang xác minh với Google…');
-    await verifyPlayPurchase(purchaseToken, productId);
+    const res = await verifyPlayPurchase(purchaseToken, productId);
     await License.refresh(true);
-    toast('Đã kích hoạt gói cước thành công');
+    toast(res?.pending ? 'Đang chờ Google xác nhận thanh toán — gói sẽ tự kích hoạt khi xong' : 'Đã kích hoạt gói cước thành công');
   } catch (e) {
     const msg = String(e?.message || e || '');
     if (/user.*cancel|cancelled|canceled/i.test(msg)) toast('Đã huỷ');
@@ -67,6 +69,15 @@ async function playRestore() {
   try {
     await NativeBridge.billing.restore();
     toast('Đang kiểm tra lại các giao dịch trước đó…');
+    // Gửi từng lượt mua còn trên tài khoản Google lên server xác minh (cài lại app trước khi verify xong vẫn không mất gói).
+    const { data: userRes } = await Cloud.central().auth.getUser();
+    const ownerId = userRes?.user?.id;
+    const owned = ownerId ? await NativeBridge.billing.getPurchases(ownerId) : [];
+    for (const p of owned) {
+      if (p?.purchaseToken && PLAY_PRODUCT_IDS.includes(p.productIdentifier) && String(p.purchaseState) === '1') {
+        try { await verifyPlayPurchase(p.purchaseToken, p.productIdentifier); } catch (e) { /* token của tài khoản khác/hết hạn: bỏ qua */ }
+      }
+    }
     await License.refresh(true);
     toast('Đã kiểm tra xong');
   } catch (e) { toast('Khôi phục giao dịch không thành công'); }

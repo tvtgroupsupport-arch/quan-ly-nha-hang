@@ -77,5 +77,6 @@ export async function acknowledgeSubscription(sa: ServiceAccountKey, packageName
   if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(`Xác nhận giao dịch thất bại (${r.status}): ${JSON.stringify(j)}`); }
 }
 
-const ACTIVE_STATES = new Set(['SUBSCRIPTION_STATE_ACTIVE', 'SUBSCRIPTION_STATE_IN_GRACE_PERIOD']);
+// CANCELED = khách đã tắt tự gia hạn nhưng đã trả tiền → vẫn được dùng tới expiryTime (SQL tự kiểm expires_at > now()).
+const ACTIVE_STATES = new Set(['SUBSCRIPTION_STATE_ACTIVE', 'SUBSCRIPTION_STATE_IN_GRACE_PERIOD', 'SUBSCRIPTION_STATE_CANCELED']);
 export function isActiveState(state: string): boolean { return ACTIVE_STATES.has(state); }

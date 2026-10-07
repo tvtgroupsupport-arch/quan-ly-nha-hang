@@ -87,8 +87,9 @@ export async function newDevice(world, name, opts = {}) {
     billing: {
       isSupported: async () => dev.billingSupported !== false,
       getProducts: async (ids) => (dev.billingProducts || ids.map(id => ({ identifier: id, title: id, priceString: '0đ' }))),
-      purchase: async (productId, appAccountToken) => {
-        dev.lastPurchaseCall = { productId, appAccountToken };
+      getPurchases: async () => dev.billingOwned || [],
+      purchase: async (productId, appAccountToken, planIdentifier) => {
+        dev.lastPurchaseCall = { productId, appAccountToken, planIdentifier };
         if (dev.billingPurchaseImpl) return dev.billingPurchaseImpl(productId, appAccountToken);
         return { purchaseToken: 'tok-' + productId, productId };
       },

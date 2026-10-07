@@ -143,11 +143,17 @@ const billing = {
     const { products } = await NativePurchases.getProducts({ productIdentifiers: productIds, productType: PURCHASE_TYPE.SUBS });
     return products;
   },
-  async purchase(productId, appAccountToken) {
-    const tx = await NativePurchases.purchaseProduct({ productIdentifier: productId, productType: PURCHASE_TYPE.SUBS, appAccountToken });
+  /** planIdentifier = ID base plan trên Play Console — plugin BẮT BUỘC với gói đăng ký trên Android. */
+  async purchase(productId, appAccountToken, planIdentifier) {
+    const tx = await NativePurchases.purchaseProduct({ productIdentifier: productId, planIdentifier, productType: PURCHASE_TYPE.SUBS, appAccountToken });
     return tx;   // chứa purchaseToken (Android) — gửi thẳng lên verify-purchase, không tự xử lý gì thêm ở đây
   },
   async restore() { return NativePurchases.restorePurchases(); },
+  /** Các lượt mua gói hiện có của tài khoản Google trên máy (Android: có purchaseToken). */
+  async getPurchases(appAccountToken) {
+    try { return (await NativePurchases.getPurchases({ productType: PURCHASE_TYPE.SUBS, appAccountToken })).purchases || []; }
+    catch (e) { return []; }
+  },
   async manage() { try { await NativePurchases.manageSubscriptions(); } catch (e) {} },
 };
 

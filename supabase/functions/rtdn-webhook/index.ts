@@ -38,6 +38,7 @@ Deno.serve(async (req) => {
     const dataB64 = envelope?.message?.data;
     if (!dataB64) return ok({ skipped: 'không có message.data' });
     const payload = JSON.parse(atob(dataB64));
+    if (payload.packageName && payload.packageName !== PACKAGE_NAME) return ok({ skipped: 'sai packageName' });
 
     // Gói có log test "chào hỏi" riêng (testNotification), không phải sự kiện thật — bỏ qua êm
     const n = payload.subscriptionNotification;
@@ -63,10 +64,17 @@ Deno.serve(async (req) => {
       p_expires_at: line.expiryTime, p_state: isActiveState(sub.subscriptionState) ? 'active' : 'expired',
       p_raw: { ...sub, _rtdn_notificationType: n.notificationType },
     });
-    if (error) console.error('rtdn-webhook: ghi nhận thất bại:', error.message);
+    if (error) {
+      // Lỗi tạm thời (DB/mạng) → 500 để Pub/Sub gửi lại; lỗi dữ liệu vĩnh viễn (sai mã gói, token của người khác) → 200 để khỏi lặp vô tận.
+      console.error('rtdn-webhook: ghi nhận thất bại:', error.message);
+      if (error.code === '22023' || error.code === '42501') return ok({ skipped: error.message });
+      return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    }
     return ok({ state: sub.subscriptionState });
   } catch (e) {
+    // Lỗi gọi Google / mạng → trả 500 để Pub/Sub tự gửi lại; chỉ riêng JSON hỏng (không bao giờ thành công) mới trả 200.
     console.error('rtdn-webhook: lỗi không mong đợi:', (e as Error).message);
-    return ok({ error: (e as Error).message });
+    if (e instanceof SyntaxError) return ok({ error: (e as Error).message });
+    return new Response(JSON.stringify({ error: (e as Error).message }), { status: 500 });
   }
 });

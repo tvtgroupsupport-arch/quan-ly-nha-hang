@@ -118,24 +118,39 @@ create or replace function public.record_play_purchase(
   p_expires_at timestamptz, p_state text, p_raw jsonb
 ) returns void
 language plpgsql security definer set search_path = public as $$
-declare v_months int;
+declare v_months int; v_best_months int; v_best_expiry timestamptz; v_has_active boolean;
 begin
   select plan_months into v_months from public.play_products where product_id = p_product_id;
   if v_months is null then raise exception 'Không nhận ra mã gói: %', p_product_id using errcode = '22023'; end if;
+
+  -- Token đã thuộc về người khác → không cho chuyển chủ (chống nhận trộm token).
+  if exists (select 1 from public.play_purchases where purchase_token = p_purchase_token and owner_id <> p_owner) then
+    raise exception 'Token này đã thuộc về tài khoản khác' using errcode = '42501';
+  end if;
 
   insert into public.play_purchases (purchase_token, owner_id, product_id, plan_months, state, expires_at, last_verified, raw_notification)
   values (p_purchase_token, p_owner, p_product_id, v_months, p_state, p_expires_at, now(), p_raw)
   on conflict (purchase_token) do update
     set state = excluded.state, expires_at = excluded.expires_at, last_verified = now(), raw_notification = excluded.raw_notification;
 
-  -- Gói cước THẬT theo đúng ngày Google báo — không "cộng dồn N tháng" như cách chuyển khoản tay,
-  -- vì Google đã tự lo cộng dồn/gia hạn/dùng thử ở phía họ, mình chỉ phản ánh lại đúng expiry đó.
+  -- Gói cước THẬT theo đúng ngày Google báo. Lấy token đang hiệu lực có hạn xa nhất của chủ quán,
+  -- để token CŨ (đổi gói / đăng ký lại) báo hết hạn không ghi đè gói mới còn hạn.
+  select plan_months, expires_at into v_best_months, v_best_expiry
+    from public.play_purchases
+   where owner_id = p_owner and state = 'active' and expires_at > now()
+   order by expires_at desc limit 1;
+
+  v_has_active := v_best_expiry is not null;
+  if not v_has_active then   -- không còn token nào hiệu lực → phản ánh token vừa ghi (hết hạn)
+    v_best_months := v_months; v_best_expiry := p_expires_at;
+  end if;
+
   insert into public.subscriptions (owner_id, plan_months, status, source, started_at, expires_at)
-  values (p_owner, v_months, case when p_state = 'active' and p_expires_at > now() then 'active' else 'expired' end,
-          'google_play', now(), p_expires_at)
+  values (p_owner, v_best_months, case when v_has_active then 'active' else 'expired' end,
+          'google_play', now(), v_best_expiry)
   on conflict (owner_id) do update
-    set plan_months = v_months, source = 'google_play', expires_at = excluded.expires_at,
-        status = case when p_state = 'active' and excluded.expires_at > now() then 'active' else 'expired' end,
+    set plan_months = v_best_months, source = 'google_play', expires_at = v_best_expiry,
+        status = case when v_has_active then 'active' else 'expired' end,
         updated_at = now();
 end $$;
 
