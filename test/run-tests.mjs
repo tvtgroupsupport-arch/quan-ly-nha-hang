@@ -781,6 +781,94 @@ t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuy
 }
 
 /* ============================================================ */
+t.group('30b. Danh sách gói Google Play — mỗi gói một dòng, mua bằng mã sản phẩm (planIdentifier) chứ không phải mã base plan');
+{
+  const w = newWorld(); const A = await setupOwner(w, { link: false });
+  // Dữ liệu y hệt plugin trả về trên Android: MỖI base plan/ưu đãi một dòng; identifier = mã base plan, planIdentifier = mã sản phẩm.
+  const raw = [
+    { identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: 'dung-thu', priceString: 'Miễn phí', title: 'Goi 1 thang' },
+    { identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: null, priceString: '199.000 đ', title: 'Goi 1 thang' },
+    { identifier: 'goi-12-thang', planIdentifier: 'goi_12_thang', offerId: null, priceString: '2.000.000 đ', title: 'Goi 12 thang' },
+    { identifier: 'goi-6-thang', planIdentifier: 'goi_6_thang', offerId: null, priceString: '999.000 đ', title: 'Goi 6 thang' },
+    { identifier: 'khac', planIdentifier: 'san_pham_la', offerId: null, priceString: '1 đ' },
+  ];
+  const out = A.normalizePlayProducts(raw);
+  t.eq(out.map(p => A.playProductId(p)), ['goi_1_thang', 'goi_6_thang', 'goi_12_thang'], 'mỗi gói đúng một dòng, đúng thứ tự 1 → 6 → 12 tháng, bỏ sản phẩm lạ');
+  t.eq(out[0].priceString, '199.000 đ', 'dòng ưu đãi "Miễn phí" bị bỏ, giữ dòng giá gốc');
+
+  A.billingProducts = raw;
+  let html = A.vSubscriptionPlay();
+  await new Promise(r => setTimeout(r, 20));
+  html = A.vSubscriptionPlay();
+  t.ok(html.includes('data-id="goi_6_thang"') && !html.includes('data-id="goi-6-thang"'), 'nút mua mang mã SẢN PHẨM (goi_6_thang), không phải mã base plan');
+  t.eq((html.match(/data-act="c_playBuy"/g) || []).length, 3, 'màn hình chỉ có 3 nút mua (không lặp)');
+
+  A.billingPurchaseImpl = async (productId) => ({ purchaseToken: 'tok-' + productId, productId });
+  A.fetchImpl = async () => ({ ok: true, json: async () => ({ ok: true }) });
+  await A.playPurchase('goi_6_thang');
+  t.eq(A.lastPurchaseCall.productId, 'goi_6_thang', 'mua đúng mã sản phẩm');
+  t.eq(A.lastPurchaseCall.planIdentifier, 'goi-6-thang', 'truyền đúng base plan do Google trả về (đúng lỗi "planIdentifier cannot be empty" trong ảnh)');
+}
+
+t.group('30c. Tự tạo Supabase cho quán — mở trang uỷ quyền, hỏi tiến trình, xong thì liên kết; lỗi hiện rõ, không ném ra ngoài');
+{
+  const w = newWorld(); const A = await setupOwner(w, { link: false });
+  A.AutoProv.setDelays(0, 0);
+  A.Cloud.ownerSignIn = async () => ({ ok: true });
+  let linkedWith = null;
+  A.Cloud.linkStoreAsOwner = async (args) => { linkedWith = args; return { ok: true }; };
+
+  // 1) Luồng thành công: start → (chờ đồng ý) → (đang làm) → done
+  const steps = [
+    { state: 'awaiting_auth', step: 1, total: 8, message: 'Đang chờ' },
+    { state: 'creating', step: 4, total: 8, message: 'Đang tạo' },
+    { state: 'done', step: 8, total: 8, url: 'https://abcd.supabase.co', anon_key: 'eyJ.anon.key', message: 'Hoàn tất' },
+  ];
+  const called = [];
+  A.fetchImpl = async (url) => {
+    called.push(url.split('/functions/v1/')[1]);
+    const body = url.endsWith('provision-start') ? { authorize_url: 'https://api.supabase.com/v1/oauth/authorize?client_id=x' } : steps.shift();
+    return { ok: true, json: async () => body };
+  };
+  A.route = { name: 'ownerLink', params: {} };
+  await A.AutoProv.start('mat-khau-dung');
+  t.eq(called, ['provision-start', 'provision-step', 'provision-step', 'provision-step'], 'gọi provision-start một lần rồi hỏi provision-step tới khi xong');
+  t.ok((A.browserOpened || [])[0] && A.browserOpened[0].startsWith('https://api.supabase.com/v1/oauth/authorize'), 'mở đúng trang uỷ quyền của Supabase trong trình duyệt');
+  t.ok(linkedWith && linkedWith.url === 'https://abcd.supabase.co' && linkedWith.anonKey === 'eyJ.anon.key' && !!linkedWith.email && linkedWith.password === 'mat-khau-dung',
+    'xong thì dùng đúng luồng liên kết sẵn có với địa chỉ + khoá anon nhận về');
+  t.eq(A.AutoProv.status().running, false, 'xong thì thoát trạng thái đang chạy');
+
+  // 2) Máy chủ báo lỗi (vd. hết số dự án miễn phí) → hiện thông báo, không ném lỗi, không liên kết
+  linkedWith = null; A.route = { name: 'ownerLink', params: {} };
+  A.fetchImpl = async (url) => ({ ok: true, json: async () => (url.endsWith('provision-start') ? { resume: true } : { state: 'error', message: 'Tài khoản Supabase của bạn đã đủ số dự án miễn phí.' }) });
+  await A.AutoProv.start('mat-khau-dung');
+  const s2 = A.AutoProv.status();
+  t.ok(s2.phase === 'error' && s2.message.includes('số dự án miễn phí'), 'lỗi từ máy chủ hiện nguyên văn cho chủ quán');
+  t.ok(linkedWith === null, 'có lỗi thì tuyệt đối không liên kết');
+  t.ok(A.autoProvCard().includes('Tiếp tục / thử lại') && A.autoProvCard().includes('số dự án miễn phí'), 'thẻ giao diện hiện lỗi và nút thử lại');
+
+  // 3) Thiếu mật khẩu → báo ngay, không gọi máy chủ
+  called.length = 0; A.fetchImpl = async (url) => { called.push(url); return { ok: true, json: async () => ({}) }; };
+  await A.AutoProv.start('');
+  t.ok(A.AutoProv.status().phase === 'error' && called.length === 0, 'không nhập mật khẩu → báo lỗi, chưa gọi máy chủ');
+
+  // 4) Đã có sẵn kho dữ liệu liên kết (máy chủ trả 409) → báo rõ, không tạo thêm
+  A.fetchImpl = async () => ({ ok: false, status: 409, json: async () => ({ error: 'Tài khoản này đã liên kết Supabase của quán rồi' }) });
+  await A.AutoProv.start('mat-khau-dung');
+  t.ok(A.AutoProv.status().message.includes('đã liên kết'), 'đã liên kết rồi thì báo đúng lý do');
+}
+
+t.group('30d. Script dựng Supabase nhúng cho Edge Function (store-sql.ts) khớp từng chữ với store-setup.sql');
+{
+  const sql = fs.readFileSync(new URL('../supabase/store-setup.sql', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const ts = fs.readFileSync(new URL('../supabase/functions/_shared/store-sql.ts', import.meta.url), 'utf8');
+  const line = ts.split('\n').find(l => l.startsWith('export const STORE_SQL'));
+  const literal = line ? line.slice(line.indexOf('= ') + 2).replace(/;\s*$/, '') : '""';
+  const embedded = JSON.parse(literal).replace(/\r\n/g, '\n');
+  t.ok(embedded === sql, 'store-sql.ts đang khớp store-setup.sql — nếu lệch, chạy: node scripts/gen-store-sql.mjs rồi deploy lại provision-step');
+}
+
+/* ============================================================ */
 t.group('31. Kích thước ghế trên sơ đồ bàn cố định — không tự phóng to/thu nhỏ theo số ghế của từng bàn');
 {
   const w = newWorld(); const A = await setupOwner(w, { link: false });

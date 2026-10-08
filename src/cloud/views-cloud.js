@@ -92,6 +92,8 @@ function vOwnerLink() {
     ${hdr('Liên kết Supabase của quán', linked ? 'Đã liên kết' : 'Để đồng bộ nhiều thiết bị')}
     <div class="body">
       ${linked ? `<div class="card" style="background:var(--green-soft);border-color:var(--green)"><div class="t-sm" style="color:var(--green)">✓ Đã liên kết: <span class="mono">${esc(Cloud.cfg.storeUrl || '')}</span></div></div>` : `
+      ${autoProvCard()}
+      <div class="sec">Hoặc tự cấu hình (nếu bạn đã quen dùng Supabase)</div>
       <div class="card" style="line-height:1.7">
         <div class="t-md" style="margin-bottom:6px">Làm một lần (khoảng 5 phút)</div>
         <div class="t-sm">1. Tạo dự án miễn phí tại <b>supabase.com</b> — đây là kho dữ liệu RIÊNG của quán.<br>
@@ -333,6 +335,8 @@ function cloudAct(el) {
       await License.refresh(true);
       go('ownerLink');
     }); return true;
+
+    case 'c_autoProv': { AutoProv.start(val('ap_pass')); return true; }
 
     case 'c_copySql': busy(async () => {
       await NativeBridge.copy(STORE_SQL);

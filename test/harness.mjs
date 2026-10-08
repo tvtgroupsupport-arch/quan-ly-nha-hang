@@ -34,7 +34,8 @@ const tail = `
   QR, Persist, Records, Sync, Cloud, License, AuthLocal, apiLocal, refresh, render, createStore, emptyD, VIEWS, handleAct, tableChairsSvg, guestUrl,
   hasNewStaffCall, hasNewKitchenTicket, playChime, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
   openQrZoom, closeQrZoom, get qrZoomOpen() { return !!qrZoomEl; }, uploadMenuImage,
-  playPurchase, playRestore, vSubscriptionPlay,
+  playPurchase, playRestore, vSubscriptionPlay, normalizePlayProducts, playProductId,
+  AutoProv, autoProvCard,
   get playBusy() { return _playBusy; }, get playProducts() { return _playProducts; },
   buildMenuPageHtml, exportMenuPage, addLog, engineGuard, can, INVITE_PREFIX
 };`;
@@ -84,6 +85,7 @@ export async function newDevice(world, name, opts = {}) {
     saveFile: async (n, b) => { dev.saved.push({ name: n, size: b.size }); return true; },
     brightness: { boost: async () => { dev.brightnessBoosts = (dev.brightnessBoosts || 0) + 1; },
                   restore: async () => { dev.brightnessRestores = (dev.brightnessRestores || 0) + 1; } },
+    browser: { open: async (url) => { (dev.browserOpened = dev.browserOpened || []).push(url); } },
     billing: {
       isSupported: async () => dev.billingSupported !== false,
       getProducts: async (ids) => (dev.billingProducts || ids.map(id => ({ identifier: id, title: id, priceString: '0đ' }))),

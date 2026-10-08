@@ -176,6 +176,33 @@ revoke execute on function public.record_play_purchase(uuid, text, text, timesta
 -- Không grant cho ai cả — chỉ service_role (Edge Function) gọi được, service_role luôn có toàn quyền mặc định.
 create index if not exists renewal_requests_owner_idx on public.renewal_requests (owner_id, created_at desc);
 
+/* ============================================================
+   TỰ TẠO SUPABASE CHO QUÁN (OAuth + Management API)
+   Chủ quán bấm "Tạo tự động" trong app → đồng ý một lần trên trang Supabase → các Edge Function
+   provision-start / provision-callback / provision-step tạo dự án, chạy store-setup.sql, bật cấu hình.
+   Bảng này giữ TẠM trạng thái từng bước và token uỷ quyền của Supabase. Token chỉ tồn tại tới khi xong
+   (xoá ngay khi state = 'done'). Không client nào đọc/ghi được — chỉ Edge Function (service_role).
+   ============================================================ */
+create table if not exists public.provision_jobs (
+  owner_id     uuid primary key references auth.users (id) on delete cascade,
+  state        text not null default 'awaiting_auth',
+  nonce        text unique,            -- = tham số "state" của OAuth, dùng MỘT lần để gắn lời đồng ý với đúng chủ quán
+  code_verifier text,                  -- PKCE
+  access_token text,
+  refresh_token text,
+  org_slug     text,
+  project_ref  text,
+  project_url  text,
+  anon_key     text,
+  failed_state text,                   -- bước đang chạy khi lỗi, để "Tiếp tục" làm lại đúng bước đó (không tạo dự án thứ hai)
+  error        text,
+  attempts     int  not null default 0,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+alter table public.provision_jobs enable row level security;
+revoke all on public.provision_jobs from anon, authenticated;
+
 -- ---------- Tài khoản mới: tự tạo hồ sơ + gói dùng thử ----------
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$

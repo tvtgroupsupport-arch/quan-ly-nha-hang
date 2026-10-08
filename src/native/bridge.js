@@ -10,6 +10,7 @@ import { Network } from '@capacitor/network';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { Clipboard } from '@capacitor/clipboard';
+import { Browser } from '@capacitor/browser';
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 import { BarcodeScanner, BarcodeFormat } from '@capacitor-mlkit/barcode-scanning';
 import { ScreenBrightness } from '@capacitor-community/screen-brightness';
@@ -157,9 +158,18 @@ const billing = {
   async manage() { try { await NativePurchases.manageSubscriptions(); } catch (e) {} },
 };
 
+/* ---------- Mở trang web ngoài (đăng nhập/uỷ quyền Supabase khi tự tạo kho dữ liệu cho quán) ---------- */
+const browser = {
+  async open(url) {
+    if (!/^https:\/\//i.test(String(url))) throw new Error('Chỉ mở được địa chỉ https');
+    if (isNative) { await Browser.open({ url }); return; }
+    window.open(url, '_blank', 'noopener');
+  }
+};
+
 window.ExcelJS = ExcelJS;
 window.NativeBridge = {
   isNative, platform: Capacitor.getPlatform(),
   ready: async () => {},
-  sqlite, supabase, network, app, copy, readClipboard, scan, saveFile, brightness, billing
+  sqlite, supabase, network, app, copy, readClipboard, scan, saveFile, brightness, billing, browser
 };

@@ -1,0 +1,175 @@
+// ============================================================
+// provision-step — app gọi lặp lại (vài giây/lần) để đẩy phiên tạo Supabase đi tiếp MỘT đoạn. Mỗi lần gọi chạy
+// các bước nhanh liên tiếp và dừng ở chỗ phải chờ (chờ chủ quán đồng ý, chờ dự án khởi động) — tránh một yêu cầu
+// chạy quá lâu trong Edge Function.
+//
+// Các bước (state): awaiting_auth → authorized → org_ok → creating → healthy → keyed → sql_ok → done
+//   authorized: lấy tổ chức Supabase của chủ quán      org_ok: tạo dự án mới
+//   creating: chờ dự án ACTIVE_HEALTHY                  healthy: lấy khoá anon
+//   keyed: chạy store-setup.sql                         sql_ok: bật đăng nhập ẩn danh + tắt xác nhận email
+// Lỗi → state='error' kèm failed_state; provision-start sẽ NỐI LẠI đúng bước đó (không tạo dự án thứ hai).
+//
+// Triển khai: supabase functions deploy provision-step
+// ============================================================
+import { CORS, adminClient, callerId, json, mg, randomHex, viError } from '../_shared/provision.ts';
+import { STORE_SQL } from '../_shared/store-sql.ts';
+
+const STEP_INDEX: Record<string, number> = {
+  awaiting_auth: 1, authorized: 2, org_ok: 3, creating: 4, healthy: 5, keyed: 6, sql_ok: 7, done: 8,
+};
+const TOTAL_STEPS = 8;
+const MESSAGES: Record<string, string> = {
+  awaiting_auth: 'Đang chờ bạn đồng ý trên trang Supabase…',
+  authorized: 'Đang kiểm tra tài khoản Supabase…',
+  org_ok: 'Đang tạo dự án dữ liệu cho quán…',
+  creating: 'Dự án đang khởi động (khoảng 1–2 phút)…',
+  healthy: 'Đang lấy khoá kết nối…',
+  keyed: 'Đang dựng bảng dữ liệu cho quán…',
+  sql_ok: 'Đang bật cấu hình đăng nhập…',
+  done: 'Hoàn tất',
+};
+const MAX_ATTEMPTS = 40;   // ~40 lần chờ x 5 giây của app ≈ 3–4 phút cho một bước
+
+const DB_PASS_CHARS = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function randomPassword(n = 28): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(n));
+  return [...bytes].map((b) => DB_PASS_CHARS[b % DB_PASS_CHARS.length]).join('');
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  if (req.method !== 'POST') return json({ error: 'Chỉ nhận POST' }, 405);
+
+  const owner = await callerId(req);
+  if (!owner) return json({ error: 'Chưa đăng nhập hoặc phiên đã hết hạn' }, 401);
+
+  const admin = adminClient();
+  const { data: loaded } = await admin.from('provision_jobs').select('*').eq('owner_id', owner).maybeSingle();
+  if (!loaded) return json({ error: 'Chưa có phiên tạo Supabase — hãy bấm "Tạo tự động" trước' }, 404);
+  const job = loaded as Record<string, any>;
+
+  const save = async (patch: Record<string, unknown>) => {
+    Object.assign(job, patch);
+    await admin.from('provision_jobs').update({ ...patch, updated_at: new Date().toISOString() }).eq('owner_id', owner);
+  };
+  const reply = (extra: Record<string, unknown> = {}) =>
+    json({ state: job.state, step: STEP_INDEX[job.state] ?? 0, total: TOTAL_STEPS, message: MESSAGES[job.state] ?? '', ...extra });
+  const fail = async (message: string) => {
+    await save({ state: 'error', failed_state: job.state === 'error' ? job.failed_state : job.state, error: message });
+    return json({ state: 'error', step: STEP_INDEX[job.failed_state] ?? 0, total: TOTAL_STEPS, message });
+  };
+  /** Chưa xong ở bước này (đang chờ) — đếm số lần để không chờ vô hạn. */
+  const waiting = async (why: string) => {
+    const attempts = (job.attempts ?? 0) + 1;
+    if (attempts > MAX_ATTEMPTS) return await fail(`Chờ quá lâu ở bước: ${why}. Bấm "Tiếp tục" để thử lại.`);
+    await save({ attempts });
+    return reply();
+  };
+
+  try {
+    for (let guard = 0; guard < 12; guard++) {
+      const token: string = job.access_token ?? '';
+      switch (job.state) {
+        case 'awaiting_auth':
+          return reply();
+
+        case 'done':
+          return reply({ url: job.project_url, anon_key: job.anon_key });
+
+        case 'error':
+          return json({ state: 'error', step: STEP_INDEX[job.failed_state] ?? 0, total: TOTAL_STEPS, message: job.error ?? 'Có lỗi xảy ra' });
+
+        case 'authorized': {
+          const orgs = await mg(token, 'GET', '/v1/organizations');
+          if (!orgs.ok) return await fail(viError(orgs, 'Đọc tổ chức Supabase'));
+          const list = Array.isArray(orgs.data) ? orgs.data : [];
+          if (!list.length) return await fail('Tài khoản Supabase của bạn chưa có tổ chức nào. Hãy tạo một tổ chức trên supabase.com rồi bấm "Tiếp tục".');
+          await save({ org_slug: list[0].slug ?? list[0].id, state: 'org_ok', attempts: 0 });
+          continue;
+        }
+
+        case 'org_ok': {
+          // API đang đổi cách chọn vùng: thử lần lượt các kiểu khai báo vùng, chỉ lùi khi báo 400 (sai định dạng).
+          const base = { name: `quanly-${randomHex(3)}`, organization_slug: job.org_slug, db_pass: randomPassword() };
+          const attempts = [
+            { ...base, region_selection: { type: 'specific', code: 'ap-southeast-1' } },
+            { ...base, region: 'ap-southeast-1' },
+            base,
+          ];
+          let res = null as Awaited<ReturnType<typeof mg>> | null;
+          for (const body of attempts) {
+            res = await mg(token, 'POST', '/v1/projects', body);
+            if (res.ok || res.status !== 400) break;
+          }
+          if (!res || !res.ok) return await fail(viError(res!, 'Tạo dự án Supabase'));
+          const ref = res.data?.ref ?? res.data?.id;
+          if (!ref) return await fail('Supabase không trả về mã dự án vừa tạo');
+          await save({ project_ref: ref, state: 'creating', attempts: 0 });
+          continue;
+        }
+
+        case 'creating': {
+          const p = await mg(token, 'GET', `/v1/projects/${job.project_ref}`);
+          if (!p.ok) {
+            if (p.status === 401 || p.status === 403) return await fail(viError(p, 'Đọc trạng thái dự án'));
+            return await waiting('chờ dự án khởi động');
+          }
+          const status = String(p.data?.status ?? '');
+          if (status === 'ACTIVE_HEALTHY') { await save({ state: 'healthy', attempts: 0 }); continue; }
+          if (/FAILED|REMOVED|GOING_DOWN/.test(status)) return await fail(`Dự án khởi động không thành công (${status}). Hãy xoá dự án đó trên supabase.com rồi thử lại.`);
+          return await waiting('chờ dự án khởi động');
+        }
+
+        case 'healthy': {
+          const k = await mg(token, 'GET', `/v1/projects/${job.project_ref}/api-keys?reveal=true`);
+          if (!k.ok) {
+            if (k.status === 401 || k.status === 403) return await fail(viError(k, 'Đọc khoá API'));
+            return await waiting('lấy khoá API');
+          }
+          const keys: any[] = Array.isArray(k.data) ? k.data : [];
+          // Ưu tiên khoá "anon" (dạng JWT); không có thì dùng khoá "publishable". TUYỆT ĐỐI không lấy service_role/secret.
+          const anon = keys.find((x) => x?.name === 'anon' && x?.api_key) ?? keys.find((x) => x?.type === 'publishable' && x?.api_key);
+          if (!anon) return await waiting('khoá API chưa sẵn sàng');
+          await save({ anon_key: anon.api_key, state: 'keyed', attempts: 0 });
+          continue;
+        }
+
+        case 'keyed': {
+          const q = await mg(token, 'POST', `/v1/projects/${job.project_ref}/database/query`, { query: STORE_SQL });
+          if (!q.ok) {
+            if (q.status === 401 || q.status === 403) return await fail(viError(q, 'Dựng bảng dữ liệu'));
+            // Vừa "healthy" nhưng cơ sở dữ liệu có thể chưa nhận kết nối → thử lại ở lần gọi sau.
+            if (q.status === 0 || q.status >= 500 || q.status === 429) return await waiting('dựng bảng dữ liệu');
+            return await fail(viError(q, 'Dựng bảng dữ liệu'));
+          }
+          await save({ state: 'sql_ok', attempts: 0 });
+          continue;
+        }
+
+        case 'sql_ok': {
+          const c = await mg(token, 'PATCH', `/v1/projects/${job.project_ref}/config/auth`, {
+            external_anonymous_users_enabled: true,   // máy nhân viên đăng nhập ẩn danh
+            mailer_autoconfirm: true,                 // chủ quán đăng nhập ngay, không cần xác nhận email
+          });
+          if (!c.ok) {
+            if (c.status === 0 || c.status >= 500 || c.status === 429) return await waiting('bật cấu hình đăng nhập');
+            return await fail(viError(c, 'Bật cấu hình đăng nhập'));
+          }
+          // Xong: xoá token uỷ quyền ngay, chỉ giữ địa chỉ + khoá anon (công khai) cho app lấy.
+          await save({
+            state: 'done', project_url: `https://${job.project_ref}.supabase.co`,
+            access_token: null, refresh_token: null, failed_state: null, error: null, attempts: 0,
+          });
+          continue;
+        }
+
+        default:
+          return await fail(`Trạng thái không hợp lệ: ${job.state}`);
+      }
+    }
+    return reply();
+  } catch (e) {
+    console.error('provision-step: lỗi không mong đợi:', (e as Error).message);
+    return json({ error: `Lỗi máy chủ: ${(e as Error).message}` }, 500);
+  }
+});
