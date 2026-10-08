@@ -337,6 +337,7 @@ function cloudAct(el) {
     }); return true;
 
     case 'c_autoProv': { AutoProv.start(val('ap_pass')); return true; }
+    case 'c_autoProvSignup': { AutoProv.openSignup(); return true; }
 
     case 'c_copySql': busy(async () => {
       await NativeBridge.copy(STORE_SQL);

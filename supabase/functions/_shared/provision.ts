@@ -25,12 +25,15 @@ export function adminClient() {
 }
 
 /** Xác định ĐÚNG chủ quán đang gọi bằng token đăng nhập của họ (không tin gì trong body). */
-export async function callerId(req: Request): Promise<string | null> {
+export async function callerInfo(req: Request): Promise<{ id: string; email: string } | null> {
   const client = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_ANON_KEY')!, {
     global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
   });
   const { data, error } = await client.auth.getUser();
-  return error || !data?.user ? null : data.user.id;
+  return error || !data?.user ? null : { id: data.user.id, email: String(data.user.email ?? '').trim().toLowerCase() };
+}
+export async function callerId(req: Request): Promise<string | null> {
+  return (await callerInfo(req))?.id ?? null;
 }
 
 export function b64url(bytes: Uint8Array): string {

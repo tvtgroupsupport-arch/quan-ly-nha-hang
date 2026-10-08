@@ -76,10 +76,24 @@ const AutoProv = (() => {
     throw new Error('Quá thời gian chờ. Bấm "Tiếp tục" để kiểm tra lại.');
   }
 
-  function reset() { if (!running) st = { phase: 'idle', message: '', step: 0, total: 8 }; }
+  function reset() { if (!running) st = { phase: 'idle', message: '', step: 0, total: 8, email: st.email, emailTried: st.emailTried }; }
   const status = () => ({ ...st, running });
   function setDelays(wait, work) { delays = { wait, work }; }
-  return { start, status, reset, setDelays };
+
+  /** Lấy email chủ quán (một lần) để hiện cho họ biết tài khoản Supabase PHẢI dùng đúng email này. */
+  async function loadEmail() {
+    if (st.emailTried) return;
+    st.emailTried = true;
+    let email = '';
+    try { email = (await Cloud.centralEmail()) || ''; } catch (e) { /* offline: bỏ qua, chỉ là dòng nhắc */ }
+    set({ email });
+  }
+  /** Mở trang đăng ký Supabase để chủ quán tạo tài khoản bằng đúng email của họ (không tạo thay được). */
+  async function openSignup() {
+    try { await NativeBridge.browser.open('https://supabase.com/dashboard/sign-up'); }
+    catch (e) { set({ phase: 'error', message: String((e && e.message) || e) }); }
+  }
+  return { start, status, reset, setDelays, loadEmail, openSignup };
 })();
 
 /** Khối giao diện "Tạo tự động" — chèn vào màn Liên kết Supabase (vOwnerLink). */
@@ -87,9 +101,14 @@ function autoProvCard() {
   const s = AutoProv.status();
   const active = s.running || s.phase === 'waiting' || s.phase === 'working' || s.phase === 'linking' || s.phase === 'starting';
   const pct = Math.round(((s.step || 0) / (s.total || 8)) * 100);
+  if (!s.emailTried) AutoProv.loadEmail();
   return `<div class="card" style="border-color:var(--accent);line-height:1.7">
     <div class="t-md" style="margin-bottom:4px">Cách nhanh: tạo tự động</div>
     <div class="t-sm">App tự tạo kho dữ liệu riêng cho quán trên Supabase (miễn phí). Bạn chỉ cần có tài khoản Supabase và bấm đồng ý một lần — không phải tự cấu hình gì.</div>
+    ${s.email ? `<div class="t-sm" style="margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--amber-soft);color:var(--amber)">
+      Tài khoản Supabase phải dùng <b>đúng email này: ${esc(s.email)}</b>.<br>
+      Chưa có tài khoản? Đăng ký bằng email trên trước. Nếu trình duyệt đang đăng nhập Supabase bằng email khác, hãy đăng xuất trước (hoặc dùng cửa sổ ẩn danh).</div>
+      ${active ? '' : '<button class="btn sm ghost" data-act="c_autoProvSignup" style="margin-top:8px">Mở trang đăng ký Supabase</button>'}` : ''}
     ${active ? `
       <div style="margin-top:10px"><div style="height:8px;border-radius:4px;background:var(--line,#3332)"><div style="height:8px;border-radius:4px;background:var(--accent);width:${pct}%"></div></div></div>
       <div class="t-sm" style="margin-top:8px">${esc(s.message)}</div>

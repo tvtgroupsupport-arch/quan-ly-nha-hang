@@ -11,7 +11,7 @@
 //
 // Triển khai: supabase functions deploy provision-step
 // ============================================================
-import { CORS, adminClient, callerId, json, mg, randomHex, viError } from '../_shared/provision.ts';
+import { CORS, adminClient, callerInfo, json, mg, randomHex, viError } from '../_shared/provision.ts';
 import { STORE_SQL } from '../_shared/store-sql.ts';
 
 const STEP_INDEX: Record<string, number> = {
@@ -40,8 +40,10 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Chỉ nhận POST' }, 405);
 
-  const owner = await callerId(req);
-  if (!owner) return json({ error: 'Chưa đăng nhập hoặc phiên đã hết hạn' }, 401);
+  const caller = await callerInfo(req);
+  if (!caller) return json({ error: 'Chưa đăng nhập hoặc phiên đã hết hạn' }, 401);
+  const owner = caller.id;
+  const ownerEmail = caller.email;   // email chủ quán đã nhập trong app — tài khoản Supabase PHẢI dùng đúng email này
 
   const admin = adminClient();
   const { data: loaded } = await admin.from('provision_jobs').select('*').eq('owner_id', owner).maybeSingle();
@@ -84,7 +86,28 @@ Deno.serve(async (req) => {
           if (!orgs.ok) return await fail(viError(orgs, 'Đọc tổ chức Supabase'));
           const list = Array.isArray(orgs.data) ? orgs.data : [];
           if (!list.length) return await fail('Tài khoản Supabase của bạn chưa có tổ chức nào. Hãy tạo một tổ chức trên supabase.com rồi bấm "Tiếp tục".');
-          await save({ org_slug: list[0].slug ?? list[0].id, state: 'org_ok', attempts: 0 });
+
+          // Trình duyệt dùng tài khoản Supabase ĐANG ĐĂNG NHẬP sẵn (có thể là tài khoản GitHub với email khác). Chỉ chấp nhận
+          // tổ chức mà email chủ quán là chủ/quản trị — không khớp thì dừng TRƯỚC khi tạo dự án và cho làm lại từ đầu.
+          let chosen: string | null = null;
+          for (const o of list.slice(0, 10)) {
+            const slug = o.slug ?? o.id;
+            const m = await mg(token, 'GET', `/v1/organizations/${encodeURIComponent(slug)}/members`);
+            if (!m.ok) continue;
+            const mine = (Array.isArray(m.data) ? m.data : []).find((x: any) =>
+              String(x?.email ?? x?.primary_email ?? '').trim().toLowerCase() === ownerEmail);
+            if (mine && /owner|admin/i.test(String(mine.role_name ?? 'owner'))) { chosen = slug; break; }
+          }
+          if (!chosen) {
+            // Xoá phiên (kèm token vừa nhận) để bấm "Tạo tự động" lại sẽ xin uỷ quyền mới, không dùng lại tài khoản sai.
+            await admin.from('provision_jobs').delete().eq('owner_id', owner);
+            return json({
+              state: 'error', step: 2, total: TOTAL_STEPS,
+              message: `Tài khoản Supabase bạn vừa đồng ý không dùng email ${ownerEmail}. Hãy đăng xuất Supabase trong trình duyệt (hoặc mở cửa sổ ẩn danh), `
+                + `đăng nhập hoặc đăng ký Supabase bằng đúng email ${ownerEmail}, rồi bấm "Tạo tự động" lại.`,
+            });
+          }
+          await save({ org_slug: chosen, state: 'org_ok', attempts: 0 });
           continue;
         }
 
