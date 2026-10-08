@@ -11,7 +11,7 @@ const AutoProv = (() => {
   let delays = { wait: 3000, work: 5000 };   // chờ chủ quán đồng ý / chờ máy chủ làm việc (ms) — test đặt về 0
   const MAX_MS = 15 * 60 * 1000;
 
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const sleep = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());   // 0 = không chờ (dùng trong kiểm thử)
   const set = (patch) => { st = { ...st, ...patch }; if (typeof render === 'function' && route && route.name === 'ownerLink') render(); };
 
   /** Gọi một Edge Function provision-* bằng chính phiên đăng nhập chủ quán hiện tại. */
