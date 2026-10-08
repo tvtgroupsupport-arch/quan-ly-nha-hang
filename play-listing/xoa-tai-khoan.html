@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Xoá tài khoản — Quản Lý Nhà Hàng</title>
+<!-- Địa chỉ trang này điền vào Play Console → Nội dung ứng dụng → An toàn dữ liệu → "Liên kết xoá tài khoản".
+     Kiểm tra lại email liên hệ (tvtgroup.support@gmail.com) trước khi đăng. -->
+<style>
+  :root { --bg:#fbf8f4; --ink:#2b2320; --muted:#6b5f56; --line:#e8dfd3; --accent:#d9581f; --card:#ffffff; --red:#ab3d31; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1b1714; --ink:#f1ece6; --muted:#b3a89e; --line:#3a3228; --accent:#f0824a; --card:#241f1b; --red:#ff8a80; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.7 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:24px 18px 64px; }
+  h1 { font-size:28px; line-height:1.25; margin:8px 0 6px; }
+  h2 { font-size:20px; margin:28px 0 8px; }
+  li, p { margin:6px 0; }
+  .muted { color:var(--muted); font-size:14px; }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 16px; margin:14px 0; }
+  .warn { border-color:var(--red); }
+  table { width:100%; border-collapse:collapse; font-size:14.5px; background:var(--card); }
+  th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:rgba(217,88,31,.12); }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Xoá tài khoản và dữ liệu</h1>
+  <p class="muted">Ứng dụng <b>Quản Lý Nhà Hàng</b> · Nhà phát triển: TVT Group</p>
+
+  <h2>Cách 1 — Xoá ngay trong ứng dụng (nhanh nhất)</h2>
+  <ol>
+    <li>Mở ứng dụng, đăng nhập bằng tài khoản chủ quán.</li>
+    <li>Vào <b>Quản lý → Đồng bộ &amp; thiết bị</b>.</li>
+    <li>Kéo xuống cuối, bấm <b>Xoá tài khoản lưu trữ dữ liệu</b>.</li>
+    <li>Đọc nội dung cảnh báo, gõ chữ <b>XOA</b> rồi bấm <b>Xoá tài khoản vĩnh viễn</b>.</li>
+  </ol>
+  <p>Việc xoá có hiệu lực ngay và <b>không thể hoàn tác</b>.</p>
+
+  <h2>Cách 2 — Gửi yêu cầu qua email</h2>
+  <p>Nếu bạn không còn truy cập được ứng dụng, hãy gửi email từ <b>chính địa chỉ email đã đăng ký tài khoản</b> tới:</p>
+  <div class="box"><a href="mailto:tvtgroup.support@gmail.com?subject=Yeu%20cau%20xoa%20tai%20khoan%20Quan%20Ly%20Nha%20Hang">tvtgroup.support@gmail.com</a><br>
+    <span class="muted">Tiêu đề gợi ý: “Yêu cầu xoá tài khoản Quản Lý Nhà Hàng”. Chúng tôi xác minh và xử lý trong vòng 30 ngày.</span></div>
+
+  <h2>Dữ liệu nào bị xoá, dữ liệu nào được giữ</h2>
+  <table>
+    <tr><th>Dữ liệu</th><th>Khi xoá tài khoản</th></tr>
+    <tr><td>Email, tên nhà hàng, tình trạng gói cước, thông tin giao dịch gói Google Play, địa chỉ kho Supabase của quán (lưu ở máy chủ trung tâm của nhà phát triển)</td><td><b>Xoá vĩnh viễn</b></td></tr>
+    <tr><td>Dữ liệu lưu trên điện thoại (SQLite)</td><td><b>Xoá</b> khỏi máy đang dùng để xoá tài khoản; máy khác tự mất quyền</td></tr>
+    <tr><td>Dữ liệu bán hàng trong dự án Supabase riêng của quán (đơn hàng, thực đơn, kho, nhân viên…)</td><td><b>Không bị xoá</b> — dữ liệu này do chủ quán sở hữu và nhà phát triển không truy cập được. Muốn xoá, hãy xoá dự án đó trên <a href="https://supabase.com/dashboard">supabase.com</a> (Project Settings → General → Delete project).</td></tr>
+    <tr><td>Giao dịch đã thanh toán qua Google Play</td><td>Google lưu theo chính sách riêng của Google. Nhà phát triển có thể phải giữ chứng từ thuế/kế toán theo quy định pháp luật.</td></tr>
+  </table>
+
+  <div class="box warn"><b>Lưu ý về gói đăng ký:</b> xoá tài khoản <b>không tự huỷ</b> gói đăng ký Google Play. Hãy huỷ gói trong <i>Google Play → Ảnh đại diện → Thanh toán và gói đăng ký → Gói đăng ký</i> để không bị trừ tiền kỳ tiếp theo.</div>
+
+  <p><a href="chinh-sach-bao-mat.html">← Xem chính sách bảo mật</a></p>
+
+  <h2>English</h2>
+  <p>To delete your account: open the app → <i>Manage → Sync &amp; devices → Delete storage account</i>, type <b>XOA</b> to confirm. Your email, restaurant name, subscription status, purchase records and the link to your restaurant database are permanently deleted from the developer's server. Your restaurant's business data lives in your own Supabase project, which the developer cannot access; delete that project at supabase.com if you wish. Deleting the account does <b>not</b> cancel a Google Play subscription — cancel it in Google Play → Payments &amp; subscriptions. If you cannot access the app, email tvtgroup.support@gmail.com from the registered address; we process requests within 30 days.</p>
+</main>
+</body>
+</html>

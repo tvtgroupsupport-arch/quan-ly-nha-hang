@@ -39,6 +39,10 @@ jobs:
       - name: Thêm nền tảng Android
         run: test -d android || npx cap add android
 
+      # Biểu tượng app (hình tô phở): sinh từ assets/icon-*.png (xem play-listing/tools/make-graphics.ps1). Không có bước này app dùng biểu tượng mặc định của Capacitor.
+      - name: Tạo biểu tượng app
+        run: npx --yes @capacitor/assets generate --android
+
       - name: Đồng bộ vào Android và vá AndroidManifest (quyền camera, mạng)
         run: npm run sync
         env:

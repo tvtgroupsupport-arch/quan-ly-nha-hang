@@ -6,3 +6,4 @@ app.config.json
 *.keystore
 docs/
 supabase/.temp/
+play-listing/tools/_shots/

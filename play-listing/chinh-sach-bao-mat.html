@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chính sách bảo mật — Quản Lý Nhà Hàng</title>
+<!-- GHI CHÚ CHO CHỦ DỰ ÁN: kiểm tra lại tên nhà phát triển và email liên hệ (tìm "TVT Group" và "tvtgroup.support@gmail.com") trước khi đăng.
+     Trang này được đăng lên GitHub Pages cùng trang gọi món (xem scripts/build-guest-page.mjs). -->
+<style>
+  :root { --bg:#fbf8f4; --ink:#2b2320; --muted:#6b5f56; --line:#e8dfd3; --accent:#d9581f; --card:#ffffff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1b1714; --ink:#f1ece6; --muted:#b3a89e; --line:#3a3228; --accent:#f0824a; --card:#241f1b; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.7 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:24px 18px 64px; }
+  h1 { font-size:28px; line-height:1.25; margin:8px 0 4px; }
+  h2 { font-size:20px; margin:30px 0 8px; padding-top:6px; border-top:1px solid var(--line); }
+  h3 { font-size:16px; margin:18px 0 4px; }
+  p, li { margin:6px 0; }
+  .muted { color:var(--muted); font-size:14px; }
+  table { width:100%; border-collapse:collapse; font-size:14.5px; margin:10px 0; background:var(--card); }
+  th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:rgba(217,88,31,.12); }
+  a { color:var(--accent); }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 16px; margin:14px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Chính sách bảo mật</h1>
+  <p class="muted">Ứng dụng <b>Quản Lý Nhà Hàng</b> (gói ứng dụng <code>vn.quanly.nhahang.play</code>) · Nhà phát triển: <b>TVT Group</b> · Cập nhật lần cuối: 09/10/2026</p>
+
+  <p>Tài liệu này giải thích ứng dụng thu thập, lưu trữ và sử dụng những thông tin nào. Điều quan trọng nhất: <b>dữ liệu bán hàng của quán (đơn hàng, thực đơn, doanh thu, kho, nhân viên) nằm trên điện thoại của quán và trong dự án Supabase riêng do chính chủ quán sở hữu — nhà phát triển không truy cập được phần này.</b> Nhà phát triển chỉ lưu một lượng rất nhỏ thông tin để quản lý tài khoản và gói cước.</p>
+
+  <h2>1. Ứng dụng này là gì</h2>
+  <p>Quản Lý Nhà Hàng là ứng dụng dành cho chủ quán và nhân viên: sơ đồ bàn, gọi món, màn hình bếp, thu ngân, mã QR thanh toán VietQR, kho nguyên liệu, báo cáo. Ứng dụng hoạt động cả khi không có Internet và tự đồng bộ giữa các máy trong quán khi có mạng. Ứng dụng <b>không dành cho trẻ em</b> dưới 13 tuổi.</p>
+
+  <h2>2. Thông tin chúng tôi thu thập và lưu</h2>
+  <h3>2.1. Do nhà phát triển (TVT Group) lưu — máy chủ Supabase trung tâm</h3>
+  <table>
+    <tr><th>Thông tin</th><th>Mục đích</th><th>Ghi chú</th></tr>
+    <tr><td>Địa chỉ email của tài khoản lưu trữ dữ liệu</td><td>Đăng nhập, xác nhận chủ tài khoản, liên hệ hỗ trợ</td><td>Bắt buộc để dùng app</td></tr>
+    <tr><td>Mật khẩu lưu trữ</td><td>Đăng nhập tài khoản lưu trữ</td><td>Không lưu dạng chữ thường; do dịch vụ xác thực của Supabase băm và bảo vệ</td></tr>
+    <tr><td>Tên nhà hàng</td><td>Quản lý tài khoản</td><td>Do chủ quán nhập</td></tr>
+    <tr><td>Tình trạng gói cước (còn hạn/hết hạn, ngày hết hạn)</td><td>Mở/khoá tính năng theo gói đã mua</td><td></td></tr>
+    <tr><td>Thông tin giao dịch gói đăng ký Google Play: mã sản phẩm, mã giao dịch (purchase token), trạng thái và ngày hết hạn</td><td>Xác minh với Google và kích hoạt gói cước</td><td>Chúng tôi <b>không</b> nhận số thẻ hay thông tin thanh toán của bạn — việc thanh toán do Google Play xử lý</td></tr>
+    <tr><td>Địa chỉ dự án Supabase riêng của quán và khoá công khai (anon) của dự án đó</td><td>Giúp app tìm lại kho dữ liệu khi đổi máy</td><td>Không phải khoá quản trị</td></tr>
+  </table>
+
+  <h3>2.2. Do chủ quán sở hữu — điện thoại và Supabase riêng của quán</h3>
+  <p>Gồm: thực đơn, bàn ghế, đơn hàng và thanh toán, kho nguyên liệu, khuyến mãi, nhật ký hoạt động, danh sách nhân viên (tên, tên đăng nhập, mật khẩu đăng nhập app đã băm, quyền), thông tin đặt bàn (tên khách, số điện thoại nếu chủ quán/nhân viên nhập), ảnh món ăn do quán tải lên. Dữ liệu này được lưu <b>trên chính điện thoại</b> và, khi quán liên kết, được đồng bộ vào <b>dự án Supabase mà chủ quán tự sở hữu và kiểm soát</b>. Nhà phát triển <b>không có quyền truy cập</b> vào dự án đó và không đọc, không bán, không chia sẻ dữ liệu này.</p>
+
+  <h3>2.3. Thông tin ứng dụng không thu thập</h3>
+  <ul>
+    <li>Không thu thập vị trí, danh bạ, tin nhắn, ảnh thư viện, micro.</li>
+    <li>Không có quảng cáo, không có công cụ phân tích hay theo dõi hành vi của bên thứ ba.</li>
+    <li>Không bán hay cho thuê dữ liệu cá nhân cho bất kỳ ai.</li>
+  </ul>
+
+  <h2>3. Quyền truy cập trên thiết bị</h2>
+  <ul>
+    <li><b>Máy ảnh (CAMERA):</b> chỉ để quét mã QR khi liên kết máy nhân viên với máy chủ quán. Ứng dụng không chụp, không lưu và không gửi đi hình ảnh.</li>
+    <li><b>Internet / trạng thái mạng:</b> đồng bộ dữ liệu, đăng nhập, xác minh gói cước.</li>
+    <li><b>Thanh toán trong ứng dụng:</b> mua gói đăng ký qua Google Play Billing.</li>
+  </ul>
+
+  <h2>4. Bên thứ ba liên quan</h2>
+  <table>
+    <tr><th>Bên</th><th>Vai trò</th><th>Thông tin liên quan</th></tr>
+    <tr><td>Supabase Inc.</td><td>Lưu trữ máy chủ trung tâm (của nhà phát triển) và dự án riêng của quán (của chủ quán). Máy chủ trung tâm đặt tại Singapore.</td><td>Xem chính sách của Supabase: supabase.com/privacy</td></tr>
+    <tr><td>Google Play (Google LLC)</td><td>Bán và xử lý thanh toán gói đăng ký, cung cấp dịch vụ quét mã QR</td><td>Chính sách của Google: policies.google.com/privacy</td></tr>
+    <tr><td>Google Fonts</td><td>Ứng dụng tải phông chữ giao diện từ fonts.googleapis.com. Khi tải, Google có thể ghi nhận địa chỉ IP của thiết bị theo chính sách của Google.</td><td></td></tr>
+    <tr><td>VietQR (api.vietqr.io)</td><td>Ứng dụng tải danh sách ngân hàng công khai để chọn ngân hàng nhận tiền. Không gửi thông tin cá nhân hay số tiền.</td><td>Mã QR thanh toán được <b>tạo ngay trên thiết bị</b>, không gửi cho bên nào.</td></tr>
+    <tr><td>GitHub Pages</td><td>Lưu trang gọi món công khai mà khách quét từ mã QR trên bàn, và trang chính sách này</td><td>Khách không cần tài khoản; đơn gọi được gửi thẳng về dự án Supabase của quán</td></tr>
+  </table>
+
+  <h2>5. Thời gian lưu giữ</h2>
+  <ul>
+    <li>Thông tin tài khoản lưu trữ và gói cước: giữ đến khi bạn xoá tài khoản (mục 7).</li>
+    <li>Dữ liệu trong Supabase riêng của quán: do chủ quán kiểm soát. Theo mặc định ứng dụng tự dọn đơn đã thanh toán cũ hơn 24 tháng, nhật ký hoạt động cũ hơn 6 tháng và lịch sử kho cũ hơn 12 tháng.</li>
+    <li>Dữ liệu trên điện thoại: được xoá khi bạn chọn <i>Ngắt liên kết</i>, xoá tài khoản, hoặc gỡ cài đặt ứng dụng.</li>
+  </ul>
+
+  <h2>6. Bảo mật</h2>
+  <ul>
+    <li>Mọi kết nối giữa ứng dụng và máy chủ đều dùng HTTPS (mã hoá khi truyền).</li>
+    <li>Mật khẩu được băm, không lưu dạng chữ thường. Mật khẩu đăng nhập app của nhân viên đồng bộ dưới dạng băm.</li>
+    <li>Quyền truy cập dữ liệu được kiểm soát ngay trong cơ sở dữ liệu (chủ quán toàn quyền; máy nhân viên chỉ làm được các thao tác vận hành; máy bị thu hồi mất quyền ngay).</li>
+    <li>Không có hệ thống nào an toàn tuyệt đối; chúng tôi khuyên đặt mật khẩu mạnh và không dùng chung mật khẩu lưu trữ với mật khẩu đăng nhập app.</li>
+  </ul>
+
+  <h2 id="xoa">7. Quyền của bạn và việc xoá dữ liệu</h2>
+  <p>Bạn có thể xem, sửa và xoá dữ liệu của mình bất cứ lúc nào:</p>
+  <ul>
+    <li><b>Xoá tài khoản ngay trong ứng dụng:</b> <i>Quản lý → Đồng bộ &amp; thiết bị → Xoá tài khoản lưu trữ dữ liệu</i>, gõ <b>XOA</b> để xác nhận. Email, gói cước và liên kết kho bị xoá vĩnh viễn trên máy chủ trung tâm, đồng thời dữ liệu trên máy được xoá.</li>
+    <li><b>Yêu cầu qua email:</b> gửi tới địa chỉ ở mục 9 từ chính email đã đăng ký; chúng tôi xử lý trong vòng 30 ngày. Xem thêm <a href="xoa-tai-khoan.html">hướng dẫn xoá tài khoản</a>.</li>
+    <li><b>Dữ liệu bán hàng trong Supabase riêng của quán</b> thuộc quyền của chủ quán; bạn tự xoá dự án đó trên supabase.com nếu muốn.</li>
+    <li><b>Gói đăng ký Google Play</b> không tự huỷ khi xoá tài khoản; hãy huỷ trong Google Play → Thanh toán và gói đăng ký.</li>
+  </ul>
+
+  <h2>8. Thay đổi chính sách</h2>
+  <p>Khi chính sách thay đổi, chúng tôi cập nhật trang này và ghi rõ ngày cập nhật ở đầu trang. Thay đổi quan trọng sẽ được thông báo trong ứng dụng.</p>
+
+  <h2>9. Liên hệ</h2>
+  <div class="box">
+    TVT Group<br>
+    Email: <a href="mailto:tvtgroup.support@gmail.com">tvtgroup.support@gmail.com</a>
+  </div>
+
+  <h2>English summary</h2>
+  <p>Quản Lý Nhà Hàng is a restaurant management app (tables, orders, kitchen display, cashier, VietQR payment codes, stock, reports) that works offline. <b>Restaurant business data stays on the device and in a Supabase project owned and controlled by the restaurant owner; the developer cannot access it.</b> The developer stores only the account email, a hashed password (handled by Supabase Auth), the restaurant name, subscription status and the Google Play purchase token needed to verify a subscription. No card data is received (Google Play processes payments). The camera permission is used only to scan QR codes for linking staff devices; no images are stored or sent. The app contains no ads and no third-party analytics, collects no location or contacts, and does not sell personal data. Data is encrypted in transit (HTTPS). Third parties: Supabase (hosting), Google Play (billing and code scanner), Google Fonts (interface fonts), api.vietqr.io (public bank list). You can delete your account in the app (Manage → Sync &amp; devices → delete storage account) or by emailing tvtgroup.support@gmail.com; see <a href="xoa-tai-khoan.html">account deletion instructions</a>. The app is not directed to children under 13.</p>
+</main>
+</body>
+</html>

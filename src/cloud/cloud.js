@@ -230,6 +230,14 @@ const Cloud = (() => {
     if (error) throw new Error(friendly(error));
   }
 
+  /** Chủ quán xoá HẲN tài khoản lưu trữ ở máy chủ trung tâm (email, gói cước, liên kết kho) rồi xoá dữ liệu trên máy. Lỗi ở bước máy chủ
+      thì KHÔNG xoá gì trên máy. Dữ liệu trong Supabase riêng của quán không bị đụng tới. */
+  async function deleteAccount() {
+    const { error } = await central().rpc('delete_my_account');
+    if (error) throw new Error(friendly(error));
+    await unlinkAll();
+  }
+
   /* ---------- thoát / thu hồi ---------- */
   /** Gỡ liên kết kho khỏi tài khoản (máy chủ trung tâm) RỒI mới xoá dữ liệu trên máy. Gỡ lỗi thì KHÔNG xoá gì — tránh mất dữ liệu
       trên máy mà máy chủ vẫn còn liên kết. */
@@ -258,6 +266,6 @@ const Cloud = (() => {
     init, saveCfg, central, friendly,
     ownerSignUp, ownerSignIn, centralEmail, getStoreLink, discardStoreLink,
     linkStoreAsOwner, restoreOwner, createInvite, parseInvite, joinAsStaff,
-    listDevices, revokeDevice, deleteDevice, unlinkAll, unlinkAndDetach, onRevoked
+    listDevices, revokeDevice, deleteDevice, unlinkAll, unlinkAndDetach, deleteAccount, onRevoked
   };
 })();

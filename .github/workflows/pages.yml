@@ -10,6 +10,8 @@ on:
     paths:
       - 'src/cloud/guest-page.js'
       - 'scripts/build-guest-page.mjs'
+      - 'play-listing/chinh-sach-bao-mat.html'
+      - 'play-listing/xoa-tai-khoan.html'
       - '.github/workflows/pages.yml'
 
 permissions:

@@ -403,12 +403,26 @@ language sql stable security definer set search_path = public as $$
   select public.is_admin();
 $$;
 
+/** Chủ quán TỰ XOÁ tài khoản lưu trữ của mình (Google Play bắt buộc có chức năng này trong app). Xoá dòng trong auth.users — các bảng
+    profiles, subscriptions, store_links, renewal_requests, play_purchases, provision_jobs, admins đều khai báo `on delete cascade` nên tự xoá theo.
+    KHÔNG đụng tới Supabase riêng của quán (dữ liệu bán hàng nằm ở đó, do chủ quán sở hữu và tự xoá). Tài khoản admin không xoá được bằng cách này. */
+create or replace function public.delete_my_account() returns void
+language plpgsql security definer set search_path = public as $$
+declare v uuid := auth.uid();
+begin
+  if v is null then raise exception 'Chưa đăng nhập' using errcode = '28000'; end if;
+  if exists (select 1 from public.admins where user_id = v) then
+    raise exception 'Không xoá tài khoản quản trị bằng cách này' using errcode = '42501';
+  end if;
+  delete from auth.users where id = v;
+end $$;
+
 -- ---------- Quyền thực thi ----------
 revoke execute on all functions in schema public from public, anon;
 revoke execute on function public._extend_subscription(uuid, int) from authenticated;
 grant execute on function
   public.get_my_subscription(), public.save_store_link(text, text), public.get_store_link(),
-  public.clear_store_link(), public.request_renewal(int, text), public.is_admin(),
+  public.clear_store_link(), public.delete_my_account(), public.request_renewal(int, text), public.is_admin(),
   public.admin_overview(), public.admin_pending_requests(), public.admin_approve_renewal(bigint),
   public.admin_reject_renewal(bigint), public.admin_extend(uuid, int), public.admin_status()
   to authenticated;

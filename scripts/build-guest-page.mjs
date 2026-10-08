@@ -15,3 +15,9 @@ const outDir = path.join(ROOT, 'docs');
 fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(path.join(outDir, 'index.html'), html);
 console.log(`✓ docs/index.html (${Math.round(html.length / 1024)} KB) — sẵn sàng cho GitHub Pages`);
+
+// Trang chính sách bảo mật + hướng dẫn xoá tài khoản: Google Play yêu cầu có địa chỉ web công khai → chép nguyên vào docs/.
+for (const f of ['chinh-sach-bao-mat.html', 'xoa-tai-khoan.html']) {
+  fs.copyFileSync(path.join(ROOT, 'play-listing', f), path.join(outDir, f));
+  console.log(`✓ docs/${f}`);
+}

@@ -192,6 +192,7 @@ function vCloud() {
       ${isOwner ? `<button class="btn ghost" data-go="subscription">Gói cước</button>` : ''}
       <div class="sec">Nâng cao</div>
       <button class="btn danger" data-act="c_unlinkAsk">Ngắt liên kết &amp; xoá dữ liệu trên máy này</button>
+      ${isOwner ? `<button class="btn danger" data-act="c_deleteAccountAsk" style="margin-top:8px">Xoá tài khoản lưu trữ dữ liệu</button>` : ''}
     </div>
     ${navBar('admin')}
   </div>`;
@@ -438,6 +439,24 @@ function cloudAct(el) {
         <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Huỷ</button>`);
       return true;
     }
+    /* Xoá tài khoản (bắt buộc theo chính sách Google Play): phải gõ XOA để xác nhận */
+    case 'c_deleteAccountAsk': {
+      sheet('Xoá tài khoản lưu trữ?', `<div class="t-sm muted" style="margin-bottom:12px;line-height:1.65">Sẽ <b>xoá vĩnh viễn</b> tài khoản lưu trữ dữ liệu của bạn (email, gói cước, liên kết kho) và <b>xoá dữ liệu trên máy này</b>. Không thể hoàn tác.<br><br>
+          • Dữ liệu bán hàng nằm trong dự án Supabase riêng của quán <b>không bị xoá</b> — bạn tự xoá trên supabase.com nếu muốn.<br>
+          • Gói đăng ký trên Google Play <b>không tự huỷ</b> — hãy huỷ trong Google Play → Thanh toán và gói đăng ký.</div>
+        <div class="field"><label class="f">Gõ <b>XOA</b> để xác nhận</label><input class="input" id="del_confirm" autocapitalize="characters" autocomplete="off"></div>
+        <button class="btn danger" data-act="c_deleteAccountGo">Xoá tài khoản vĩnh viễn</button>
+        <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Huỷ</button>`);
+      return true;
+    }
+    case 'c_deleteAccountGo': busy(async () => {
+      if (val('del_confirm').trim().toUpperCase() !== 'XOA') throw new Error('Gõ đúng chữ XOA để xác nhận');
+      await Cloud.deleteAccount(); closeSheet(); TOKEN = null; ME = null;
+      try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+      toast('Đã xoá tài khoản lưu trữ dữ liệu');
+      route = { name: 'setup', params: {} }; render();
+    }); return true;
+
     case 'c_unlinkDetachGo': busy(async () => {
       await Cloud.unlinkAndDetach(); closeSheet(); TOKEN = null; ME = null;
       try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}

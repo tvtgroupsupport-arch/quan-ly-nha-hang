@@ -388,6 +388,15 @@ t.group('12. Chủ quán đổi máy: đăng nhập lại và khôi phục toàn
   await after.Cloud.ownerSignIn('chu@quan.vn', 'matkhau1');
   t.eq(await after.Cloud.getStoreLink(), null, 'unlinkAndDetach: máy xoá sạch và trung tâm không còn nhớ kho cũ');
   t.eq(O.Cloud.linked, false, 'máy vừa ngắt không còn ở trạng thái đã liên kết');
+
+  // Xoá tài khoản lưu trữ (Google Play bắt buộc có trong app): xoá hẳn ở máy chủ trung tâm + xoá dữ liệu trên máy
+  const w3 = newWorld(); const P = await setupOwner(w3);
+  P.route = { name: 'cloud', params: {} };
+  t.ok(P.VIEWS.cloud().includes('c_deleteAccountAsk'), 'màn Đồng bộ & thiết bị của chủ quán có nút "Xoá tài khoản lưu trữ dữ liệu"');
+  await P.Cloud.deleteAccount();
+  t.eq(P.Cloud.role, null, 'sau khi xoá tài khoản, máy quay về trạng thái chưa thiết lập');
+  const again = await newDevice(w3, 'sau-khi-xoa');
+  await t.rejects(() => again.Cloud.ownerSignIn('chu@quan.vn', 'matkhau1'), /Sai email hoặc mật khẩu/, 'tài khoản đã xoá không đăng nhập lại được');
 }
 
 t.group('13. Nghiệp vụ lõi vẫn nguyên vẹn: gọi thêm → tách đợt; xong → gộp; ghép đơn; xuất tệp trên Android');
