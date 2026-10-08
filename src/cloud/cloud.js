@@ -142,7 +142,14 @@ const Cloud = (() => {
     const link = await getStoreLink();
     if (!link) throw new Error('Tài khoản này chưa liên kết Supabase của quán');
     const client = mkClient(link.url, link.anon_key, 'sb-store');
-    await signInStoreOwner(client, email, password, false);
+    try { await signInStoreOwner(client, email, password, false); }
+    catch (e) {
+      // Có mạng mà vẫn không tới được kho cũ → thường là dự án đó đã bị xoá/tạm dừng trên Supabase: chỉ đường cho chủ quán.
+      if (/Không kết nối được mạng/.test(e.message)) {
+        throw new Error('Không kết nối được tới kho dữ liệu cũ. Nếu điện thoại có mạng, có thể dự án Supabase đó đã bị xoá hoặc tạm dừng. Hãy kiểm tra trên supabase.com, hoặc bấm "Tạo kho dữ liệu mới" bên dưới để làm lại.');
+      }
+      throw e;
+    }
     const st = await client.rpc('store_status');
     if (st.error) throw new Error(friendly(st.error));
     if (!st.data.is_owner) throw new Error('Tài khoản này không phải chủ của dự án Supabase đã liên kết');
