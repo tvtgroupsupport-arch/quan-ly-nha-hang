@@ -11,13 +11,31 @@ const PLAY_BASE_PLANS = { goi_1_thang: 'goi-1-thang', goi_6_thang: 'goi-6-thang'
 
 let _playProducts = null, _playLoading = false, _playBusy = false;
 
+/** Mã sản phẩm thật của một dòng plugin trả về. Android gói đăng ký: plugin trả MỖI base plan/ưu đãi một dòng, trong đó
+    `identifier` là mã base plan (goi-1-thang) còn `planIdentifier` mới là mã sản phẩm (goi_1_thang) — dùng nhầm sẽ
+    không tra ra base plan và mua báo "planIdentifier cannot be empty". iOS/bản cũ không có planIdentifier thì dùng identifier. */
+function playProductId(p) { return (p && (p.planIdentifier || p.identifier)) || ''; }
+
+/** Mỗi gói chỉ giữ MỘT dòng (ưu tiên giá gốc, bỏ dòng ưu đãi/dùng thử miễn phí trùng mã), đúng thứ tự 1 → 6 → 12 tháng. */
+function normalizePlayProducts(list) {
+  const byId = new Map();
+  for (const p of (list || [])) {
+    const id = playProductId(p);
+    if (!PLAY_PRODUCT_IDS.includes(id)) continue;
+    const isBase = p.offerId == null;
+    const cur = byId.get(id);
+    if (!cur || (isBase && cur.offerId != null)) byId.set(id, p);
+  }
+  return PLAY_PRODUCT_IDS.filter(id => byId.has(id)).map(id => byId.get(id));
+}
+
 async function loadPlayProducts() {
   if (_playProducts || _playLoading) return;
   _playLoading = true;
   try {
     const ok = await NativeBridge.billing.isSupported();
     if (!ok) { _playProducts = []; return; }
-    _playProducts = await NativeBridge.billing.getProducts(PLAY_PRODUCT_IDS);
+    _playProducts = normalizePlayProducts(await NativeBridge.billing.getProducts(PLAY_PRODUCT_IDS));
   } catch (e) { _playProducts = []; }
   finally { _playLoading = false; if (route.name === 'subscription') render(); }
 }
@@ -46,7 +64,11 @@ async function playPurchase(productId) {
     const ownerId = userRes?.user?.id;
     if (!ownerId) throw new Error('Chưa đăng nhập tài khoản chủ quán');
 
-    const tx = await NativeBridge.billing.purchase(productId, ownerId, PLAY_BASE_PLANS[productId]);
+    // Ưu tiên base plan do chính Google trả về cho gói này; không có thì dùng bảng quy ước PLAY_BASE_PLANS.
+    const prod = (_playProducts || []).find(p => playProductId(p) === productId);
+    const basePlan = (prod && prod.planIdentifier && prod.identifier) || PLAY_BASE_PLANS[productId];
+    if (!basePlan) throw new Error('Không xác định được gói cơ bản của gói này — kiểm tra lại cấu hình gói trên Play Console');
+    const tx = await NativeBridge.billing.purchase(productId, ownerId, basePlan);
     const purchaseToken = tx?.purchaseToken || tx?.transactionId || tx?.id;
     if (!purchaseToken) throw new Error('Không nhận được mã giao dịch từ Google — thử lại');
 
@@ -109,8 +131,8 @@ function vSubscriptionPlay() {
           <div class="t-sm" style="color:var(--amber);flex:1">Không tải được gói cước — kiểm tra đã đăng nhập tài khoản Google có quyền mua hàng trên thiết bị này chưa, hoặc thử lại sau.</div>
         </div>` : ''}
       ${(_playProducts || []).map(p => `
-        <button class="card between" data-act="c_playBuy" data-id="${esc(p.identifier)}" ${_playBusy ? 'disabled' : ''} style="width:100%;text-align:left">
-          <div><div class="t-md">${esc(labelOf(p.identifier))}</div><div class="t-xs">${esc(p.title || '')}</div></div>
+        <button class="card between" data-act="c_playBuy" data-id="${esc(playProductId(p))}" ${_playBusy ? 'disabled' : ''} style="width:100%;text-align:left">
+          <div><div class="t-md">${esc(labelOf(playProductId(p)))}</div><div class="t-xs">${esc(p.title || '')}</div></div>
           <div class="t-md" style="color:var(--accent)">${esc(p.priceString || '')}</div>
         </button>`).join('')}
 
