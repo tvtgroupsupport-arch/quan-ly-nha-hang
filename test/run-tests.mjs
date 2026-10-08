@@ -377,6 +377,17 @@ t.group('12. Chủ quán đổi máy: đăng nhập lại và khôi phục toàn
   // Lối thoát: gỡ liên kết cũ để tạo kho mới
   await wp.Cloud.discardStoreLink();
   t.eq(await wp.Cloud.getStoreLink(), null, 'gỡ liên kết cũ → trung tâm không còn địa chỉ kho (để thiết lập kho mới)');
+
+  // "Xoá & gỡ liên kết kho" ở máy chủ quán: xoá máy VÀ gỡ liên kết ở trung tâm; còn "Chỉ xoá trên máy" thì trung tâm vẫn nhớ kho
+  const w2 = newWorld(); const O = await setupOwner(w2);
+  const keep = await newDevice(w2, 'chi-xoa-may');
+  await keep.Cloud.ownerSignIn('chu@quan.vn', 'matkhau1');
+  t.ok(!!(await keep.Cloud.getStoreLink()), 'trước khi ngắt, trung tâm có nhớ kho');
+  await O.Cloud.unlinkAndDetach();
+  const after = await newDevice(w2, 'sau-khi-go');
+  await after.Cloud.ownerSignIn('chu@quan.vn', 'matkhau1');
+  t.eq(await after.Cloud.getStoreLink(), null, 'unlinkAndDetach: máy xoá sạch và trung tâm không còn nhớ kho cũ');
+  t.eq(O.Cloud.linked, false, 'máy vừa ngắt không còn ở trạng thái đã liên kết');
 }
 
 t.group('13. Nghiệp vụ lõi vẫn nguyên vẹn: gọi thêm → tách đợt; xong → gộp; ghép đơn; xuất tệp trên Android');

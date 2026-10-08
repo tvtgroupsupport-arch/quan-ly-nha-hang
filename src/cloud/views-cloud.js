@@ -430,11 +430,21 @@ function cloudAct(el) {
     case 'c_syncNow': busy(async () => { await Sync.syncNow(); if (route.name === 'cloud') render(); }); return true;
 
     case 'c_unlinkAsk': {
-      sheet('Ngắt liên kết?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">Toàn bộ dữ liệu trên máy này sẽ bị <b>xoá</b> và máy quay về màn thiết lập. Dữ liệu đã đồng bộ vẫn còn trên Supabase của quán.${Records.dirtyCount() ? `<br><br><span style="color:var(--red)">Còn ${Records.dirtyCount()} thay đổi chưa gửi lên — sẽ mất nếu ngắt ngay.</span>` : ''}</div>
-        <button class="btn danger" data-act="c_unlinkGo">Xoá dữ liệu &amp; ngắt liên kết</button>
+      // Chủ quán đã liên kết kho: cho chọn GỠ LUÔN liên kết ở máy chủ trung tâm (nếu chỉ xoá trên máy, tài khoản vẫn nhớ kho cũ)
+      const detach = Cloud.role === 'owner' && Cloud.linked;
+      sheet('Ngắt liên kết?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">Toàn bộ dữ liệu trên máy này sẽ bị <b>xoá</b> và máy quay về màn thiết lập. Dữ liệu đã đồng bộ vẫn còn trên Supabase của quán.${detach ? `<br><br><b>Chỉ xoá trên máy này:</b> tài khoản lưu trữ vẫn nhớ kho Supabase — đăng nhập lại sẽ khôi phục được dữ liệu.<br><b>Xoá và gỡ liên kết kho:</b> tài khoản lưu trữ quên kho cũ để bạn tạo kho mới (kho cũ không bị xoá, bạn tự xoá trên supabase.com nếu muốn). Chọn cách này TRƯỚC khi xoá dự án trên Supabase.` : ''}${Records.dirtyCount() ? `<br><br><span style="color:var(--red)">Còn ${Records.dirtyCount()} thay đổi chưa gửi lên — sẽ mất nếu ngắt ngay.</span>` : ''}</div>
+        <button class="btn danger" data-act="c_unlinkGo">${detach ? 'Chỉ xoá dữ liệu trên máy này' : 'Xoá dữ liệu &amp; ngắt liên kết'}</button>
+        ${detach ? `<button class="btn danger" data-act="c_unlinkDetachGo" style="margin-top:8px">Xoá &amp; gỡ liên kết kho (để tạo kho mới)</button>` : ''}
         <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Huỷ</button>`);
       return true;
     }
+    case 'c_unlinkDetachGo': busy(async () => {
+      await Cloud.unlinkAndDetach(); closeSheet(); TOKEN = null; ME = null;
+      try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+      toast('Đã gỡ liên kết kho khỏi tài khoản lưu trữ');
+      route = { name: 'setup', params: {} }; render();
+    }); return true;
+
     case 'c_unlinkGo': busy(async () => {
       closeSheet(); await Cloud.unlinkAll(); TOKEN = null; ME = null;
       try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}

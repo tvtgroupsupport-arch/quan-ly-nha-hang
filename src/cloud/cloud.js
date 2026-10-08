@@ -229,6 +229,9 @@ const Cloud = (() => {
   }
 
   /* ---------- thoát / thu hồi ---------- */
+  /** Gỡ liên kết kho khỏi tài khoản (máy chủ trung tâm) RỒI mới xoá dữ liệu trên máy. Gỡ lỗi thì KHÔNG xoá gì — tránh mất dữ liệu
+      trên máy mà máy chủ vẫn còn liên kết. */
+  async function unlinkAndDetach() { await discardStoreLink(); await unlinkAll(); }
   async function unlinkAll() {
     Sync.stop();
     try { if (C.store) await C.store.auth.signOut(); } catch (e) {}
@@ -253,6 +256,6 @@ const Cloud = (() => {
     init, saveCfg, central, friendly,
     ownerSignUp, ownerSignIn, centralEmail, getStoreLink, discardStoreLink,
     linkStoreAsOwner, restoreOwner, createInvite, parseInvite, joinAsStaff,
-    listDevices, revokeDevice, deleteDevice, unlinkAll, onRevoked
+    listDevices, revokeDevice, deleteDevice, unlinkAll, unlinkAndDetach, onRevoked
   };
 })();
