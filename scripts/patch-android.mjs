@@ -54,6 +54,16 @@ if (fs.existsSync(varsFile)) {
     fs.writeFileSync(varsFile, v);
     console.log(`✓ Đã nâng targetSdkVersion ${m[1]} → ${MIN_TARGET_SDK} (yêu cầu của Google Play)`);
   }
+
+  /* Tính năng tự động bảo vệ của Play yêu cầu minSdk >= 24 (Capacitor 7 mặc định 23 → Play Console từ chối .aab). */
+  const MIN_MIN_SDK = 24;
+  const mm = v.match(/minSdkVersion\s*=\s*(\d+)/);
+  if (!mm) throw new Error('variables.gradle không có minSdkVersion — cấu trúc Capacitor đã đổi, cần xem lại script này.');
+  if (Number(mm[1]) < MIN_MIN_SDK) {
+    v = v.replace(/minSdkVersion\s*=\s*\d+/, `minSdkVersion = ${MIN_MIN_SDK}`);
+    fs.writeFileSync(varsFile, v);
+    console.log(`✓ Đã nâng minSdkVersion ${mm[1]} → ${MIN_MIN_SDK} (yêu cầu của Google Play)`);
+  }
 }
 
 /* ---------- Ký bản release (chỉ khi đã có android/app/release.keystore — xem android-play.yml) ----------
