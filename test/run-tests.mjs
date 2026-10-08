@@ -369,6 +369,14 @@ t.group('12. Chủ quán đổi máy: đăng nhập lại và khôi phục toàn
   const wrong = await newDevice(w, 'sai');
   await wrong.Cloud.ownerSignUp('khac@x.vn', 'abcdef', 'X');
   await t.rejects(() => wrong.Cloud.restoreOwner({ email: 'khac@x.vn', password: 'abcdef' }), /chưa liên kết/, 'tài khoản chưa liên kết không khôi phục được dữ liệu quán khác');
+
+  // Nhập SAI mật khẩu lúc khôi phục: phải báo "Sai mật khẩu" — không được tự đăng ký lại rồi báo nhầm "email đã có tài khoản"
+  const wp = await newDevice(w, 'sai-mat-khau');
+  await wp.Cloud.ownerSignIn('chu@quan.vn', 'matkhau1');
+  await t.rejects(() => wp.Cloud.restoreOwner({ email: 'chu@quan.vn', password: 'saimatkhau' }), /Sai mật khẩu/, 'khôi phục sai mật khẩu → báo rõ "Sai mật khẩu", không báo nhầm email đã có tài khoản');
+  // Lối thoát: gỡ liên kết cũ để tạo kho mới
+  await wp.Cloud.discardStoreLink();
+  t.eq(await wp.Cloud.getStoreLink(), null, 'gỡ liên kết cũ → trung tâm không còn địa chỉ kho (để thiết lập kho mới)');
 }
 
 t.group('13. Nghiệp vụ lõi vẫn nguyên vẹn: gọi thêm → tách đợt; xong → gộp; ghép đơn; xuất tệp trên Android');

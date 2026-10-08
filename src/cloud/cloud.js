@@ -86,8 +86,13 @@ const Cloud = (() => {
   }
 
   /* ---------- liên kết Supabase của quán (chủ quán) ---------- */
-  async function signInStoreOwner(client, email, password) {
+  /** allowSignUp=false: dùng khi KHÔI PHỤC kho đã có — tài khoản chủ quán đã tồn tại, tuyệt đối không tự đăng ký mới
+      (đăng ký lại sẽ báo "email đã có tài khoản" làm người dùng tưởng nhầm là lỗi khác, khi thật ra chỉ là SAI MẬT KHẨU). */
+  async function signInStoreOwner(client, email, password, allowSignUp = true) {
     let r = await client.auth.signInWithPassword({ email, password });
+    if (r.error && !allowSignUp && /Invalid login credentials/i.test(r.error.message)) {
+      throw new Error('Sai mật khẩu. Hãy nhập đúng mật khẩu tài khoản chủ quán — mật khẩu bạn đặt lúc tạo tài khoản và liên kết kho dữ liệu, KHÔNG phải mật khẩu đăng nhập vào app bán hàng. Nếu không nhớ, bấm "Tạo kho dữ liệu mới" bên dưới.');
+    }
     if (r.error && /Invalid login credentials/i.test(r.error.message)) {
       r = await client.auth.signUp({ email, password });
       if (r.error) throw new Error(friendly(r.error));
@@ -137,7 +142,7 @@ const Cloud = (() => {
     const link = await getStoreLink();
     if (!link) throw new Error('Tài khoản này chưa liên kết Supabase của quán');
     const client = mkClient(link.url, link.anon_key, 'sb-store');
-    await signInStoreOwner(client, email, password);
+    await signInStoreOwner(client, email, password, false);
     const st = await client.rpc('store_status');
     if (st.error) throw new Error(friendly(st.error));
     if (!st.data.is_owner) throw new Error('Tài khoản này không phải chủ của dự án Supabase đã liên kết');
@@ -209,6 +214,13 @@ const Cloud = (() => {
     if (error) throw new Error(friendly(error));
   }
 
+  /** Chủ quán KHÔNG khôi phục được kho cũ (quên mật khẩu, muốn làm lại): gỡ liên kết ở máy chủ trung tâm để tạo kho mới.
+      Kho Supabase cũ KHÔNG bị xoá — vẫn nằm trong tài khoản Supabase của chủ quán, chủ quán tự xoá nếu muốn. */
+  async function discardStoreLink() {
+    const { error } = await central().rpc('clear_store_link');
+    if (error) throw new Error(friendly(error));
+  }
+
   /* ---------- thoát / thu hồi ---------- */
   async function unlinkAll() {
     Sync.stop();
@@ -232,7 +244,7 @@ const Cloud = (() => {
     get ownerPw() { return C.ownerPw; }, set ownerPw(v) { C.ownerPw = v; },
     get linked() { return !!(C.store && C.role); },
     init, saveCfg, central, friendly,
-    ownerSignUp, ownerSignIn, centralEmail, getStoreLink,
+    ownerSignUp, ownerSignIn, centralEmail, getStoreLink, discardStoreLink,
     linkStoreAsOwner, restoreOwner, createInvite, parseInvite, joinAsStaff,
     listDevices, revokeDevice, deleteDevice, unlinkAll, onRevoked
   };

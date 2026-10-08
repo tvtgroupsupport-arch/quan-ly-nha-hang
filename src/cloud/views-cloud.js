@@ -118,7 +118,10 @@ function vOwnerRestore() {
     <div class="body">
       <div class="card" style="line-height:1.7"><div class="t-sm">Tài khoản này đã liên kết Supabase của quán. Nhập lại mật khẩu để tải toàn bộ dữ liệu về máy này.</div></div>
       <div class="field"><label class="f">Mật khẩu tài khoản chủ quán</label><input class="input" id="or_pass" type="password"></div>
+      <div class="t-xs" style="line-height:1.6">Đây là mật khẩu bạn đặt lúc <b>tạo tài khoản chủ quán</b> (cùng mật khẩu đã nhập khi liên kết Supabase) — <b>không phải</b> mật khẩu đăng nhập vào app bán hàng.</div>
       <button class="btn pri" data-act="c_restoreGo">Khôi phục</button>
+      <div class="t-xs" style="margin-top:18px;line-height:1.6">Không nhớ mật khẩu, hoặc muốn làm lại từ đầu?</div>
+      <button class="btn ghost" data-act="c_newStoreAsk">Tạo kho dữ liệu mới</button>
     </div>
   </div>`;
 }
@@ -360,6 +363,19 @@ function cloudAct(el) {
       await Cloud.restoreOwner({ email, password: val('or_pass') });
       Cloud.ownerPw = null;
       route = { name: 'restoring', params: {} }; render();
+    }); return true;
+
+    case 'c_newStoreAsk': {
+      sheet('Tạo kho dữ liệu mới?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.7">Tài khoản này sẽ <b>không còn liên kết</b> với kho dữ liệu cũ. Bạn sẽ thiết lập quán lại từ đầu và liên kết một kho Supabase mới.<br><br>Dữ liệu bán hàng cũ <b>không bị xoá</b>: nó vẫn nằm trong dự án Supabase cũ của bạn, nhưng app này sẽ không đọc nó nữa. Bạn có thể tự xoá dự án cũ trên supabase.com để giải phóng chỗ miễn phí.</div>
+        <button class="btn danger" data-act="c_newStoreGo">Gỡ liên kết cũ &amp; tạo mới</button>
+        <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Huỷ</button>`);
+      return true;
+    }
+    case 'c_newStoreGo': busy(async () => {
+      closeSheet();
+      await Cloud.discardStoreLink();
+      toast('Đã gỡ liên kết cũ — thiết lập quán mới');
+      go('ownerInit');
     }); return true;
 
     case 'c_scan': busy(async () => {

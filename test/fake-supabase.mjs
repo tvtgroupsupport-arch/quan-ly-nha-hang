@@ -280,6 +280,7 @@ export class FakeProject {
     this.links.set(s.uid, { url: p_url, anon_key: p_anon }); return null;
   }
   rpc_get_store_link(_, s) { return this.links.get(s.uid) || null; }
+  rpc_clear_store_link(_, s) { this.links.delete(s.uid); return null; }
   rpc_request_renewal({ p_months, p_note }, s) {
     if (![1, 6, 12].includes(p_months)) throw new Error('Gói không hợp lệ');
     const ex = this.requests.find(r => r.owner_id === s.uid && r.status === 'pending');

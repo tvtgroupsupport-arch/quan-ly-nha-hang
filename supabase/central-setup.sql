@@ -280,9 +280,12 @@ language sql stable security definer set search_path = public as $$
   select jsonb_build_object('url', url, 'anon_key', anon_key) from public.store_links where owner_id = auth.uid();
 $$;
 
+-- Gỡ liên kết kho cũ để chủ quán tạo kho mới. Đồng thời xoá phiên tự tạo Supabase (provision_jobs) của họ, nếu không
+-- provision-start sẽ "nối lại" phiên cũ đã xong và trả về đúng kho cũ thay vì tạo kho mới.
 create or replace function public.clear_store_link() returns void
 language sql security definer set search_path = public as $$
   delete from public.store_links where owner_id = auth.uid();
+  delete from public.provision_jobs where owner_id = auth.uid();
 $$;
 
 create or replace function public.request_renewal(p_months int, p_note text) returns bigint
