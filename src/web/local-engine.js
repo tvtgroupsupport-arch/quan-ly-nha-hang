@@ -220,7 +220,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('POST', 'auth', 'login')) {
     const s = D.staff.find(x => x.username === String(body?.username || '').trim() && x.active);
     const ok = s && await AuthLocal.verify(String(body?.password || ''), s.pw);
-    if (!ok) throw err(401, 'Sai tên đăng nhập hoặc mật khẩu');
+    if (!ok) throw err(401, 'Sai tên đăng nhập app hoặc mật khẩu đăng nhập app');
     addLog(s.name, 'Đăng nhập');
     saveD();
     return { token: 'local.' + btoa(JSON.stringify({ sub: s.id })) + '.x',

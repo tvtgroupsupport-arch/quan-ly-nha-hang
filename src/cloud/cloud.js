@@ -1,7 +1,7 @@
 /* ============================================================
    LIÊN KẾT SUPABASE
    Hai dự án Supabase hoàn toàn tách biệt:
-     • TRUNG TÂM (của nhà cung cấp, địa chỉ nướng sẵn lúc build): tài khoản chủ quán + gói cước
+     • TRUNG TÂM (của nhà cung cấp, địa chỉ nướng sẵn lúc build): tài khoản lưu trữ dữ liệu + gói cước
      • CỦA QUÁN (chủ quán tự tạo): toàn bộ dữ liệu bán hàng
    Hai vai trò máy:
      • owner — máy gốc của chủ quán, đăng nhập email/mật khẩu, toàn quyền
@@ -61,7 +61,7 @@ const Cloud = (() => {
     return C.central;
   }
 
-  /* ---------- tài khoản chủ quán (Supabase trung tâm) ---------- */
+  /* ---------- tài khoản lưu trữ dữ liệu (email + mật khẩu lưu trữ, Supabase trung tâm) ---------- */
   async function ownerSignUp(email, password, shopName) {
     const { data, error } = await central().auth.signUp({ email, password, options: { data: { shop_name: shopName || '' } } });
     if (error) throw new Error(friendly(error));
@@ -91,7 +91,7 @@ const Cloud = (() => {
   async function signInStoreOwner(client, email, password, allowSignUp = true) {
     let r = await client.auth.signInWithPassword({ email, password });
     if (r.error && !allowSignUp && /Invalid login credentials/i.test(r.error.message)) {
-      throw new Error('Sai mật khẩu. Hãy nhập đúng mật khẩu tài khoản chủ quán — mật khẩu bạn đặt lúc tạo tài khoản và liên kết kho dữ liệu, KHÔNG phải mật khẩu đăng nhập vào app bán hàng. Nếu không nhớ, bấm "Tạo kho dữ liệu mới" bên dưới.');
+      throw new Error('Sai mật khẩu. Hãy nhập đúng MẬT KHẨU LƯU TRỮ — mật khẩu bạn đặt lúc tạo tài khoản lưu trữ dữ liệu, KHÔNG phải mật khẩu đăng nhập app bán hàng. Nếu không nhớ, bấm "Tạo kho dữ liệu mới" bên dưới.');
     }
     if (r.error && /Invalid login credentials/i.test(r.error.message)) {
       r = await client.auth.signUp({ email, password });

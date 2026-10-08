@@ -18,7 +18,7 @@ const AutoProv = (() => {
   async function call(name) {
     const { data: sess } = await Cloud.central().auth.getSession();
     const token = sess && sess.session && sess.session.access_token;
-    if (!token) throw new Error('Phiên đăng nhập chủ quán đã hết — đăng nhập lại rồi thử lại');
+    if (!token) throw new Error('Phiên đăng nhập tài khoản lưu trữ đã hết — đăng nhập lại rồi thử lại');
     const r = await fetch(`${APP_CONFIG.centralUrl}/functions/v1/${name}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, apikey: APP_CONFIG.centralAnonKey },
@@ -36,8 +36,8 @@ const AutoProv = (() => {
     try {
       set({ phase: 'starting', message: 'Đang chuẩn bị…', step: 1 });
       const email = await Cloud.centralEmail();
-      if (!email) throw new Error('Phiên đăng nhập chủ quán đã hết — đăng nhập lại');
-      if (!password) throw new Error('Nhập mật khẩu tài khoản chủ quán trước');
+      if (!email) throw new Error('Phiên đăng nhập tài khoản lưu trữ đã hết — đăng nhập lại');
+      if (!password) throw new Error('Nhập mật khẩu lưu trữ trước');
       await Cloud.ownerSignIn(email, password);   // kiểm tra đúng mật khẩu NGAY, đừng để sai rồi mới biết sau khi đã tạo xong dự án
 
       const s = await call('provision-start');
@@ -114,7 +114,7 @@ function autoProvCard() {
       <div style="margin-top:10px"><div style="height:8px;border-radius:4px;background:var(--line,#3332)"><div style="height:8px;border-radius:4px;background:var(--accent);width:${pct}%"></div></div></div>
       <div class="t-sm" style="margin-top:8px">${esc(s.message)}</div>
       ${s.phase === 'working' ? '<div class="t-xs muted">Có thể mất 1–3 phút, vui lòng không đóng app.</div>' : ''}` : `
-      <div class="field" style="margin-top:10px"><label class="f">Mật khẩu tài khoản chủ quán</label><input class="input" id="ap_pass" type="password" autocomplete="current-password"></div>
+      <div class="field" style="margin-top:10px"><label class="f">Mật khẩu lưu trữ</label><input class="input" id="ap_pass" type="password" autocomplete="current-password"></div>
       ${s.phase === 'error' ? `<div class="t-sm" style="color:var(--red);margin-bottom:8px">${esc(s.message)}</div>` : ''}
       <button class="btn pri" data-act="c_autoProv">${s.phase === 'error' ? 'Tiếp tục / thử lại' : 'Tạo tự động bằng Supabase'}</button>`}
   </div>`;

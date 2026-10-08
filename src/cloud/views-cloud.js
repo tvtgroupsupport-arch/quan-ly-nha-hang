@@ -37,7 +37,7 @@ function vSetup() {
     ${notice ? `<div class="card" style="background:var(--amber-soft);border-color:var(--amber)"><div class="t-sm" style="color:var(--amber);line-height:1.6">${esc(notice)}</div></div>` : ''}
     <button class="card col" data-go="ownerAuth" style="gap:6px;align-items:flex-start;text-align:left">
       <span class="t-md">Tôi là chủ quán</span>
-      <span class="t-xs" style="line-height:1.5">Tạo tài khoản hoặc đăng nhập tài khoản chủ quán. Máy này sẽ là máy gốc, có toàn quyền.</span>
+      <span class="t-xs" style="line-height:1.5">Tạo hoặc đăng nhập <b>tài khoản lưu trữ dữ liệu</b> (bằng email) — nơi lưu dữ liệu và gói cước của quán. Máy này sẽ là máy gốc, có toàn quyền.</span>
     </button>
     <button class="card col" data-go="staffJoin" style="gap:6px;align-items:flex-start;text-align:left">
       <span class="t-md">Đây là máy nhân viên</span>
@@ -46,38 +46,38 @@ function vSetup() {
   </div></div>`;
 }
 
-/* ---------- 2. Tài khoản chủ quán ---------- */
+/* ---------- 2. Tài khoản lưu trữ dữ liệu (email + mật khẩu lưu trữ; KHÁC tài khoản đăng nhập app) ---------- */
 function vOwnerAuth() {
   const mode = route.params.mode === 'signup' ? 'signup' : 'login';
   return `<div class="screen">
-    ${hdr(mode === 'signup' ? 'Tạo tài khoản chủ quán' : 'Đăng nhập chủ quán')}
+    ${hdr(mode === 'signup' ? 'Tạo tài khoản lưu trữ dữ liệu' : 'Đăng nhập tài khoản lưu trữ')}
     <div class="body">
       <div class="row" style="gap:6px">
         <button class="btn sm ${mode === 'login' ? 'pri' : ''}" data-go="ownerAuth" data-mode="login" style="flex:1">Đăng nhập</button>
         <button class="btn sm ${mode === 'signup' ? 'pri' : ''}" data-go="ownerAuth" data-mode="signup" style="flex:1">Tạo tài khoản</button>
       </div>
       ${mode === 'signup' ? `<div class="field"><label class="f">Tên nhà hàng</label><input class="input" id="oa_shop" placeholder="vd. Nhà Hàng Sen Vàng"></div>` : ''}
-      <div class="field"><label class="f">Email</label><input class="input" id="oa_email" type="email" autocomplete="email" autocapitalize="none" value="${esc(window._ownerEmail || '')}"></div>
-      <div class="field"><label class="f">Mật khẩu tài khoản chủ quán (tối thiểu 6 ký tự)</label><input class="input" id="oa_pass" type="password" autocomplete="current-password"></div>
-      <div class="t-xs" style="line-height:1.6">Tài khoản này dùng để quản lý gói cước và liên kết dữ liệu của quán. Đây <b>không phải</b> mật khẩu đăng nhập vào app bán hàng — mật khẩu đó bạn đặt ở bước sau.</div>
+      <div class="field"><label class="f">Email tài khoản lưu trữ</label><input class="input" id="oa_email" type="email" autocomplete="email" autocapitalize="none" value="${esc(window._ownerEmail || '')}"></div>
+      <div class="field"><label class="f">Mật khẩu lưu trữ (tối thiểu 6 ký tự)</label><input class="input" id="oa_pass" type="password" autocomplete="current-password"></div>
+      <div class="t-xs" style="line-height:1.6"><b>Tài khoản lưu trữ</b> dùng để lưu dữ liệu quán trên Supabase, quản lý gói cước và khôi phục dữ liệu khi đổi máy. Đây <b>không phải</b> tài khoản đăng nhập vào app bán hàng — tài khoản đó bạn đặt ở bước sau.</div>
       <button class="btn pri" data-act="c_ownerAuthGo" data-mode="${mode}">${mode === 'signup' ? 'Tạo tài khoản' : 'Đăng nhập'}</button>
     </div>
   </div>`;
 }
 
-/* ---------- 3. Thông tin quán + tài khoản đăng nhập app ---------- */
+/* ---------- 3. Thông tin quán + tài khoản đăng nhập app (KHÁC tài khoản lưu trữ dữ liệu) ---------- */
 function vOwnerInit() {
   return `<div class="screen">
     ${hdr('Thiết lập quán')}
     <div class="body">
       <div class="field"><label class="f">Tên nhà hàng</label><input class="input" id="oi_shop" value="${esc(window._shopName || '')}"></div>
       <div class="field"><label class="f">Số điện thoại (không bắt buộc)</label><input class="input" id="oi_phone" type="tel"></div>
-      <div class="sec">Tài khoản đăng nhập vào app của chủ quán</div>
+      <div class="sec">Tài khoản đăng nhập app (dùng hằng ngày để vào app bán hàng)</div>
       <div class="field"><label class="f">Tên của bạn</label><input class="input" id="oi_name"></div>
-      <div class="field"><label class="f">Tên đăng nhập</label><input class="input" id="oi_user" autocapitalize="none" value="chuquan"></div>
-      <div class="field"><label class="f">Mật khẩu (tối thiểu 6 ký tự)</label><input class="input" id="oi_pass" type="password"></div>
-      <div class="field"><label class="f">Nhập lại mật khẩu</label><input class="input" id="oi_pass2" type="password"></div>
-      <div class="t-xs" style="line-height:1.6;color:var(--amber)">Mật khẩu này được đồng bộ (dạng băm) xuống các máy nhân viên để đăng nhập khi mất mạng — vì vậy <b>đừng dùng chung</b> với mật khẩu Supabase hay mật khẩu khác của bạn.</div>
+      <div class="field"><label class="f">Tên đăng nhập app</label><input class="input" id="oi_user" autocapitalize="none" value="chuquan"></div>
+      <div class="field"><label class="f">Mật khẩu đăng nhập app (tối thiểu 6 ký tự)</label><input class="input" id="oi_pass" type="password"></div>
+      <div class="field"><label class="f">Nhập lại mật khẩu đăng nhập app</label><input class="input" id="oi_pass2" type="password"></div>
+      <div class="t-xs" style="line-height:1.6;color:var(--amber)">Mật khẩu đăng nhập app được đồng bộ (dạng băm) xuống các máy nhân viên để đăng nhập khi mất mạng — vì vậy <b>đừng dùng chung</b> với <b>mật khẩu lưu trữ</b>, mật khẩu Supabase hay mật khẩu khác của bạn.</div>
       <label class="card between"><div style="flex:1"><div class="t-md">Nạp dữ liệu mẫu</div><div class="t-xs">Vài bàn, thực đơn và kho để thử ngay. Có thể xoá sau.</div></div>
         <input type="checkbox" class="switch" id="oi_sample" checked aria-label="Nạp dữ liệu mẫu"></label>
       <button class="btn pri" data-act="c_ownerInitGo">Tiếp tục</button>
@@ -104,7 +104,7 @@ function vOwnerLink() {
       <button class="btn ghost" data-act="c_copySql">Sao chép script SQL</button>
       <div class="field"><label class="f">Project URL</label><input class="input" id="ol_url" placeholder="https://xxxx.supabase.co" autocapitalize="none"></div>
       <div class="field"><label class="f">Khoá anon / publishable</label><input class="input" id="ol_key" placeholder="eyJ... hoặc sb_publishable_..." autocapitalize="none"></div>
-      <div class="field"><label class="f">Nhập lại mật khẩu tài khoản chủ quán</label><input class="input" id="ol_pass" type="password"></div>
+      <div class="field"><label class="f">Nhập lại mật khẩu lưu trữ</label><input class="input" id="ol_pass" type="password"></div>
       <button class="btn pri" data-act="c_linkGo">Liên kết &amp; đồng bộ</button>`}
       <button class="btn ghost" data-act="c_linkSkip">${linked ? 'Xong' : 'Để sau — dùng một máy trước'}</button>
     </div>
@@ -116,9 +116,9 @@ function vOwnerRestore() {
   return `<div class="screen">
     ${hdr('Khôi phục dữ liệu quán')}
     <div class="body">
-      <div class="card" style="line-height:1.7"><div class="t-sm">Tài khoản này đã liên kết Supabase của quán. Nhập lại mật khẩu để tải toàn bộ dữ liệu về máy này.</div></div>
-      <div class="field"><label class="f">Mật khẩu tài khoản chủ quán</label><input class="input" id="or_pass" type="password"></div>
-      <div class="t-xs" style="line-height:1.6">Đây là mật khẩu bạn đặt lúc <b>tạo tài khoản chủ quán</b> (cùng mật khẩu đã nhập khi liên kết Supabase) — <b>không phải</b> mật khẩu đăng nhập vào app bán hàng.</div>
+      <div class="card" style="line-height:1.7"><div class="t-sm">Tài khoản lưu trữ này đã liên kết Supabase của quán. Nhập lại <b>mật khẩu lưu trữ</b> để tải toàn bộ dữ liệu về máy này.</div></div>
+      <div class="field"><label class="f">Mật khẩu lưu trữ</label><input class="input" id="or_pass" type="password"></div>
+      <div class="t-xs" style="line-height:1.6">Đây là <b>mật khẩu lưu trữ</b> bạn đặt lúc tạo tài khoản lưu trữ dữ liệu (cùng mật khẩu đã nhập khi liên kết Supabase) — <b>không phải</b> mật khẩu đăng nhập app bán hàng.</div>
       <button class="btn pri" data-act="c_restoreGo">Khôi phục</button>
       <div class="t-xs" style="margin-top:18px;line-height:1.6">Không nhớ mật khẩu, hoặc muốn làm lại từ đầu?</div>
       <button class="btn ghost" data-act="c_newStoreAsk">Tạo kho dữ liệu mới</button>
@@ -327,10 +327,10 @@ function cloudAct(el) {
     case 'c_ownerInitGo': busy(async () => {
       const shop = val('oi_shop').trim(), user = val('oi_user').trim(), p1 = val('oi_pass'), p2 = val('oi_pass2');
       if (!shop) throw new Error('Nhập tên nhà hàng');
-      if (!user) throw new Error('Nhập tên đăng nhập');
+      if (!user) throw new Error('Nhập tên đăng nhập app');
       if (p1.length < 6) throw new Error('Mật khẩu tối thiểu 6 ký tự');
       if (p1 !== p2) throw new Error('Hai mật khẩu không khớp');
-      if (Cloud.ownerPw && p1 === Cloud.ownerPw) throw new Error('Không dùng chung mật khẩu với tài khoản chủ quán');
+      if (Cloud.ownerPw && p1 === Cloud.ownerPw) throw new Error('Không dùng chung mật khẩu đăng nhập app với mật khẩu lưu trữ');
       await createStore({ shopName: shop, phone: val('oi_phone'), ownerName: val('oi_name'), username: user,
                           appPassword: p1, sample: !!document.getElementById('oi_sample')?.checked });
       await Cloud.saveCfg({ role: 'owner' });
@@ -349,7 +349,7 @@ function cloudAct(el) {
 
     case 'c_linkGo': busy(async () => {
       const email = await Cloud.centralEmail();
-      if (!email) throw new Error('Phiên đăng nhập chủ quán đã hết — đăng nhập lại');
+      if (!email) throw new Error('Phiên đăng nhập tài khoản lưu trữ đã hết — đăng nhập lại');
       await Cloud.linkStoreAsOwner({ url: val('ol_url'), anonKey: val('ol_key'), email, password: val('ol_pass') });
       Cloud.ownerPw = null;
       toast('Đã liên kết — đang đồng bộ dữ liệu lên Supabase');

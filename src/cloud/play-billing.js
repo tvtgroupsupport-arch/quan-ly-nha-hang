@@ -62,7 +62,7 @@ async function playPurchase(productId) {
   try {
     const { data: userRes } = await Cloud.central().auth.getUser();
     const ownerId = userRes?.user?.id;
-    if (!ownerId) throw new Error('Chưa đăng nhập tài khoản chủ quán');
+    if (!ownerId) throw new Error('Chưa đăng nhập tài khoản lưu trữ');
 
     // Ưu tiên base plan do chính Google trả về cho gói này; không có thì dùng bảng quy ước PLAY_BASE_PLANS.
     const prod = (_playProducts || []).find(p => playProductId(p) === productId);

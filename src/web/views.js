@@ -131,13 +131,13 @@ function vLogin(){
       <div class="t-lg" style="margin-top:12px">${esc(DB.restaurant.name||'Quản lý nhà hàng')}</div>
       ${DB.restaurant.phone ? `<div class="t-xs" style="margin-top:2px">${esc(DB.restaurant.phone)}</div>` : ''}
     </div>
-    <div class="field"><label class="f" for="lu">Tên đăng nhập</label>
+    <div class="field"><label class="f" for="lu">Tên đăng nhập app</label>
       <input class="input" id="lu" placeholder="vd. chuquan" autocomplete="username" autocapitalize="none"></div>
-    <div class="field"><label class="f" for="lp">Mật khẩu</label>
+    <div class="field"><label class="f" for="lp">Mật khẩu đăng nhập app</label>
       <input class="input" id="lp" type="password" placeholder="••••••••" autocomplete="current-password"></div>
     <button class="btn pri" data-act="login">Đăng nhập</button>
     <div class="t-xs" style="text-align:center;margin-top:24px;line-height:1.6">
-      Tài khoản bị khoá 15 phút sau 5 lần sai liên tiếp.<br>Quên mật khẩu: nhờ chủ quán cấp lại trong mục Nhân viên.</div>
+      Tài khoản bị khoá 15 phút sau 5 lần sai liên tiếp.<br>Quên mật khẩu đăng nhập app: nhờ chủ quán cấp lại trong mục Nhân viên.</div>
     ${(typeof APP_CONFIG !== 'undefined' && APP_CONFIG.buildVersion) ? `<div class="t-xs" style="text-align:center;margin-top:14px;opacity:.5">Bản ${esc(APP_CONFIG.buildVersion)}</div>` : ''}
   </div></div>`;
 }

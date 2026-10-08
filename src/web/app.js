@@ -242,7 +242,7 @@ function handleAct(el, ev) {
   /* ---------- đăng nhập ---------- */
   case 'login': {
     const username = val('lu').trim(), password = val('lp');
-    if (!username || !password) { toast('Nhập tên đăng nhập và mật khẩu'); return; }
+    if (!username || !password) { toast('Nhập tên đăng nhập app và mật khẩu đăng nhập app'); return; }
     (async () => {
       try {
         const r = await api('/auth/login', { method: 'POST', body: { username, password, device: navigator.userAgent.slice(0, 80) } });
