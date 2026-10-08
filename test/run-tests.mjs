@@ -119,7 +119,7 @@ t.group('4. Lỗi cấu hình Supabase hiện thông báo dễ hiểu');
   await t.rejects(() => A.Cloud.linkStoreAsOwner({ url: STORE_URL, anonKey: ANON, email: 'a@b.vn', password: 'abcdef' }), /chưa chạy script SQL/, 'chưa chạy script SQL → báo đúng nguyên nhân');
   w.store.sqlReady = true; w.store.confirmEmail = true;
   const B = await newDevice(w, 'o2'); await B.Cloud.ownerSignUp('c@d.vn', 'abcdef', 'Q'); await B.createStore({ shopName: 'Q', username: 'u', appPassword: 'abcdef' }); await B.Cloud.saveCfg({ role: 'owner' });
-  await t.rejects(() => B.Cloud.linkStoreAsOwner({ url: STORE_URL, anonKey: ANON, email: 'c@d.vn', password: 'abcdef' }), /Confirm email/, 'đang bật Confirm email → hướng dẫn tắt');
+  await t.rejects(() => B.Cloud.linkStoreAsOwner({ url: STORE_URL, anonKey: ANON, email: 'c@d.vn', password: 'abcdef' }), /thư xác nhận tới c@d\.vn/, 'kho đòi xác nhận email → bảo mở thư bấm xác nhận (không bắt vào Supabase đổi cài đặt)');
   w.store.confirmEmail = false;
   await t.rejects(() => A.Cloud.linkStoreAsOwner({ url: 'http://khong-https', anonKey: ANON, email: 'a@b.vn', password: 'abcdef' }), /không hợp lệ/, 'địa chỉ không phải https bị chặn');
   const fakeSr = 'eyJhbGciOiJIUzI1NiJ9.' + Buffer.from(JSON.stringify({ role: 'service_role' })).toString('base64url') + '.sig';

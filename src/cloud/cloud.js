@@ -88,17 +88,19 @@ const Cloud = (() => {
   /* ---------- liên kết Supabase của quán (chủ quán) ---------- */
   /** allowSignUp=false: dùng khi KHÔI PHỤC kho đã có — tài khoản chủ quán đã tồn tại, tuyệt đối không tự đăng ký mới
       (đăng ký lại sẽ báo "email đã có tài khoản" làm người dùng tưởng nhầm là lỗi khác, khi thật ra chỉ là SAI MẬT KHẨU). */
+  /** Kho của quán đòi xác nhận email: chủ quán chỉ cần mở thư Supabase gửi tới email rồi bấm xác nhận — KHÔNG bắt họ vào Supabase đổi cài đặt. */
+  const storeConfirmMsg = (email) => `Kho dữ liệu của quán đã gửi thư xác nhận tới ${email}. Hãy mở thư (xem cả mục Thư rác), bấm nút xác nhận, rồi quay lại đây bấm "Tiếp tục / thử lại". (Người tự cấu hình Supabase có thể tắt "Confirm email" ở Authentication → Providers → Email để không phải xác nhận.)`;
+
   async function signInStoreOwner(client, email, password, allowSignUp = true) {
     let r = await client.auth.signInWithPassword({ email, password });
+    if (r.error && /Email not confirmed/i.test(r.error.message)) throw new Error(storeConfirmMsg(email));
     if (r.error && !allowSignUp && /Invalid login credentials/i.test(r.error.message)) {
       throw new Error('Sai mật khẩu. Hãy nhập đúng MẬT KHẨU LƯU TRỮ — mật khẩu bạn đặt lúc tạo tài khoản lưu trữ dữ liệu, KHÔNG phải mật khẩu đăng nhập app bán hàng. Nếu không nhớ, bấm "Tạo kho dữ liệu mới" bên dưới.');
     }
     if (r.error && /Invalid login credentials/i.test(r.error.message)) {
       r = await client.auth.signUp({ email, password });
       if (r.error) throw new Error(friendly(r.error));
-      if (!r.data.session) {
-        throw new Error('Dự án Supabase của quán đang bật "Confirm email". Vào Authentication → Providers → Email, tắt "Confirm email" rồi thử lại.');
-      }
+      if (!r.data.session) throw new Error(storeConfirmMsg(email));
     } else if (r.error) {
       throw new Error(friendly(r.error));
     }

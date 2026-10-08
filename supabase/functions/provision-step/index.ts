@@ -32,6 +32,17 @@ const MAX_ATTEMPTS = 40;
 /** Phiên done cũ hơn mốc này mới kiểm tra kho còn sống không (tránh báo nhầm do DNS của dự án vừa tạo chưa kịp lan ra). */
 const RECHECK_AFTER_MS = 10 * 60 * 1000;
 
+/** PATCH cấu hình auth trả 200 nhưng dịch vụ Auth của dự án mới cần vài giây để nạp cấu hình. Đọc lại cho tới khi THẬT SỰ có hiệu lực
+    (tự xác nhận email + đăng nhập ẩn danh), nếu không app đăng ký tài khoản ngay sau đó sẽ bị đòi xác nhận email. */
+async function authConfigLive(ref: string, anonKey: string): Promise<boolean> {
+  try {
+    const r = await fetch(`https://${ref}.supabase.co/auth/v1/settings`, { headers: { apikey: anonKey }, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return false;
+    const s = await r.json();
+    return s.mailer_autoconfirm === true && s.external?.anonymous_users === true;
+  } catch { return false; }
+}
+
 /** Dự án còn tồn tại không? Tên miền không phân giải / 404 = đã bị xoá; có trả lời HTTP bất kỳ (kể cả 401/540) = còn. */
 async function projectAlive(url: string, anonKey: string): Promise<'alive' | 'gone' | 'unknown'> {
   try {
@@ -204,6 +215,8 @@ Deno.serve(async (req) => {
             if (c.status === 0 || c.status >= 500 || c.status === 429) return await waiting('bật cấu hình đăng nhập');
             return await fail(viError(c, 'Bật cấu hình đăng nhập'));
           }
+          // Chờ cấu hình thật sự có hiệu lực rồi mới báo xong (xem authConfigLive).
+          if (!(await authConfigLive(job.project_ref, job.anon_key))) return await waiting('chờ cấu hình đăng nhập có hiệu lực');
           // Xong: xoá token uỷ quyền ngay, chỉ giữ địa chỉ + khoá anon (công khai) cho app lấy.
           await save({
             state: 'done', project_url: `https://${job.project_ref}.supabase.co`,
