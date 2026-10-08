@@ -662,8 +662,9 @@ t.group('25. Chạm mã QR thanh toán để phóng to — tăng sáng màn hìn
   A.route = { name: 'pay', params: { id: o.id, g: 'vietqr' } };
   const html = A.VIEWS.pay();
   t.ok(html.includes('data-act="zoomQr"') && html.includes('Chạm vào mã để phóng to'), 'màn thanh toán VietQR có nút chạm-để-phóng-to');
-  const m = html.match(/data-src="([^"]+)"/);
-  t.ok(m && /img\.vietqr\.io/.test(m[1]), 'đúng link ảnh QR được gắn vào nút phóng to');
+  const m = html.match(/data-payload="([^"]+)"/);
+  t.ok(m && /^00020101021238/.test(m[1]) && html.includes('<svg') && !/img\.vietqr\.io/.test(html),
+    'mã VietQR dựng ngay trong app (SVG), gắn chuỗi VietQR vào nút phóng to — không còn tải ảnh từ mạng');
 
   t.eq(A.qrZoomOpen, false, 'ban đầu chưa phóng to');
   t.eq(A.brightnessBoosts || 0, 0, 'chưa tăng sáng lần nào');
@@ -680,6 +681,52 @@ t.group('25. Chạm mã QR thanh toán để phóng to — tăng sáng màn hìn
 
   A.closeQrZoom();   // gọi đóng khi đã đóng rồi — không được phục hồi sáng thêm lần nữa
   t.eq(A.brightnessRestores, 1, 'đã đóng rồi thì gọi đóng lại không làm gì thêm');
+}
+
+t.group('25b. VietQR tạo ngay trong app — chạy được khi KHÔNG có mạng, đúng chuẩn EMVCo/NAPAS và CRC16');
+{
+  const w = newWorld(); const A = await setupOwner(w, { link: false });
+  const V = A.VietQR;
+
+  // CRC-16/CCITT-FALSE: đáp án chuẩn của "123456789" là 29B1
+  t.eq(V.crc16('123456789'), '29B1', 'CRC16/CCITT-FALSE đúng đáp án chuẩn');
+  // Mã VietQR tĩnh có thật (thư viện vietqr_gen): BIN 970407, tài khoản 9602091996, không số tiền, CRC 34A0
+  t.eq(V.payload({ bin: '970407', account: '9602091996' }),
+    '00020101021138540010A00000072701240006970407011096020919960208QRIBFTTA53037045802VN630434A0',
+    'dựng ra đúng từng ký tự một mã VietQR tĩnh mẫu đã biết (kể cả CRC)');
+
+  // Mã động có số tiền + nội dung: đọc ngược từng trường TLV và kiểm tra CRC
+  const p = V.payload({ bin: '970436', account: '0123456789', amount: 150000, info: 'Đơn #A12 — Bàn 3' });
+  const parse = (s) => { const out = {}; for (let i = 0; i < s.length;) { const id = s.slice(i, i + 2), len = Number(s.slice(i + 2, i + 4)); out[id] = s.slice(i + 4, i + 4 + len); i += 4 + len; } return out; };
+  const f = parse(p);
+  t.eq([f['00'], f['01'], f['53'], f['54'], f['58']], ['01', '12', '704', '150000', 'VN'], 'các trường: phiên bản, mã động, VND, số tiền, quốc gia');
+  const acc = parse(f['38']);
+  t.eq([acc['00'], parse(acc['01'])['00'], parse(acc['01'])['01'], acc['02']], ['A000000727', '970436', '0123456789', 'QRIBFTTA'], 'trường 38: AID NAPAS, BIN, số tài khoản, dịch vụ chuyển nhanh');
+  t.eq(parse(f['62'])['08'], 'Don A12 Ban 3', 'nội dung chuyển khoản bỏ dấu, bỏ ký tự đặc biệt');
+  t.eq(p.slice(-4), V.crc16(p.slice(0, -4)), 'CRC ở cuối khớp với toàn bộ chuỗi phía trước');
+  t.eq(V.cleanInfo('x'.repeat(40)).length, 25, 'nội dung dài bị cắt ở 25 ký tự (giới hạn của chuẩn)');
+
+  // Cấu hình sai thì từ chối rõ ràng, không dựng ra mã sai
+  t.ok((() => { try { V.payload({ bin: '1234', account: '0123456789' }); return false; } catch (e) { return /BIN/.test(e.message); } })(), 'BIN không đủ 6 số → từ chối');
+  t.ok((() => { try { V.payload({ bin: '970436', account: '12-34' }); return false; } catch (e) { return /tài khoản/.test(e.message); } })(), 'số tài khoản có ký tự lạ → từ chối');
+
+  // Mã luôn đủ chỗ trong bộ QR của app
+  t.ok(A.QR.pickVersion(p) !== null && A.QR.pickVersion(p) <= 12, 'chuỗi VietQR nằm gọn trong bộ QR của app (phiên bản ' + A.QR.pickVersion(p) + ')');
+
+  // Màn thanh toán: KHÔNG có mạng (fetch mặc định của bộ test bị chặn) vẫn ra mã
+  await A.api('/settings', { method: 'PATCH', body: { vietqrBin: '970436', vietqrAccount: '0123456789', vietqrName: 'NGUYEN VAN A' } });
+  await A.refresh();
+  const o = await order(A, 'Bàn 01', 1, [['Trà đá', 1]]); await A.refresh();
+  A.route = { name: 'pay', params: { id: o.id, g: 'vietqr' } };
+  let html = A.VIEWS.pay();
+  t.ok(html.includes('role="img"') && html.includes('<svg') && html.includes('không có mạng') && !/https?:\/\/img\.vietqr/.test(html), 'khi mất mạng màn thanh toán vẫn hiện mã QR (SVG), không phụ thuộc ảnh trên mạng');
+  t.ok(html.includes('NGUYEN VAN A') && html.includes('0123456789'), 'vẫn hiện số tài khoản và tên người nhận để khách chuyển tay');
+
+  // Tài khoản cấu hình hỏng → báo rõ thay vì hiện ô trắng
+  await A.api('/settings', { method: 'PATCH', body: { vietqrBin: '12', vietqrAccount: '0123456789' } });
+  await A.refresh();
+  html = A.VIEWS.pay();
+  t.ok(html.includes('Không dựng được mã VietQR') && !html.includes('data-act="zoomQr"'), 'BIN sai trong cài đặt → báo lỗi rõ, không hiện mã hỏng');
 }
 
 t.group('26. Tab tự căn giữa khi đổi (vuốt hoặc bấm trực tiếp vào chip) — không ném lỗi dù chạy không có DOM thật');

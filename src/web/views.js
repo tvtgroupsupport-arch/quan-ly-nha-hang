@@ -534,6 +534,12 @@ function vPay(){
   const gw = DB.gateways.filter(g=>g.on);
   const sel = route.params.g && gw.some(x=>x.id===route.params.g) ? route.params.g : gw[0].id;
   const g = DB.gateways.find(x=>x.id===sel);
+  /* Mã VietQR dựng ngay trong app (không tải ảnh từ mạng) — dùng được cả khi mất Internet. */
+  let vqrPayload = '', vqrError = '';
+  if (sel==='vietqr' && DB.settings.vietqrBin && DB.settings.vietqrAccount) {
+    try { vqrPayload = VietQR.payload({ bin: DB.settings.vietqrBin, account: DB.settings.vietqrAccount, amount: total, info: o.code||o.id }); }
+    catch (e) { vqrError = e.message; }
+  }
 
   return `<div class="screen">
     ${hdr('Thanh toán', `${esc(o.code||o.id)} · ${fmt(total)}`)}
@@ -545,22 +551,22 @@ function vPay(){
       </div>
 
       ${sel==='cash' ? `<div id="cashBox"></div>`
-        : sel==='vietqr' ? ((DB.settings.vietqrBin && DB.settings.vietqrAccount) ? `
+        : sel==='vietqr' ? (vqrPayload ? `
         <div class="card col" style="gap:12px;align-items:center;padding:20px">
           <div class="t-md">${esc(g.name)}</div>
-          <button class="qrbox" data-act="zoomQr" aria-label="Chạm để phóng to mã QR" style="border:none;cursor:pointer"
-            data-src="${esc(`https://img.vietqr.io/image/${DB.settings.vietqrBin}-${DB.settings.vietqrAccount}-compact2.png?amount=${total}&addInfo=${encodeURIComponent(o.code||o.id)}`)}">
-            <img alt="Mã QR thanh toán" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:contain"
-              src="https://img.vietqr.io/image/${DB.settings.vietqrBin}-${DB.settings.vietqrAccount}-compact2.png?amount=${total}&addInfo=${encodeURIComponent(o.code||o.id)}">
+          <button class="qrbox" data-act="zoomQr" aria-label="Chạm để phóng to mã QR" style="border:none;cursor:pointer" data-payload="${esc(vqrPayload)}">
+            ${QR.svg(vqrPayload, { label: 'Mã QR thanh toán VietQR' })}
           </button>
           <div class="t-xs muted">Chạm vào mã để phóng to</div>
           <div class="mono" style="font-size:20px;font-weight:700">${fmt(total)}</div>
           <div class="t-xs" style="text-align:center;line-height:1.6">Khách quét mã để chuyển khoản, hoặc đọc số tài khoản bên dưới nếu không quét được<br>
-            <span class="mono">${esc(DB.settings.vietqrAccount)}</span>${DB.settings.vietqrName?' · '+esc(DB.settings.vietqrName):''}</div>
+            <span class="mono">${esc(DB.settings.vietqrAccount)}</span>${DB.settings.vietqrName?' · '+esc(DB.settings.vietqrName):''}
+            ${(()=>{ const b = vietQrBankOptions().find(x=>x.bin===DB.settings.vietqrBin); return b ? '<br>'+esc(b.name) : ''; })()}</div>
+          <div class="t-xs muted" style="text-align:center">Mã được tạo ngay trong app — dùng được cả khi không có mạng</div>
         </div>` : `
         <div class="card row" style="background:var(--amber-soft);border-color:var(--amber)">
           <span style="color:var(--amber)">${icon('warn')}</span>
-          <div class="t-sm" style="color:var(--amber);flex:1">Chưa cấu hình tài khoản VietQR — vào Quản lý → Thanh toán & hoá đơn để thêm số tài khoản trước.</div>
+          <div class="t-sm" style="color:var(--amber);flex:1">${vqrError ? 'Không dựng được mã VietQR: '+esc(vqrError)+'. Vào Quản lý → Thanh toán & hoá đơn để kiểm tra lại tài khoản nhận tiền.' : 'Chưa cấu hình tài khoản VietQR — vào Quản lý → Thanh toán & hoá đơn để thêm số tài khoản trước.'}</div>
         </div>`)
         : `<div class="card row" style="background:var(--amber-soft);border-color:var(--amber)">
           <span style="color:var(--amber)">${icon('warn')}</span>

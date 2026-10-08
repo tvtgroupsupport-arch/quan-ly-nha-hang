@@ -31,7 +31,7 @@ const tail = `
   get TOKEN() { return TOKEN; },
   get DB() { return DB; },
   document, window, go,
-  QR, Persist, Records, Sync, Cloud, License, AuthLocal, apiLocal, refresh, render, createStore, emptyD, VIEWS, handleAct, tableChairsSvg, guestUrl,
+  QR, VietQR, Persist, Records, Sync, Cloud, License, AuthLocal, apiLocal, refresh, render, createStore, emptyD, VIEWS, handleAct, tableChairsSvg, guestUrl,
   hasNewStaffCall, hasNewKitchenTicket, playChime, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
   openQrZoom, closeQrZoom, get qrZoomOpen() { return !!qrZoomEl; }, uploadMenuImage,
   playPurchase, playRestore, vSubscriptionPlay, normalizePlayProducts, playProductId,

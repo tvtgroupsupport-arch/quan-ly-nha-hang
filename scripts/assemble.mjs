@@ -9,6 +9,7 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 /** Thứ tự nạp quan trọng: engine → lưu trữ/đồng bộ → lõi giao diện → màn hình → app */
 export const SOURCE_FILES = [
   'src/web/qr.js',
+  'src/web/vietqr.js',
   'src/web/local-engine.js',
   'src/cloud/auth-local.js',
   'src/cloud/records.js',

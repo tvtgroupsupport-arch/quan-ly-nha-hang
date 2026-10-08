@@ -922,7 +922,7 @@ function handleAct(el, ev) {
   }
 
   /* ---------- cài đặt & báo cáo ---------- */
-  case 'zoomQr': { openQrZoom(d.src); return; }
+  case 'zoomQr': { openQrZoom(d.payload); return; }
   case 'setFontScale': {
     Persist.setMeta('fontScale', Number(d.k));
     applyFontScale(); render();
@@ -1206,12 +1206,14 @@ async function uploadMenuImage(dataUrl, box) {
    (tương phản tối đa, dễ quét ngay cả khi không tăng được độ sáng thật) + tăng độ sáng
    màn hình thật nếu máy hỗ trợ. Chạm lại bất kỳ đâu để thu nhỏ về như cũ. */
 let qrZoomEl = null;   // theo dõi bằng biến JS, không dò qua DOM — tránh phụ thuộc getElementById tìm đúng id
-function openQrZoom(src) {
+/** payload = chuỗi VietQR (dựng bằng VietQR.payload) — vẽ bằng SVG ngay tại chỗ, không tải ảnh nên chạy được khi mất mạng. */
+function openQrZoom(payload) {
+  const src = payload;
   if (!src || qrZoomEl) return;
   NativeBridge.brightness.boost();
   const ov = document.createElement('div');
   ov.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:50;display:flex;align-items:center;justify-content:center;padding:calc(env(safe-area-inset-top,0px) + 24px) 24px calc(env(safe-area-inset-bottom,0px) + 24px)';
-  ov.innerHTML = `<img src="${esc(src)}" alt="Mã QR thanh toán" style="width:100%;max-width:min(92vw,92vh);aspect-ratio:1;object-fit:contain">
+  ov.innerHTML = `<div role="img" aria-label="Mã QR thanh toán" style="width:100%;max-width:min(92vw,92vh);aspect-ratio:1">${QR.svg(src, { label: 'Mã QR thanh toán VietQR' })}</div>
     <div style="position:absolute;bottom:env(safe-area-inset-bottom,24px);left:0;right:0;text-align:center;color:#999;font-size:13px">Chạm để thu nhỏ</div>`;
   ov.addEventListener('click', closeQrZoom);
   document.body.appendChild(ov);
