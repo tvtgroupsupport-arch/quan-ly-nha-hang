@@ -107,7 +107,8 @@ function autoProvCard() {
     <div class="t-sm">App tự tạo kho dữ liệu riêng cho quán trên Supabase (miễn phí). Bạn chỉ cần có tài khoản Supabase và bấm đồng ý một lần — không phải tự cấu hình gì.</div>
     ${s.email ? `<div class="t-sm" style="margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--amber-soft);color:var(--amber)">
       Tài khoản Supabase phải dùng <b>đúng email này: ${esc(s.email)}</b>.<br>
-      Chưa có tài khoản? Đăng ký bằng email trên trước. Nếu trình duyệt đang đăng nhập Supabase bằng email khác, hãy đăng xuất trước (hoặc dùng cửa sổ ẩn danh).</div>
+      Chưa có tài khoản? Đăng ký bằng email trên trước. Nếu trình duyệt đang đăng nhập Supabase bằng email khác, hãy đăng xuất trước (hoặc dùng cửa sổ ẩn danh).<br>
+      Nếu trang Supabase báo <b>"No organizations found"</b>: bấm <b>Create an organization</b> (chọn gói <b>Free</b>), rồi quay lại đây bấm <b>Tạo tự động</b> lần nữa.</div>
       ${active ? '' : '<button class="btn sm ghost" data-act="c_autoProvSignup" style="margin-top:8px">Mở trang đăng ký Supabase</button>'}` : ''}
     ${active ? `
       <div style="margin-top:10px"><div style="height:8px;border-radius:4px;background:var(--line,#3332)"><div style="height:8px;border-radius:4px;background:var(--accent);width:${pct}%"></div></div></div>
