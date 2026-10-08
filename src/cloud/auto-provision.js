@@ -105,6 +105,7 @@ function autoProvCard() {
   return `<div class="card" style="border-color:var(--accent);line-height:1.7">
     <div class="t-md" style="margin-bottom:4px">Cách nhanh: tạo tự động</div>
     <div class="t-sm">App tự tạo kho dữ liệu riêng cho quán trên Supabase (miễn phí). Bạn chỉ cần có tài khoản Supabase và bấm đồng ý một lần — không phải tự cấu hình gì.</div>
+    <button class="btn pri sm" data-go="supabaseGuide" style="margin-top:10px;width:100%">📖 Xem hướng dẫn từng bước (có hình)</button>
     ${s.email ? `<div class="t-sm" style="margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--amber-soft);color:var(--amber)">
       Tài khoản Supabase phải dùng <b>đúng email này: ${esc(s.email)}</b>.<br>
       Chưa có tài khoản? Đăng ký bằng email trên trước. Nếu trình duyệt đang đăng nhập Supabase bằng email khác, hãy đăng xuất trước (hoặc dùng cửa sổ ẩn danh).<br>

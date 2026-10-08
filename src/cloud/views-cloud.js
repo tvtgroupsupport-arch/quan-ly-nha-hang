@@ -5,7 +5,7 @@
    (handleAct trong app.js gọi cloudAct trước).
    ============================================================ */
 
-const FREE_ROUTES = ['setup', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'staffJoin', 'restoring', 'login'];
+const FREE_ROUTES = ['setup', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'staffJoin', 'restoring', 'login', 'supabaseGuide'];
 /** Khi gói cước hết hạn (khoá mềm): chủ quán vẫn xem được báo cáo và gia hạn */
 const LOCK_OK_OWNER = ['locked', 'subscription', 'cloud', 'admin', 'reports', 'history', 'historyDetail', 'exportHub', 'login'];
 const LOCK_OK_STAFF = ['locked', 'login'];
@@ -341,6 +341,8 @@ function cloudAct(el) {
 
     case 'c_autoProv': { AutoProv.start(val('ap_pass')); return true; }
     case 'c_autoProvSignup': { AutoProv.openSignup(); return true; }
+    /* Nút trong màn hướng dẫn: chỉ mở trang của supabase.com (không mở địa chỉ tuỳ ý) */
+    case 'c_guideOpen': { if (/^https:\/\/supabase\.com\//.test(d.url || '')) NativeBridge.browser.open(d.url).catch(e => toast(e.message || 'Không mở được trang')); return true; }
 
     case 'c_copySql': busy(async () => {
       await NativeBridge.copy(STORE_SQL);

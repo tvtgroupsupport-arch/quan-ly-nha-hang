@@ -876,6 +876,39 @@ t.group('30d. Script dựng Supabase nhúng cho Edge Function (store-sql.ts) kh�
   t.ok(embedded === sql, 'store-sql.ts đang khớp store-setup.sql — nếu lệch, chạy: node scripts/gen-store-sql.mjs rồi deploy lại provision-step');
 }
 
+t.group('30e. Hướng dẫn liên kết Supabase trong app — đủ bước, ảnh có thật, mở từ màn Liên kết, chỉ mở trang supabase.com');
+{
+  const w = newWorld(); const A = await setupOwner(w, { link: false });
+  t.ok(typeof A.VIEWS.supabaseGuide === 'function', 'màn hướng dẫn đã đăng ký trong danh sách màn hình');
+
+  A.route = { name: 'supabaseGuide', params: {} };
+  const html = A.VIEWS.supabaseGuide();
+  t.eq((html.match(/class="gd-num/g) || []).length, 6, 'có đủ 6 bước (0 → 5)');
+  t.ok(['Sign out', 'Sign up', 'Confirm Email Address', 'Create organization', 'Authorize', 'mật khẩu lưu trữ'].every(s => html.includes(s)),
+    'nội dung nhắc đúng tên các nút trên Supabase và tên “mật khẩu lưu trữ”');
+  t.ok(/gd-mark/.test(html) && html.includes('guide/01-menu-sign-out.jpg'), 'ảnh có khung đỏ chỉ chỗ bấm, đường dẫn ảnh theo thư mục guide/');
+
+  // Mọi ảnh được nhắc tới phải tồn tại thật trong gói app (nếu thiếu, người dùng thấy ô ảnh vỡ)
+  const missing = [];
+  for (const figs of Object.values(A.GUIDE_FIGS)) for (const f of figs) {
+    if (!fs.existsSync(new URL('../src/assets/guide/' + f.img, import.meta.url))) missing.push(f.img);
+  }
+  t.eq(missing, [], 'tất cả ảnh hướng dẫn đều có trong src/assets/guide/');
+  const buildSrc = fs.readFileSync(new URL('../build.mjs', import.meta.url), 'utf8');
+  t.ok(buildSrc.includes('src/assets/guide') && buildSrc.includes('www/guide'), 'build.mjs chép ảnh vào www/guide để đóng gói cùng app (xem được khi mất mạng)');
+
+  // Nút mở hướng dẫn nằm ngay trong thẻ "Tạo tự động" của màn Liên kết
+  A.route = { name: 'ownerLink', params: {} };
+  t.ok(A.VIEWS.ownerLink().includes('data-go="supabaseGuide"'), 'màn Liên kết có nút “Xem hướng dẫn từng bước (có hình)”');
+
+  // c_guideOpen: chỉ mở trang supabase.com
+  A.handleAct({ dataset: { act: 'c_guideOpen', url: 'https://evil.example.com/phishing' } });
+  A.handleAct({ dataset: { act: 'c_guideOpen', url: 'https://supabase.com/dashboard/sign-up' } });
+  for (let i = 0; i < 10; i++) await new Promise(r => setImmediate(r));
+  const opened = A.browserOpened || [];
+  t.ok(opened.includes('https://supabase.com/dashboard/sign-up') && !opened.some(u => /evil/.test(u)), 'nút trong hướng dẫn chỉ mở trang supabase.com, từ chối địa chỉ khác');
+}
+
 /* ============================================================ */
 t.group('31. Kích thước ghế trên sơ đồ bàn cố định — không tự phóng to/thu nhỏ theo số ghế của từng bàn');
 {

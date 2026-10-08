@@ -24,6 +24,13 @@ fs.mkdirSync(path.join(ROOT, 'www'), { recursive: true });
 fs.writeFileSync(path.join(ROOT, 'www/index.html'), html);
 console.log(`✓ www/index.html (${Math.round(html.length / 1024)} KB)`);
 
+// Ảnh minh hoạ trong màn "Hướng dẫn liên kết Supabase" — nằm trong APK/AAB nên xem được cả khi mất mạng.
+{
+  const guideSrc = path.join(ROOT, 'src/assets/guide'), guideDst = path.join(ROOT, 'www/guide');
+  fs.rmSync(guideDst, { recursive: true, force: true });
+  if (fs.existsSync(guideSrc)) { fs.cpSync(guideSrc, guideDst, { recursive: true }); console.log(`✓ www/guide (${fs.readdirSync(guideDst).length} ảnh)`); }
+}
+
 // Bản "Google Play" bắt buộc package name RIÊNG (không được trùng bản chuyển khoản — hai bản
 // coi như hai app khác nhau với Google, không thể cùng appId). Luôn tự đặt đúng appId theo
 // billingMode mỗi lần build (không chỉ ghi đè một chiều), để chạy đi chạy lại ở cùng một

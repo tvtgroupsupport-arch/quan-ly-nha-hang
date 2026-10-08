@@ -35,7 +35,7 @@ const tail = `
   hasNewStaffCall, hasNewKitchenTicket, playChime, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
   openQrZoom, closeQrZoom, get qrZoomOpen() { return !!qrZoomEl; }, uploadMenuImage,
   playPurchase, playRestore, vSubscriptionPlay, normalizePlayProducts, playProductId,
-  AutoProv, autoProvCard,
+  AutoProv, autoProvCard, vSupabaseGuide, guideGallery, GUIDE_FIGS,
   get playBusy() { return _playBusy; }, get playProducts() { return _playProducts; },
   buildMenuPageHtml, exportMenuPage, addLog, engineGuard, can, INVITE_PREFIX
 };`;

@@ -22,6 +22,7 @@ export const SOURCE_FILES = [
   'src/cloud/views-cloud.js',
   'src/cloud/play-billing.js',
   'src/cloud/auto-provision.js',
+  'src/cloud/guide-supabase.js',
   'src/web/reports.js',
   'src/web/app.js'
 ];

@@ -20,7 +20,8 @@ const VIEWS = {
   guestPage: vGuestPage, qrPrint: vQrPrint, transferTo: vTransferTo, cashier: vCashier, cashierTable: vCashierTable,
   // đám mây: thiết lập máy, liên kết Supabase, thiết bị, gói cước
   setup: vSetup, ownerAuth: vOwnerAuth, ownerInit: vOwnerInit, ownerLink: vOwnerLink, ownerRestore: vOwnerRestore,
-  restoring: vRestoring, staffJoin: vStaffJoin, cloud: vCloud, pairQr: vPairQr, subscription: vSubscription, locked: vLocked
+  restoring: vRestoring, staffJoin: vStaffJoin, cloud: vCloud, pairQr: vPairQr, subscription: vSubscription, locked: vLocked,
+  supabaseGuide: vSupabaseGuide
 };
 /** Chỉ tài khoản Chủ quán trên máy chủ quán mới vào được */
 const OWNER_ONLY_ROUTES = ['subscription', 'pairQr', 'ownerLink'];
@@ -75,7 +76,7 @@ function screenPerm(name) {
 function render() {
   // 1. Máy chưa thiết lập / đang chờ tải dữ liệu lần đầu
   if (!Cloud.role && !FREE_ROUTES.includes(route.name)) route = { name: 'setup', params: {} };
-  const SETUP_FLOW = ['restoring', 'setup', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'staffJoin'];
+  const SETUP_FLOW = ['restoring', 'setup', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'staffJoin', 'supabaseGuide'];
   if (Cloud.role && !(D && D.staff && D.staff.length) && !SETUP_FLOW.includes(route.name)) route = { name: 'restoring', params: {} };
   // 2. Chưa đăng nhập vào app
   if (!ME && !FREE_ROUTES.includes(route.name)) route = { name: 'login', params: {} };
