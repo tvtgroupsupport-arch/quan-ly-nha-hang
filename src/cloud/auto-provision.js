@@ -63,7 +63,17 @@ const AutoProv = (() => {
       if (r.state === 'error') throw new Error(r.message || 'Có lỗi xảy ra');
       if (r.state === 'done') {
         set({ phase: 'linking', message: 'Đang liên kết và đồng bộ dữ liệu…', step: r.step || 8, total: r.total || 8 });
-        await Cloud.linkStoreAsOwner({ url: r.url, anonKey: r.anon_key, email, password });
+        // Kho vừa tạo: tên miền của nó có thể chưa kịp lan ra mạng → lỗi mạng thì thử nối lại vài lần (tối đa ~40 giây)
+        // trước khi báo lỗi. Lỗi khác (sai mật khẩu, thiếu quyền…) báo ngay, không thử lại.
+        for (let attempt = 0; ; attempt++) {
+          try { await Cloud.linkStoreAsOwner({ url: r.url, anonKey: r.anon_key, email, password }); break; }
+          catch (err) {
+            const net = /Không kết nối được mạng|Failed to fetch|NetworkError|Load failed/i.test(String((err && err.message) || err));
+            if (!net || attempt >= 8) throw err;
+            set({ phase: 'linking', message: 'Kho dữ liệu vừa tạo đang được công bố trên mạng, đang thử nối lại…' });
+            await sleep(delays.work);
+          }
+        }
         Cloud.ownerPw = null;
         set({ phase: 'idle', message: '' });
         toast('Đã tạo và liên kết kho dữ liệu của quán');

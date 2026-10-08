@@ -907,6 +907,20 @@ t.group('30c. Tự tạo Supabase cho quán — mở trang uỷ quyền, hỏi t
   await A.AutoProv.start('');
   t.ok(A.AutoProv.status().phase === 'error' && called.length === 0, 'không nhập mật khẩu → báo lỗi, chưa gọi máy chủ');
 
+  // 3b) Kho vừa tạo, tên miền chưa kịp lan ra mạng: nối lại thất bại vài lần vì lỗi mạng rồi mới được → app tự thử lại, không báo lỗi
+  let linkTries = 0, linkedAfterRetry = null;
+  A.Cloud.linkStoreAsOwner = async (args) => { linkTries++; if (linkTries <= 3) throw new Error('Không kết nối được mạng'); linkedAfterRetry = args; return { ok: true }; };
+  A.route = { name: 'ownerLink', params: {} };
+  A.fetchImpl = async (url) => ({ ok: true, json: async () => (url.endsWith('provision-start') ? { resume: true } : { state: 'done', step: 8, total: 8, url: 'https://moi.supabase.co', anon_key: 'k.anon.key' }) });
+  await A.AutoProv.start('mat-khau-dung');
+  t.ok(linkTries === 4 && linkedAfterRetry && linkedAfterRetry.url === 'https://moi.supabase.co' && A.AutoProv.status().phase !== 'error',
+    'lỗi mạng khi nối kho vừa tạo → app tự thử lại, tới lần thứ 4 thì liên kết thành công');
+  // Lỗi KHÁC mạng (vd. sai mật khẩu) thì báo ngay, không thử lại vô ích
+  linkTries = 0; A.route = { name: 'ownerLink', params: {} };
+  A.Cloud.linkStoreAsOwner = async () => { linkTries++; throw new Error('Sai mật khẩu'); };
+  await A.AutoProv.start('mat-khau-dung');
+  t.ok(linkTries === 1 && A.AutoProv.status().phase === 'error' && /Sai mật khẩu/.test(A.AutoProv.status().message), 'lỗi không phải do mạng → báo ngay, chỉ thử đúng 1 lần');
+
   // 4) Đã có sẵn kho dữ liệu liên kết (máy chủ trả 409) → báo rõ, không tạo thêm
   A.fetchImpl = async () => ({ ok: false, status: 409, json: async () => ({ error: 'Tài khoản này đã liên kết Supabase của quán rồi' }) });
   await A.AutoProv.start('mat-khau-dung');

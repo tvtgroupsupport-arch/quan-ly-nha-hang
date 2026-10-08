@@ -28,7 +28,19 @@ const MESSAGES: Record<string, string> = {
   sql_ok: 'Đang bật cấu hình đăng nhập…',
   done: 'Hoàn tất',
 };
-const MAX_ATTEMPTS = 40;   // ~40 lần chờ x 5 giây của app ≈ 3–4 phút cho một bước
+const MAX_ATTEMPTS = 40;
+/** Phiên done cũ hơn mốc này mới kiểm tra kho còn sống không (tránh báo nhầm do DNS của dự án vừa tạo chưa kịp lan ra). */
+const RECHECK_AFTER_MS = 10 * 60 * 1000;
+
+/** Dự án còn tồn tại không? Tên miền không phân giải / 404 = đã bị xoá; có trả lời HTTP bất kỳ (kể cả 401/540) = còn. */
+async function projectAlive(url: string, anonKey: string): Promise<'alive' | 'gone' | 'unknown'> {
+  try {
+    const r = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: anonKey }, signal: AbortSignal.timeout(8000) });
+    return r.status === 404 ? 'gone' : 'alive';
+  } catch (e) {
+    return /dns|resolve|lookup|name or service|no such host|not known/i.test(String((e as Error).message)) ? 'gone' : 'unknown';
+  }
+}   // ~40 lần chờ x 5 giây của app ≈ 3–4 phút cho một bước
 
 const DB_PASS_CHARS = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function randomPassword(n = 28): string {
@@ -52,7 +64,14 @@ Deno.serve(async (req) => {
 
   const save = async (patch: Record<string, unknown>) => {
     Object.assign(job, patch);
-    await admin.from('provision_jobs').update({ ...patch, updated_at: new Date().toISOString() }).eq('owner_id', owner);
+    job.updated_at = new Date().toISOString();
+    await admin.from('provision_jobs').update({ ...patch, updated_at: job.updated_at }).eq('owner_id', owner);
+  };
+  /** Dự án đã bị xoá trên Supabase → xoá phiên để bấm "Tạo tự động" lại sẽ tạo kho MỚI thay vì nối lại kho đã mất. */
+  const gone = async () => {
+    await admin.from('provision_jobs').delete().eq('owner_id', owner);
+    return json({ state: 'error', step: STEP_INDEX[job.state] ?? 0, total: TOTAL_STEPS,
+      message: 'Kho dữ liệu đã tạo trước đó không còn tồn tại (có thể đã bị xoá trên Supabase). Bấm "Tiếp tục / thử lại" để tạo một kho mới.' });
   };
   const reply = (extra: Record<string, unknown> = {}) =>
     json({ state: job.state, step: STEP_INDEX[job.state] ?? 0, total: TOTAL_STEPS, message: MESSAGES[job.state] ?? '', ...extra });
@@ -75,8 +94,14 @@ Deno.serve(async (req) => {
         case 'awaiting_auth':
           return reply();
 
-        case 'done':
+        case 'done': {
+          // Phiên đã xong từ lâu mà chưa được liên kết: kiểm tra kho còn sống không, nếu đã bị xoá thì không trả địa chỉ chết về cho app.
+          const age = Date.now() - Date.parse(job.updated_at ?? '');
+          if (age > RECHECK_AFTER_MS && job.project_url && job.anon_key) {
+            if (await projectAlive(job.project_url, job.anon_key) === 'gone') return await gone();
+          }
           return reply({ url: job.project_url, anon_key: job.anon_key });
+        }
 
         case 'error':
           return json({ state: 'error', step: STEP_INDEX[job.failed_state] ?? 0, total: TOTAL_STEPS, message: job.error ?? 'Có lỗi xảy ra' });
@@ -133,6 +158,7 @@ Deno.serve(async (req) => {
 
         case 'creating': {
           const p = await mg(token, 'GET', `/v1/projects/${job.project_ref}`);
+          if (p.status === 404) return await gone();
           if (!p.ok) {
             if (p.status === 401 || p.status === 403) return await fail(viError(p, 'Đọc trạng thái dự án'));
             return await waiting('chờ dự án khởi động');
