@@ -884,6 +884,26 @@ t.group('30c. Tự tạo Supabase cho quán — mở trang uỷ quyền, hỏi t
   let linkedWith = null;
   A.Cloud.linkStoreAsOwner = async (args) => { linkedWith = args; return { ok: true }; };
 
+  // 0) Lỗi thật đã gặp: gõ mật khẩu xong thì app tra email chạy nền và VẼ LẠI màn hình, xoá mất chữ vừa gõ → bấm nút báo "Nhập mật khẩu trước".
+  //    Vẽ lại phải GIỮ chữ đang gõ và ô đang chọn.
+  {
+    const doc = A.document, origGet = doc.getElementById, origQuery = doc.querySelectorAll;
+    const typed = { id: 'ap_pass', value: 'matkhau-dang-go', selectionStart: 15, setSelectionRange() {} };
+    const fresh = { id: 'ap_pass', value: '', focus() { this.focused = true; }, setSelectionRange() {} };
+    let snapshotTaken = false;
+    Object.defineProperty(typed, 'focused', { value: true, writable: true });
+    doc.querySelectorAll = () => { snapshotTaken = true; return [typed]; };
+    doc.getElementById = (id) => (id === 'ap_pass' && snapshotTaken ? fresh : origGet.call(doc, id));
+    A.route = { name: 'ownerLink', params: {} };
+    const prevActive = Object.getOwnPropertyDescriptor(doc, 'activeElement');
+    Object.defineProperty(doc, 'activeElement', { value: typed, configurable: true });
+    await A.AutoProv.loadEmail();     // việc chạy nền kết thúc → vẽ lại màn hình
+    t.eq(fresh.value, 'matkhau-dang-go', 'vẽ lại màn hình không làm mất mật khẩu đang gõ');
+    t.ok(fresh.focused === true, 'ô đang chọn vẫn được chọn lại sau khi vẽ lại');
+    doc.querySelectorAll = origQuery; doc.getElementById = origGet;
+    if (prevActive) Object.defineProperty(doc, 'activeElement', prevActive); else delete doc.activeElement;
+  }
+
   // 1) Luồng thành công: start → (chờ đồng ý) → (đang làm) → done
   const steps = [
     { state: 'awaiting_auth', step: 1, total: 8, message: 'Đang chờ' },

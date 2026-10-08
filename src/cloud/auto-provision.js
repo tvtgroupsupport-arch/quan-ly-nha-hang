@@ -12,7 +12,23 @@ const AutoProv = (() => {
   const MAX_MS = 15 * 60 * 1000;
 
   const sleep = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());   // 0 = không chờ (dùng trong kiểm thử)
-  const set = (patch) => { st = { ...st, ...patch }; if (typeof render === 'function' && route && route.name === 'ownerLink') render(); };
+  /** Vẽ lại màn Liên kết NHƯNG giữ nguyên chữ người dùng đang gõ (mật khẩu, địa chỉ…) và ô đang chọn. Việc tra email chạy nền xong
+      sau vài giây rồi vẽ lại; nếu vẽ lại trần thì xoá mất mật khẩu vừa gõ → bấm nút báo "Nhập mật khẩu trước" dù đã nhập. */
+  function rerender() {
+    if (typeof render !== 'function' || !route || route.name !== 'ownerLink') return;
+    let snap = [];
+    try {
+      snap = [...document.querySelectorAll('input[id], textarea[id]')].map(e => ({ id: e.id, v: e.value, focus: document.activeElement === e, pos: e.selectionStart }));
+    } catch (e) { /* môi trường không có DOM thật (kiểm thử) */ }
+    render();
+    try {
+      for (const x of snap) {
+        const n = document.getElementById(x.id);
+        if (n && x.v && !n.value) { n.value = x.v; if (x.focus) { n.focus(); try { n.setSelectionRange(x.pos, x.pos); } catch (e) {} } }
+      }
+    } catch (e) {}
+  }
+  const set = (patch) => { st = { ...st, ...patch }; rerender(); };
 
   /** Gọi một Edge Function provision-* bằng chính phiên đăng nhập chủ quán hiện tại. */
   async function call(name) {
@@ -50,7 +66,7 @@ const AutoProv = (() => {
       set({ phase: 'error', message: String((e && e.message) || e || 'Không tạo được — thử lại') });
     } finally {
       running = false;
-      if (typeof render === 'function' && route && route.name === 'ownerLink') render();
+      rerender();
     }
   }
 
