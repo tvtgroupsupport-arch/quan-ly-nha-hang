@@ -30,6 +30,7 @@ jobs:
           GUEST_PAGE_URL: ${{ vars.GUEST_PAGE_URL }}
           BILLING_MODE: play
           PLAY_APP_ID: ${{ vars.PLAY_APP_ID }}
+          APP_NAME: ${{ vars.APP_NAME }}
 
       - name: Thêm nền tảng Android
         run: test -d android || npx cap add android
@@ -59,6 +60,7 @@ jobs:
           GUEST_PAGE_URL: ${{ vars.GUEST_PAGE_URL }}
           BILLING_MODE: play
           PLAY_APP_ID: ${{ vars.PLAY_APP_ID }}
+          APP_NAME: ${{ vars.APP_NAME }}
 
       # Có khoá ký (secrets.ANDROID_KEYSTORE_BASE64) → build bản .aab đã ký, tải thẳng lên Play
       # Console được luôn. Chưa có khoá → build bản .apk debug để BẠN TỰ XEM GIAO DIỆN cho biết,

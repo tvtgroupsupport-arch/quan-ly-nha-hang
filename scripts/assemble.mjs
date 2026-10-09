@@ -53,6 +53,8 @@ export function readConfig() {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
     cfg.buildVersion = `${run}${now}${sha}`;
   }
+  // Tên hiển thị của app dưới biểu tượng trên điện thoại (đặt bằng biến APP_NAME trên GitHub hoặc trường appName trong app.config.json; để trống = mặc định).
+  cfg.appName = (process.env.APP_NAME || cfg.appName || '').trim();
   cfg.playAppId = process.env.PLAY_APP_ID || cfg.playAppId || 'vn.quanly.nhahang.play';
   return cfg;
 }
