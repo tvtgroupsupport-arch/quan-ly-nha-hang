@@ -22,6 +22,7 @@ function syncBannerHtml() {
   if (s.status === 'offline') { msg = 'Đang offline — thay đổi được lưu trên máy và tự đồng bộ khi có mạng'; bg = 'var(--amber)'; }
   else if (s.status === 'error' || s.status === 'auth') { msg = 'Đồng bộ lỗi: ' + s.lastError; bg = 'var(--red)'; }
   if (!msg) return '';
+  if (s.status === 'auth' && Cloud.role === 'owner') return `<button data-go="cloud" style="display:block;width:100%;border:0;background:${bg};color:#fff;padding:7px 14px;font-size:12px;font-weight:600;text-align:center">${esc(msg)} — bấm để đăng nhập lại</button>`;
   return `<div style="background:${bg};color:#fff;padding:7px 14px;font-size:12px;font-weight:600;text-align:center">${esc(msg)}</div>`;
 }
 function syncBanner() { return `<div id="syncbar">${syncBannerHtml()}</div>`; }
@@ -199,6 +200,11 @@ function vCloud() {
           <div class="row" style="gap:8px;margin-top:10px"><button class="btn sm ghost" data-act="c_syncNow" style="flex:1">Đồng bộ ngay</button><button class="btn sm ghost" data-act="c_diag" style="flex:1">Chẩn đoán</button></div>`
           : `<div class="t-xs" style="line-height:1.6">Máy này đang dùng dữ liệu riêng, chưa chia sẻ với thiết bị nào.</div>`}
       </div>
+      ${isOwner && s.status === 'auth' ? `<div class="card" style="border-color:var(--red);gap:8px">
+        <div class="t-md" style="color:var(--red)">Cần đăng nhập lại vào kho dữ liệu</div>
+        <div class="t-xs" style="line-height:1.7">Phiên đăng nhập vào kho đã hết nên chưa gửi được dữ liệu. Nhập <b>mật khẩu lưu trữ</b> (mật khẩu bạn đặt lúc tạo tài khoản lưu trữ dữ liệu) để đồng bộ tiếp — <b>dữ liệu trên máy không mất</b>.</div>
+        <input class="input" id="rl_pass" type="password" placeholder="Mật khẩu lưu trữ" autocomplete="current-password">
+        <button class="btn pri" data-act="c_relogin">Đăng nhập lại</button></div>` : ''}
       ${s.conflicts.length ? `<div class="sec">Cần kiểm tra</div><div class="card">${s.conflicts.slice(0, 5).map(c =>
         `<div class="t-xs" style="margin-bottom:6px;color:var(--red)">⚠ ${esc(c.reason || 'Xung đột dữ liệu')} <span class="muted">(${esc(fmtTime(c.at))})</span></div>`).join('')}</div>` : ''}
       ${isOwner && !linked ? (Cloud.localMode ? upgradeCardHtml() : `<button class="btn pri" data-go="ownerLink">Liên kết Supabase của quán</button>`) : ''}
@@ -240,12 +246,19 @@ function upgradeCardHtml() {
    Chạy lần lượt từng bước kiểm tra (mạng → kho dữ liệu → đăng nhập → quyền → số bản ghi → gói cước → Google Play), mỗi bước có
    thời hạn 15 giây và báo ✓/✗ kèm lý do. Chủ quán chụp màn hình hoặc sao chép báo cáo gửi cho nhà phát triển khi đồng bộ/gói cước lỗi. */
 const _withTimeout = (p, ms) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error('Quá ' + Math.round(ms / 1000) + ' giây không trả lời')), ms); })]).finally(() => clearTimeout(t)); };
+/** Lỗi PostgREST có thể rỗng message (vd. yêu cầu HEAD) — ghép thêm details/hint/mã/trạng thái để không hiện "[object Object]" */
+function fmtErr(e) {
+  if (!e) return 'lỗi không rõ';
+  const parts = [e.message || e.msg || e.error_description || e.details || e.hint].filter(Boolean);
+  if (!parts.length) { try { parts.push(JSON.stringify(e)); } catch (x) { parts.push(String(e)); } }
+  return parts.join(' — ') + (e.code ? ' [' + e.code + ']' : '') + (e.status ? ' (HTTP ' + e.status + ')' : '');
+}
 async function diagnoseAll() {
   const out = [];
   const step = async (name, fn) => {
     const t0 = Date.now();
     try { const info = await _withTimeout(Promise.resolve().then(fn), 15000); out.push({ name, ok: true, ms: Date.now() - t0, info: String(info == null ? '' : info) }); }
-    catch (e) { out.push({ name, ok: false, ms: Date.now() - t0, info: String((e && (e.message || e.msg)) || e) + (e && e.code ? ' [' + e.code + ']' : '') }); }
+    catch (e) { out.push({ name, ok: false, ms: Date.now() - t0, info: fmtErr(e) }); }
   };
   await step('Mạng', async () => { if (!(await NativeBridge.network.get())) throw new Error('không có mạng'); return 'có mạng'; });
   await step('Kho dữ liệu của quán (Supabase)', async () => {
@@ -607,15 +620,24 @@ function cloudAct(el) {
 
     case 'c_diag': {
       sheet('Chẩn đoán đồng bộ & gói cước', `<div id="diagBox" class="t-xs" style="line-height:1.7">Đang kiểm tra từng bước…</div>
+        <div id="diagFix"></div>
         <button class="btn ghost" data-act="c_diagCopy" style="margin-top:12px">Sao chép báo cáo</button>
         <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Đóng</button>`);
       diagnoseAll().then(steps => {
         window._diagText = diagText(steps);
         const box = document.getElementById('diagBox');
+        const fix = document.getElementById('diagFix');
+        if (fix && steps.find(s => !s.ok && s.name.includes('Phiên đăng nhập vào kho'))) fix.innerHTML = '<div class="gd-box warn"><b>Nguyên nhân:</b> máy mất phiên đăng nhập vào kho dữ liệu nên các hàm bị từ chối (permission denied). Chủ quán đăng nhập lại bằng mật khẩu lưu trữ — dữ liệu trên máy không mất.</div><button class="btn pri" data-act="c_diagFix">Đăng nhập lại vào kho</button>';
         if (box) box.innerHTML = steps.map(s => `<div style="margin-bottom:8px;color:${s.ok ? 'var(--green)' : 'var(--red)'}"><b>${s.ok ? '✓' : '✗'} ${esc(s.name)}</b> <span class="muted">(${s.ms}ms)</span><br><span style="word-break:break-word">${esc(s.info)}</span></div>`).join('');
       });
       return true;
     }
+    case 'c_relogin': busy(async () => {
+      await Cloud.reloginStore(val('rl_pass'));
+      toast('Đã đăng nhập lại — đang đồng bộ');
+      await Sync.syncNow(); render();
+    }); return true;
+    case 'c_diagFix': { closeSheet(); go('cloud', {}); return true; }
     case 'c_diagCopy': { NativeBridge.copy(window._diagText || '').then(() => toast('Đã sao chép báo cáo — dán gửi cho nhà phát triển')); return true; }
     case 'c_syncNow': busy(async () => { await Sync.syncNow(); if (route.name === 'cloud') render(); }); return true;
 

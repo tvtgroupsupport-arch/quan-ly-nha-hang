@@ -20,6 +20,14 @@ const Cloud = (() => {
     });
   }
 
+  /** Thay client kho: dừng tự làm mới phiên của client cũ — hai client cùng khoá lưu 'sb-store' cùng làm mới một refresh token sẽ làm Supabase
+      thu hồi cả phiên (phát hiện dùng lại token) → máy mất phiên đăng nhập, gọi hàm bằng quyền ẩn danh và báo "permission denied". */
+  function setStore(client) {
+    const old = C.store;
+    if (old && old !== client) { try { old.auth.stopAutoRefresh(); } catch (e) {} try { old.removeAllChannels(); } catch (e) {} }
+    C.store = client;
+  }
+
   /** Đổi lỗi kỹ thuật của Supabase sang câu tiếng Việt dễ hiểu */
   function friendly(e) {
     const m = (e && (e.message || e.msg)) || String(e);
@@ -126,7 +134,7 @@ const Cloud = (() => {
     const sv = await central().rpc('save_store_link', { p_url: url, p_anon: anonKey });
     if (sv.error) throw new Error(friendly(sv.error));
 
-    C.store = client;
+    setStore(client);
     await saveCfg({ role: 'owner', storeUrl: url, storeAnon: anonKey, local: false });
     Records.codeTag = '';
     // Gửi toàn bộ dữ liệu đang có lên Supabase
@@ -155,7 +163,7 @@ const Cloud = (() => {
     const st = await client.rpc('store_status');
     if (st.error) throw new Error(friendly(st.error));
     if (!st.data.is_owner) throw new Error('Tài khoản này không phải chủ của dự án Supabase đã liên kết');
-    C.store = client;
+    setStore(client);
     await Persist.wipe();
     D = emptyD();
     await saveCfg({ role: 'owner', storeUrl: link.url, storeAnon: link.anon_key, local: false });
@@ -196,7 +204,7 @@ const Cloud = (() => {
     const rd = await client.rpc('redeem_pairing_ticket', { p_token: inv.t, p_device_name: deviceName || 'Máy nhân viên' });
     if (rd.error) throw new Error(friendly(rd.error));
     const uid = rd.data.device_id || '';
-    C.store = client;
+    setStore(client);
     await Persist.wipe();
     D = emptyD();
     await saveCfg({ role: 'staff', storeUrl: inv.u, storeAnon: inv.k, deviceId: uid,
@@ -207,6 +215,23 @@ const Cloud = (() => {
     Sync.start();
     return { ok: true };
   }
+
+/** Chủ quán đăng nhập lại vào kho khi phiên đã mất (Sync báo status 'auth'): dùng email của tài khoản lưu trữ + MẬT KHẨU LƯU TRỮ. Dữ liệu trên máy giữ nguyên. */
+  async function reloginStore(password) {
+    if (C.role !== 'owner' || !C.store) throw new Error('Chỉ máy chủ quán đã liên kết kho mới đăng nhập lại được');
+    const email = await centralEmail();
+    if (!email) throw new Error('Phiên đăng nhập tài khoản lưu trữ đã hết — vào Đồng bộ → đăng nhập lại tài khoản lưu trữ');
+    const r = await C.store.auth.signInWithPassword({ email, password: String(password || '') });
+    if (r.error) {
+      if (/Invalid login credentials/i.test(r.error.message)) throw new Error('Sai mật khẩu lưu trữ — đó là mật khẩu bạn đặt lúc tạo tài khoản lưu trữ dữ liệu, không phải mật khẩu đăng nhập app');
+      throw new Error(friendly(r.error));
+    }
+    const st = await C.store.rpc('store_status');
+    if (st.error) throw new Error(friendly(st.error));
+    if (!st.data.is_owner) throw new Error('Tài khoản này không phải chủ của dự án Supabase đã liên kết');
+    return { ok: true };
+  }
+  async function hasStoreSession() { try { const { data } = await C.store.auth.getSession(); return !!(data && data.session); } catch (e) { return false; } }
 
   async function listDevices() {
     const { data, error } = await C.store.from('staff_devices').select('*').order('created_at', { ascending: false });
@@ -272,6 +297,6 @@ const Cloud = (() => {
     init, saveCfg, central, friendly,
     ownerSignUp, ownerSignIn, centralEmail, getStoreLink, discardStoreLink,
     linkStoreAsOwner, restoreOwner, createInvite, parseInvite, joinAsStaff,
-    listDevices, revokeDevice, deleteDevice, unlinkAll, unlinkAndDetach, deleteAccount, onRevoked
+    reloginStore, hasStoreSession, listDevices, revokeDevice, deleteDevice, unlinkAll, unlinkAndDetach, deleteAccount, onRevoked
   };
 })();

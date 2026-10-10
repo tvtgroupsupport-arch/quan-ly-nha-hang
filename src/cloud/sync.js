@@ -62,6 +62,9 @@ const Sync = (() => {
 
   /** Xác nhận máy này còn quyền; phát hiện máy bị thu hồi */
   async function checkAccess() {
+    if (Cloud.role === 'owner' && !(await Cloud.hasStoreSession())) {      // mất phiên đăng nhập vào kho: báo rõ thay vì để mọi hàm bị "permission denied"
+      const e = new Error('Phiên đăng nhập vào kho đã hết — nhập lại mật khẩu lưu trữ để đồng bộ tiếp'); e.authLost = true; throw e;
+    }
     const { data, error } = await Cloud.store.rpc('store_status');
     if (error) throw error;
     if (Cloud.role === 'owner' && !data.is_owner) {
@@ -199,6 +202,10 @@ const Sync = (() => {
       return Promise.resolve().then(() => Cloud.onRevoked()).catch(() => {});
     }
     if (e && e.fatal) { S.status = 'error'; S.lastError = msg; return; }
+    if (Cloud.role === 'owner' && e && (e.authLost || (e.code === '42501' && /permission denied for function/i.test(msg)))) {
+      S.status = 'auth'; S.lastError = 'Phiên đăng nhập vào kho đã hết — nhập lại mật khẩu lưu trữ để đồng bộ tiếp';
+      kick(60000); return;                                                  // dữ liệu chờ gửi vẫn giữ nguyên trên máy
+    }
     if (e && e.timeout) { S.status = 'error'; S.lastError = msg; fails++; kick(Math.min(60000, 4000 * Math.pow(2, Math.min(fails, 4)))); return; }
     if (/Failed to fetch|NetworkError|Load failed|network|fetch/i.test(msg) && !(e && e.code)) {
       S.status = 'offline'; S.lastError = ''; fails++;
