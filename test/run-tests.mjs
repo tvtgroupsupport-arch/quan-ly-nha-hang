@@ -1371,6 +1371,89 @@ t.group('33. In hoá đơn: bố cục ảnh 58/80mm, máy in Bluetooth, PDF d�
   t.eq(A.modelFromOrder(ord).address, '12 Nguyễn Huệ', 'địa chỉ quán (nhập ở Thông tin nhà hàng) in ở đầu hoá đơn');
 }
 
+t.group('34. Bắt đầu dùng ngay (không cần email/tài khoản): chạy hoàn toàn trên máy, dùng thử 14 ngày, nâng cấp đồng bộ sau mà không mất dữ liệu');
+{
+  const w = newWorld(); const A = await newDevice(w, 'dung-ngay');
+  t.eq(A.route.name, 'setup', 'máy mới → màn thiết lập');
+  let html = A.VIEWS.setup();
+  t.ok(html.includes('data-go="quickStart"') && html.indexOf('data-go="quickStart"') < html.indexOf('data-go="ownerAuth"'), 'lựa chọn "Bắt đầu dùng ngay" nằm đầu tiên, trước đăng nhập tài khoản');
+  t.ok(A.VIEWS.quickStart().includes('qs_shop') && !A.VIEWS.quickStart().includes('oa_email'), 'màn bắt đầu chỉ hỏi tên quán + mật khẩu — không hỏi email');
+
+  // kiểm tra nhập liệu
+  const run = async () => { A.lastToast = null; A.handleAct({ dataset: { act: 'c_quickStartGo' } }); await A.until(() => A.ME || A.lastToast, 8000); await new Promise(r => setTimeout(r, 30)); };
+  A.setInput('qs_shop', ''); A.setInput('qs_pass', 'abcdef'); A.setInput('qs_pass2', 'abcdef'); await run();
+  t.ok(!A.Cloud.role, 'thiếu tên quán → không tạo gì');
+  A.setInput('qs_shop', 'Quán Sen'); A.setInput('qs_pass', 'abc'); A.setInput('qs_pass2', 'abc'); await run();
+  t.ok(!A.Cloud.role, 'mật khẩu quá ngắn → không tạo gì');
+  A.setInput('qs_pass', 'abcdef'); A.setInput('qs_pass2', 'khacnhau'); await run();
+  t.ok(!A.Cloud.role, 'hai mật khẩu không khớp → không tạo gì');
+
+  // bắt đầu thật
+  A.setInput('qs_pass2', 'abcdef'); A.setInput('qs_name', 'Chị Hoa'); A.inputs.qs_sample = { checked: true, value: '' }; await run();
+  t.eq(A.Cloud.role, 'owner', 'tạo xong: máy này là máy gốc của chủ quán');
+  t.ok(A.Cloud.localMode && !A.Cloud.linked, 'đang ở chế độ dùng ngay (chưa có tài khoản, chưa đồng bộ)');
+  t.ok(A.ME && A.ME.role === 'Chủ quán' && A.ME.name === 'Chị Hoa', 'vào thẳng app, đã đăng nhập (không bắt đăng nhập lại)');
+  t.ok(A.route.name !== 'setup' && A.route.name !== 'login', 'màn hiện tại là màn làm việc: ' + A.route.name);
+  t.eq(A.D.restaurant.name, 'Quán Sen', 'tên quán đã lưu');
+  t.ok(A.D.tables.length > 0 && A.D.menu.length > 0, 'có dữ liệu mẫu để thử ngay');
+  t.eq(w.central.users.size, 0, 'KHÔNG tạo tài khoản nào ở máy chủ trung tâm (không cần email)');
+  const st = A.License.status();
+  t.ok(st.kind === 'trial' && st.daysLeft >= 13 && st.daysLeft <= 14 && !st.locked, 'dùng thử 14 ngày, tính trên máy (còn ' + st.daysLeft + ' ngày)');
+  t.ok(A.D.license && A.D.license.expires_at === st.expiresAt, 'hạn dùng thử cũng nằm trong dữ liệu quán (để máy nhân viên biết sau này)');
+
+  // dùng bình thường khi offline
+  const tb = A.D.tables[0];
+  const o = await A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: A.D.menu[0].id, qty: 1 }] } });
+  t.ok(!!o.id, 'gọi món được ngay, không cần mạng');
+
+  // màn hình trong chế độ dùng ngay
+  A.route = { name: 'cloud', params: {} }; html = A.VIEWS.cloud();
+  t.ok(html.includes('c_upgradeStart') && !html.includes('c_inviteNew'), 'màn Đồng bộ mời bật đồng bộ; chưa có nút thêm máy nhân viên');
+  A.route = { name: 'admin', params: {} }; t.ok(A.VIEWS.admin().includes('Chưa bật'), 'màn Quản lý hiện đồng bộ "Chưa bật"');
+  A.route = { name: 'subscription', params: {} }; html = A.VIEWS.subscription();
+  t.ok(html.includes('c_upgradeStart') && !html.includes('c_playBuy') && !html.includes('c_planPick'), 'màn Gói cước: cần tạo tài khoản mới mua/gia hạn được');
+
+  // dùng thử hết hạn → khoá mềm như thường (máy riêng, vì đồng hồ chỉ tiến không lùi)
+  {
+    const wE = newWorld(); const E = await newDevice(wE, 'het-han');
+    E.setInput('qs_shop', 'Quán Hết Hạn'); E.setInput('qs_pass', 'abcdef'); E.setInput('qs_pass2', 'abcdef');
+    E.handleAct({ dataset: { act: 'c_quickStartGo' } }); await E.until(() => E.ME, 8000);
+    t.ok(!E.License.locked(), 'vừa bắt đầu → chưa khoá');
+    E.clockOffset = 15 * 86400000;
+    t.ok(E.License.locked(), 'sau 14 ngày dùng thử hết hạn → khoá');
+    E.route = { name: 'subscription', params: {} }; E.render();
+    t.eq(E.route.name, 'subscription', 'khi khoá vẫn vào được màn Gói cước (để tạo tài khoản gia hạn)');
+  }
+
+  // làm lại quán không "làm mới" 14 ngày (mốc nhớ ngoài bộ nhớ dữ liệu)
+  const exp0 = A.License.status().expiresAt;
+  A.License.startLocalTrial(14);
+  t.eq(A.License.status().expiresAt, exp0, 'bắt đầu lại không kéo dài thêm hạn dùng thử');
+
+  // nâng cấp: tạo tài khoản + liên kết kho, GIỮ dữ liệu
+  const ordersBefore = A.D.orders.length, tablesBefore = A.D.tables.length;
+  A.handleAct({ dataset: { act: 'c_upgradeStart' } });
+  t.eq(A.route.name, 'ownerAuth', 'bấm "Tạo tài khoản & bật đồng bộ" → màn tạo tài khoản');
+  A.setInput('oa_email', 'chu@sen.vn'); A.setInput('oa_pass', 'matkhau1'); A.setInput('oa_shop', 'Quán Sen');
+  A.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'signup' } });
+  await A.until(() => A.route.name === 'ownerLink', 8000);
+  t.eq(A.route.name, 'ownerLink', 'tạo tài khoản xong → sang bước liên kết kho (KHÔNG hỏi lại thông tin quán, không tạo lại dữ liệu)');
+  t.eq(w.central.users.size, 1, 'lúc này mới có tài khoản ở máy chủ trung tâm');
+  await A.Cloud.linkStoreAsOwner({ url: STORE_URL, anonKey: ANON, email: 'chu@sen.vn', password: 'matkhau1' });
+  await A.sync();
+  t.ok(A.Cloud.linked && !A.Cloud.localMode, 'liên kết xong: đã đồng bộ đám mây, hết chế độ dùng ngay');
+  t.ok(A.D.orders.length === ordersBefore && A.D.tables.length === tablesBefore && A.D.restaurant.name === 'Quán Sen', 'toàn bộ dữ liệu đang có được giữ nguyên');
+  t.ok(!A.License.status().locked, 'gói cước chuyển sang gói của tài khoản mới (dùng thử máy chủ)');
+  A.route = { name: 'cloud', params: {} }; html = A.VIEWS.cloud();
+  t.ok(html.includes('c_inviteNew') && !html.includes('c_upgradeStart'), 'giờ có nút thêm máy nhân viên');
+  // máy mới của chủ quán khôi phục được dữ liệu vừa đưa lên
+  const B = await newDevice(w, 'may-moi');
+  await B.Cloud.ownerSignIn('chu@sen.vn', 'matkhau1');
+  await B.Cloud.restoreOwner({ email: 'chu@sen.vn', password: 'matkhau1' });
+  await B.sync();
+  t.ok(B.D.orders.some(x => x.id === o.id), 'đổi máy: dữ liệu đã dùng từ chế độ "dùng ngay" khôi phục đầy đủ trên máy mới');
+}
+
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {
   const src = fs.readFileSync(new URL('../src/cloud/views-cloud.js', import.meta.url), 'utf8');

@@ -127,7 +127,7 @@ const Cloud = (() => {
     if (sv.error) throw new Error(friendly(sv.error));
 
     C.store = client;
-    await saveCfg({ role: 'owner', storeUrl: url, storeAnon: anonKey });
+    await saveCfg({ role: 'owner', storeUrl: url, storeAnon: anonKey, local: false });
     Records.codeTag = '';
     // Gửi toàn bộ dữ liệu đang có lên Supabase
     await Persist.flush();
@@ -267,6 +267,8 @@ const Cloud = (() => {
     get role() { return C.role; }, get store() { return C.store; }, get cfg() { return C.cfg; },
     get ownerPw() { return C.ownerPw; }, set ownerPw(v) { C.ownerPw = v; },
     get linked() { return !!(C.store && C.role); },
+    /** Chế độ dùng ngay: máy chủ quán chạy hoàn toàn trên máy, chưa có tài khoản BEPO và chưa đồng bộ đám mây */
+    get localMode() { return !!(C.role === 'owner' && C.cfg.local && !C.store); },
     init, saveCfg, central, friendly,
     ownerSignUp, ownerSignIn, centralEmail, getStoreLink, discardStoreLink,
     linkStoreAsOwner, restoreOwner, createInvite, parseInvite, joinAsStaff,

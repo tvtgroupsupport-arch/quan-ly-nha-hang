@@ -86,6 +86,7 @@ async function playSyncPurchases(force) {
 
 /** Làm mới gói cước: đồng bộ giao dịch Google Play (bản Google Play) rồi hỏi lại hạn từ máy chủ. */
 async function refreshLicenseWithPlay(force) {
+  if (typeof Cloud !== 'undefined' && Cloud.localMode) return License.status();   // chưa có tài khoản BEPO: gói dùng thử tính trên máy, không hỏi máy chủ
   if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.billingMode === 'play') await playSyncPurchases(force);
   await License.refresh(!!force);
 }

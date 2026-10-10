@@ -93,7 +93,7 @@ const AutoProv = (() => {
         Cloud.ownerPw = null;
         set({ phase: 'idle', message: '' });
         toast('Đã tạo và liên kết kho dữ liệu của quán');
-        route = { name: 'login', params: {} }; render();
+        route = { name: ME ? 'cloud' : 'login', params: {} }; render();
         return;
       }
       set({ phase: r.state === 'awaiting_auth' ? 'waiting' : 'working', message: r.message || '', step: r.step || st.step, total: r.total || st.total });

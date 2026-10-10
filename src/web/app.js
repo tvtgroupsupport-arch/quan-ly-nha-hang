@@ -21,7 +21,7 @@ const VIEWS = {
   // đám mây: thiết lập máy, liên kết Supabase, thiết bị, gói cước
   setup: vSetup, ownerAuth: vOwnerAuth, ownerInit: vOwnerInit, ownerLink: vOwnerLink, ownerRestore: vOwnerRestore,
   restoring: vRestoring, staffJoin: vStaffJoin, cloud: vCloud, pairQr: vPairQr, subscription: vSubscription, locked: vLocked,
-  supabaseGuide: vSupabaseGuide, lang: vLang
+  supabaseGuide: vSupabaseGuide, quickStart: vQuickStart, lang: vLang
 };
 /** Chỉ tài khoản Chủ quán trên máy chủ quán mới vào được */
 const OWNER_ONLY_ROUTES = ['subscription', 'pairQr', 'ownerLink'];
@@ -95,7 +95,7 @@ function render() {
   if (route.name === 'lang') { document.getElementById('app').innerHTML = vLang(); return; }
   // 1. Máy chưa thiết lập / đang chờ tải dữ liệu lần đầu
   if (!Cloud.role && !FREE_ROUTES.includes(route.name)) route = { name: 'setup', params: {} };
-  const SETUP_FLOW = ['restoring', 'setup', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'staffJoin', 'supabaseGuide'];
+  const SETUP_FLOW = ['restoring', 'quickStart', 'setup', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'staffJoin', 'supabaseGuide'];
   if (Cloud.role && !(D && D.staff && D.staff.length) && !SETUP_FLOW.includes(route.name)) route = { name: 'restoring', params: {} };
   // 2. Chưa đăng nhập vào app
   if (!ME && !FREE_ROUTES.includes(route.name)) route = { name: 'login', params: {} };

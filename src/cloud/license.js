@@ -70,5 +70,16 @@ const License = (() => {
     if (s.state === 'expired') return `${kind} — đã hết hạn`;
     return `${kind} — còn ${s.daysLeft} ngày (hết hạn ${new Date(s.expiresAt).toLocaleDateString('vi-VN')})`;
   }
-  return { load, now, status, locked, refresh, describe, current };
+  /** Dùng ngay không cần tài khoản: gói dùng thử 14 ngày TÍNH TRÊN MÁY. Mốc bắt đầu nhớ riêng ngoài bộ nhớ dữ liệu app nên xoá dữ liệu/làm lại quán
+      không "làm mới" được 14 ngày (chỉ xoá hẳn dữ liệu ứng dụng hoặc cài lại mới mất mốc — đây là rào cản cơ bản, không chống crack). */
+  function startLocalTrial(days) {
+    const t = Date.now(); let start = t;
+    try { const s = Number(localStorage.getItem('bepo_trial_start')); if (s > 0 && s <= t) start = s; else localStorage.setItem('bepo_trial_start', String(t)); } catch (e) {}
+    own = { plan_months: 0, status: 'trial', expires_at: start + (days || 14) * DAY, started_at: start, checked_at: t, local: true };
+    Persist.setMeta('license', own);
+    const pub = { plan_months: 0, status: 'trial', expires_at: own.expires_at, checked_at: t };
+    if (typeof D !== 'undefined' && D) { D.license = pub; saveD(); }
+    return status();
+  }
+  return { load, now, status, locked, refresh, describe, current, startLocalTrial };
 })();

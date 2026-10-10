@@ -115,7 +115,7 @@ export async function newDevice(world, name, opts = {}) {
   const el = () => ({ style: {}, innerHTML: '', value: '', dataset: {}, appendChild() {}, remove() {}, querySelectorAll: () => [], addEventListener() {}, classList: { toggle() {} } });
   const documentFake = {
     getElementById: id => dev.inputs[id] || (els[id] = els[id] || el()),
-    createElement: () => el(), addEventListener() {}, body: { style: { setProperty(k, v) { this[k] = v; } }, appendChild() {} }, head: { appendChild() {} },
+    createElement: () => el(), addEventListener() {}, body: { style: { setProperty(k, v) { this[k] = v; } }, appendChild(e) { if (e && e.className === 'toast') dev.lastToast = e.textContent; } }, head: { appendChild() {} },
     querySelector: () => null, querySelectorAll: () => [], activeElement: null, hidden: false
   };
   const storage = opts.firstRun ? {} : { lang: 'vi' };   // máy mới đã chọn ngôn ngữ; opts.firstRun = chưa chọn (kiểm thử màn chọn ngôn ngữ)

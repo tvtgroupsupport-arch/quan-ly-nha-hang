@@ -5,7 +5,7 @@
    (handleAct trong app.js gọi cloudAct trước).
    ============================================================ */
 
-const FREE_ROUTES = ['setup', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'staffJoin', 'restoring', 'login', 'supabaseGuide'];
+const FREE_ROUTES = ['setup', 'quickStart', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'staffJoin', 'restoring', 'login', 'supabaseGuide'];
 /** Khi gói cước hết hạn (khoá mềm): chủ quán vẫn xem được báo cáo và gia hạn */
 const LOCK_OK_OWNER = ['locked', 'subscription', 'cloud', 'admin', 'reports', 'history', 'historyDetail', 'exportHub', 'login'];
 const LOCK_OK_STAFF = ['locked', 'login'];
@@ -35,15 +35,36 @@ function vSetup() {
       <div class="t-xs" style="margin-top:4px">Thiết lập thiết bị này</div>
     </div>
     ${notice ? `<div class="card" style="background:var(--amber-soft);border-color:var(--amber)"><div class="t-sm" style="color:var(--amber);line-height:1.6">${esc(notice)}</div></div>` : ''}
+    <button class="card col" data-go="quickStart" style="gap:6px;align-items:flex-start;text-align:left;border-color:var(--accent)">
+      <span class="t-md">Bắt đầu dùng ngay</span>
+      <span class="t-xs" style="line-height:1.5">Quán mới: chỉ cần nhập tên quán và mật khẩu là dùng được ngay, <b>không cần email hay tài khoản</b>. Dùng thử 14 ngày. Muốn đồng bộ nhiều máy hoặc sao lưu thì bật sau.</span>
+    </button>
     <button class="card col" data-go="ownerAuth" style="gap:6px;align-items:flex-start;text-align:left">
-      <span class="t-md">Tôi là chủ quán</span>
-      <span class="t-xs" style="line-height:1.5">Tạo hoặc đăng nhập <b>tài khoản lưu trữ dữ liệu</b> (bằng email) — nơi lưu dữ liệu và gói cước của quán. Máy này sẽ là máy gốc, có toàn quyền.</span>
+      <span class="t-md">Tôi đã có tài khoản BEPO</span>
+      <span class="t-xs" style="line-height:1.5">Đăng nhập <b>tài khoản lưu trữ dữ liệu</b> (bằng email) để khôi phục quán trên máy mới, hoặc tạo tài khoản mới. Máy này sẽ là máy gốc, có toàn quyền.</span>
     </button>
     <button class="card col" data-go="staffJoin" style="gap:6px;align-items:flex-start;text-align:left">
       <span class="t-md">Đây là máy nhân viên</span>
       <span class="t-xs" style="line-height:1.5">Quét mã QR trên máy chủ quán để liên kết. Máy nhân viên chỉ làm được các thao tác vận hành.</span>
     </button>
   </div></div>`;
+}
+
+/* ---------- 1b. Bắt đầu dùng ngay (không cần email/tài khoản; dữ liệu lưu trên máy) ---------- */
+function vQuickStart() {
+  return `<div class="screen">
+    ${hdr('Bắt đầu dùng ngay')}
+    <div class="body">
+      <div class="field"><label class="f">Tên nhà hàng</label><input class="input" id="qs_shop" placeholder="vd. Nhà Hàng Sen Vàng" value="${esc(window._qsShop || '')}"></div>
+      <div class="field"><label class="f">Tên của bạn</label><input class="input" id="qs_name" placeholder="vd. Trần Thu Hà"></div>
+      <div class="field"><label class="f">Mật khẩu đăng nhập app (tối thiểu 6 ký tự)</label><input class="input" id="qs_pass" type="password" autocomplete="new-password"></div>
+      <div class="field"><label class="f">Nhập lại mật khẩu</label><input class="input" id="qs_pass2" type="password" autocomplete="new-password"></div>
+      <label class="card between"><div style="flex:1"><div class="t-md">Nạp dữ liệu mẫu</div><div class="t-xs">Vài bàn, thực đơn và kho để thử ngay. Có thể xoá sau.</div></div>
+        <input type="checkbox" class="switch" id="qs_sample" checked aria-label="Nạp dữ liệu mẫu"></label>
+      <div class="t-xs" style="line-height:1.7">Tên đăng nhập là <b>chuquan</b> (đổi được sau trong mục Nhân viên). Dữ liệu lưu ngay trên điện thoại này và dùng được cả khi không có mạng. Khi cần <b>thêm máy nhân viên</b> hoặc <b>sao lưu lên mạng</b>, vào Quản lý → Đồng bộ dữ liệu để bật (miễn phí, giữ nguyên dữ liệu đang có).</div>
+      <button class="btn pri" data-act="c_quickStartGo">Bắt đầu</button>
+    </div>
+  </div>`;
 }
 
 /* ---------- 2. Tài khoản lưu trữ dữ liệu (email + mật khẩu lưu trữ; KHÁC tài khoản đăng nhập app) ---------- */
@@ -56,7 +77,8 @@ function vOwnerAuth() {
         <button class="btn sm ${mode === 'login' ? 'pri' : ''}" data-go="ownerAuth" data-mode="login" style="flex:1">Đăng nhập</button>
         <button class="btn sm ${mode === 'signup' ? 'pri' : ''}" data-go="ownerAuth" data-mode="signup" style="flex:1">Tạo tài khoản</button>
       </div>
-      ${mode === 'signup' ? `<div class="field"><label class="f">Tên nhà hàng</label><input class="input" id="oa_shop" placeholder="vd. Nhà Hàng Sen Vàng"></div>` : ''}
+      ${Cloud.localMode ? `<div class="card" style="background:var(--blue-soft);border-color:var(--blue)"><div class="t-sm" style="color:var(--blue);line-height:1.6">Bật đồng bộ cho quán đang dùng: <b>toàn bộ dữ liệu hiện có trên máy này sẽ được giữ nguyên</b> và đưa lên mạng để thêm máy nhân viên hoặc khôi phục khi đổi máy.</div></div>` : ''}
+      ${mode === 'signup' ? `<div class="field"><label class="f">Tên nhà hàng</label><input class="input" id="oa_shop" placeholder="vd. Nhà Hàng Sen Vàng" value="${esc(Cloud.localMode ? (DB.restaurant.name || '') : '')}"></div>` : ''}
       <div class="field"><label class="f">Email tài khoản lưu trữ</label><input class="input" id="oa_email" type="email" autocomplete="email" autocapitalize="none" value="${esc(window._ownerEmail || '')}"></div>
       <div class="field"><label class="f">Mật khẩu lưu trữ (tối thiểu 6 ký tự)</label><input class="input" id="oa_pass" type="password" autocomplete="current-password"></div>
       <div class="t-xs" style="line-height:1.6"><b>Tài khoản lưu trữ</b> dùng để lưu dữ liệu quán trên Supabase, quản lý gói cước và khôi phục dữ liệu khi đổi máy. Đây <b>không phải</b> tài khoản đăng nhập vào app bán hàng — tài khoản đó bạn đặt ở bước sau.</div>
@@ -177,7 +199,7 @@ function vCloud() {
       </div>
       ${s.conflicts.length ? `<div class="sec">Cần kiểm tra</div><div class="card">${s.conflicts.slice(0, 5).map(c =>
         `<div class="t-xs" style="margin-bottom:6px;color:var(--red)">⚠ ${esc(c.reason || 'Xung đột dữ liệu')} <span class="muted">(${esc(fmtTime(c.at))})</span></div>`).join('')}</div>` : ''}
-      ${isOwner && !linked ? `<button class="btn pri" data-go="ownerLink">Liên kết Supabase của quán</button>` : ''}
+      ${isOwner && !linked ? (Cloud.localMode ? upgradeCardHtml() : `<button class="btn pri" data-go="ownerLink">Liên kết Supabase của quán</button>`) : ''}
       ${isOwnerDevice() && linked ? `
         <div class="sec">Thiết bị nhân viên</div>
         <button class="btn pri" data-act="c_inviteNew">Thêm thiết bị nhân viên (mã QR)</button>
@@ -201,6 +223,15 @@ async function loadDevices() {
   try { window._devices = await Cloud.listDevices(); } catch (e) { window._devices = []; }
   window._devicesLoading = false;
   if (route.name === 'cloud') render();
+}
+
+/** Thẻ mời bật đồng bộ (chế độ dùng ngay): thêm máy nhân viên + sao lưu, giữ nguyên dữ liệu đang có */
+function upgradeCardHtml() {
+  return `<div class="card" style="background:var(--blue-soft);border-color:var(--blue);gap:8px">
+    <div class="t-md" style="color:var(--blue)">Bật đồng bộ &amp; sao lưu (miễn phí)</div>
+    <div class="t-xs" style="line-height:1.7;color:var(--blue)">Hiện dữ liệu quán chỉ nằm trên điện thoại này — mất máy là mất dữ liệu, và chưa thêm được máy nhân viên. Tạo tài khoản BEPO và liên kết kho dữ liệu để <b>thêm máy nhân viên</b>, <b>sao lưu</b>, <b>khôi phục khi đổi máy</b> và <b>mua gói cước</b>. Toàn bộ dữ liệu đang có được giữ nguyên.</div>
+    <button class="btn pri" data-act="c_upgradeStart" style="margin-top:6px">Tạo tài khoản &amp; bật đồng bộ</button>
+  </div>`;
 }
 
 /* ---------- 8. Mã QR mời thiết bị ---------- */
@@ -236,6 +267,7 @@ function startPairTimer() {
 
 /* ---------- 9. Gói cước ---------- */
 function vSubscription() {
+  if (Cloud.localMode) return vSubscriptionLocal();
   // Bản "Google Play" (xem HUONG-DAN-GOOGLE-PLAY.md) dùng hẳn luồng mua qua Play Billing —
   // bản chuyển khoản tay giữ nguyên như cũ, không đổi gì ở phần dưới của hàm này.
   if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.billingMode === 'play') return vSubscriptionPlay();
@@ -270,6 +302,22 @@ async function loadRequests() {
   if (route.name === 'subscription') render();
 }
 
+/** Gói cước khi dùng ngay chưa có tài khoản: xem hạn dùng thử, cần tạo tài khoản BEPO mới mua/gia hạn được */
+function vSubscriptionLocal() {
+  const st = License.status();
+  const tone = st.state === 'expired' ? 'var(--red)' : st.state === 'expiring' ? 'var(--amber)' : 'var(--green)';
+  return `<div class="screen">
+    ${hdr('Gói cước')}
+    <div class="body">
+      <div class="card" style="border-color:${tone}"><div class="t-md" style="color:${tone}">${esc(License.describe())}</div>
+        <div class="t-xs" style="margin-top:6px">Dùng thử tính trên máy này.</div></div>
+      <div class="card" style="line-height:1.7"><div class="t-sm">Để <b>mua hoặc gia hạn gói</b>, cần tạo tài khoản BEPO (bằng email) — dữ liệu quán trên máy này được giữ nguyên.</div></div>
+      <button class="btn pri" data-act="c_upgradeStart">Tạo tài khoản &amp; bật đồng bộ</button>
+    </div>
+    ${navBar('admin')}
+  </div>`;
+}
+
 /* ---------- 10. Khoá do hết hạn ---------- */
 function vLocked() {
   const owner = Cloud.role !== 'staff';
@@ -298,6 +346,11 @@ const canDetachStore = () => Cloud.role === 'owner' && !!Cloud.linked && (!ME ||
 
 function cloudCardHtml() {
   const linked = Cloud.linked, owner = Cloud.role === 'owner';
+  if (Cloud.localMode) return `<div class="sec">Đồng bộ dữ liệu</div>
+    <button class="card col" data-go="cloud" style="gap:8px;align-items:stretch;text-align:left;border-color:var(--blue)">
+      <div class="between"><span class="t-sm">Đồng bộ</span><span class="badge b-gray">Chưa bật</span></div>
+      <div class="t-xs muted">Dữ liệu chỉ lưu trên máy này — bật đồng bộ để thêm máy nhân viên và sao lưu</div>
+    </button>`;
   return `<div class="sec">Đồng bộ dữ liệu</div>
     <button class="card col" data-go="cloud" style="gap:8px;align-items:stretch;text-align:left">
       <div class="between"><span class="t-sm">Đồng bộ</span><span class="badge ${linked ? (Sync.state.status === 'ok' ? 'b-green' : Sync.state.status === 'offline' ? 'b-amber' : 'b-blue') : 'b-gray'}">${esc(syncStatusText())}</span></div>
@@ -344,8 +397,32 @@ function cloudAct(el) {
       }
       await License.refresh(true);
       const link = await Cloud.getStoreLink();
+      if (Cloud.localMode) {                 // đang nâng cấp từ chế độ dùng ngay: GIỮ dữ liệu trên máy, chỉ liên kết kho đám mây
+        if (link) throw new Error('Tài khoản này đã liên kết một kho dữ liệu khác. Hãy dùng tài khoản mới để bật đồng bộ cho quán đang dùng, hoặc cài lại app để khôi phục quán cũ.');
+        go('ownerLink'); return;
+      }
       go(link ? 'ownerRestore' : 'ownerInit');
     }); return true;
+
+    case 'c_quickStartGo': busy(async () => {
+      const shop = val('qs_shop').trim(), p1 = val('qs_pass'), p2 = val('qs_pass2');
+      if (!shop) throw new Error('Nhập tên nhà hàng');
+      if (p1.length < 6) throw new Error('Mật khẩu tối thiểu 6 ký tự');
+      if (p1 !== p2) throw new Error('Hai mật khẩu không khớp');
+      window._qsShop = shop;
+      await createStore({ shopName: shop, phone: '', ownerName: val('qs_name'), username: 'chuquan', appPassword: p1, sample: !!document.getElementById('qs_sample')?.checked });
+      await Cloud.saveCfg({ role: 'owner', local: true });
+      License.startLocalTrial(14);
+      await Persist.flush();
+      // Vào thẳng app (đăng nhập luôn bằng tài khoản vừa tạo) — không bắt đăng nhập lại
+      const r = await api('/auth/login', { method: 'POST', body: { username: 'chuquan', password: p1, device: navigator.userAgent.slice(0, 80) } });
+      TOKEN = r.token; try { localStorage.setItem(TOKEN_KEY, TOKEN); } catch (e) {}
+      ME = r.staff; await refresh(); connectWs();
+      histStack.length = 0; route = { name: homeScreen(), params: {} }; render();
+      toast('Đã sẵn sàng — dùng thử 14 ngày');
+    }); return true;
+
+    case 'c_upgradeStart': { go('ownerAuth', { mode: 'signup' }); return true; }
 
     case 'c_ownerInitGo': busy(async () => {
       const shop = val('oi_shop').trim(), user = val('oi_user').trim(), p1 = val('oi_pass'), p2 = val('oi_pass2');
@@ -378,7 +455,7 @@ function cloudAct(el) {
       await Cloud.linkStoreAsOwner({ url: val('ol_url'), anonKey: val('ol_key'), email, password: val('ol_pass') });
       Cloud.ownerPw = null;
       toast('Đã liên kết — đang đồng bộ dữ liệu lên Supabase');
-      route = { name: 'login', params: {} }; render();
+      route = { name: ME ? 'cloud' : 'login', params: {} }; render();
     }); return true;
 
     case 'c_linkSkip': { route = Cloud.linked && ME ? { name: 'cloud', params: {} } : { name: ME ? 'cloud' : 'login', params: {} }; render(); return true; }
