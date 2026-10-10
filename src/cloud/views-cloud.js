@@ -191,7 +191,7 @@ function vCloud() {
         </div>`).join('') || (window._devicesLoading ? '<div class="t-xs muted">Đang tải…</div>' : '<div class="t-xs muted">Chưa có thiết bị nhân viên nào.</div>')}` : ''}
       <div class="sec">Nâng cao</div>
       <button class="btn danger" data-act="c_unlinkAsk">Ngắt liên kết &amp; xoá dữ liệu trên máy này</button>
-      ${isOwner ? `<button class="btn danger" data-act="c_deleteAccountAsk" style="margin-top:8px">Xoá tài khoản lưu trữ dữ liệu</button>` : ''}
+      ${canDeleteAccount() ? `<button class="btn danger" data-act="c_deleteAccountAsk" style="margin-top:8px">Xoá tài khoản lưu trữ dữ liệu</button>` : ''}
     </div>
     ${navBar('admin')}
   </div>`;
@@ -286,6 +286,12 @@ function vLocked() {
 /** Chỉ ĐIỆN THOẠI CỦA CHỦ QUÁN (máy gốc, đăng nhập bằng tài khoản Chủ quán) mới thấy và đổi được gói cước.
     Máy nhân viên — kể cả đăng nhập tài khoản Chủ quán trên máy nhân viên — không thấy mục này; quyền còn bị chặn lại ở route (OWNER_ONLY_ROUTES). */
 const isOwnerDevice = () => Cloud.role === 'owner' && !!ME && ME.role === 'Chủ quán';
+/** PHÂN QUYỀN NGẮT LIÊN KẾT / XOÁ DỮ LIỆU / XOÁ TÀI KHOẢN:
+    • Mọi tài khoản (kể cả máy nhân viên) được "ngắt liên kết, xoá dữ liệu trên máy này" — chỉ ảnh hưởng máy đang cầm.
+    • Gỡ liên kết kho khỏi tài khoản lưu trữ và XOÁ TÀI KHOẢN lưu trữ (ảnh hưởng cả quán, gói cước) chỉ dành cho tài khoản Chủ quán
+      trên máy chủ quán. Riêng gỡ liên kết còn cho phép lúc chưa đăng nhập vào app (màn "Đang tải dữ liệu quán" khi khôi phục). */
+const canDeleteAccount = () => isOwnerDevice();
+const canDetachStore = () => Cloud.role === 'owner' && !!Cloud.linked && (!ME || ME.role === 'Chủ quán');
 
 function cloudCardHtml() {
   const linked = Cloud.linked, owner = Cloud.role === 'owner';
@@ -445,7 +451,7 @@ function cloudAct(el) {
 
     case 'c_unlinkAsk': {
       // Chủ quán đã liên kết kho: cho chọn GỠ LUÔN liên kết ở máy chủ trung tâm (nếu chỉ xoá trên máy, tài khoản vẫn nhớ kho cũ)
-      const detach = Cloud.role === 'owner' && Cloud.linked;
+      const detach = canDetachStore();
       sheet('Ngắt liên kết?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">Toàn bộ dữ liệu trên máy này sẽ bị <b>xoá</b> và máy quay về màn thiết lập. Dữ liệu đã đồng bộ vẫn còn trên Supabase của quán.${detach ? `<br><br><b>Chỉ xoá trên máy này:</b> tài khoản lưu trữ vẫn nhớ kho Supabase — đăng nhập lại sẽ khôi phục được dữ liệu.<br><b>Xoá và gỡ liên kết kho:</b> tài khoản lưu trữ quên kho cũ để bạn tạo kho mới (kho cũ không bị xoá, bạn tự xoá trên supabase.com nếu muốn). Chọn cách này TRƯỚC khi xoá dự án trên Supabase.` : ''}${Records.dirtyCount() ? `<br><br><span style="color:var(--red)">Còn ${Records.dirtyCount()} thay đổi chưa gửi lên — sẽ mất nếu ngắt ngay.</span>` : ''}</div>
         <button class="btn danger" data-act="c_unlinkGo">${detach ? 'Chỉ xoá dữ liệu trên máy này' : 'Xoá dữ liệu &amp; ngắt liên kết'}</button>
         ${detach ? `<button class="btn danger" data-act="c_unlinkDetachGo" style="margin-top:8px">Xoá &amp; gỡ liên kết kho (để tạo kho mới)</button>` : ''}
@@ -454,6 +460,7 @@ function cloudAct(el) {
     }
     /* Xoá tài khoản (bắt buộc theo chính sách Google Play): phải gõ XOA để xác nhận */
     case 'c_deleteAccountAsk': {
+      if (!canDeleteAccount()) { toast('Chỉ tài khoản Chủ quán trên máy chủ quán mới được xoá tài khoản lưu trữ'); return true; }
       sheet('Xoá tài khoản lưu trữ?', `<div class="t-sm muted" style="margin-bottom:12px;line-height:1.65">Sẽ <b>xoá vĩnh viễn</b> tài khoản lưu trữ dữ liệu của bạn (email, gói cước, liên kết kho) và <b>xoá dữ liệu trên máy này</b>. Không thể hoàn tác.<br><br>
           • Dữ liệu bán hàng nằm trong dự án Supabase riêng của quán <b>không bị xoá</b> — bạn tự xoá trên supabase.com nếu muốn.<br>
           • Gói đăng ký trên Google Play <b>không tự huỷ</b> — hãy huỷ trong Google Play → Thanh toán và gói đăng ký.</div>
@@ -463,6 +470,7 @@ function cloudAct(el) {
       return true;
     }
     case 'c_deleteAccountGo': busy(async () => {
+      if (!canDeleteAccount()) throw new Error('Chỉ tài khoản Chủ quán trên máy chủ quán mới được xoá tài khoản lưu trữ');
       if (val('del_confirm').trim().toUpperCase() !== 'XOA') throw new Error('Gõ đúng chữ XOA để xác nhận');
       await Cloud.deleteAccount(); closeSheet(); TOKEN = null; ME = null;
       try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
@@ -471,6 +479,7 @@ function cloudAct(el) {
     }); return true;
 
     case 'c_unlinkDetachGo': busy(async () => {
+      if (!canDetachStore()) throw new Error('Chỉ tài khoản Chủ quán trên máy chủ quán mới được gỡ liên kết kho');
       await Cloud.unlinkAndDetach(); closeSheet(); TOKEN = null; ME = null;
       try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
       toast('Đã gỡ liên kết kho khỏi tài khoản lưu trữ');

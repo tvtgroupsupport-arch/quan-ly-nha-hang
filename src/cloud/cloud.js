@@ -226,6 +226,7 @@ const Cloud = (() => {
   /** Chủ quán KHÔNG khôi phục được kho cũ (quên mật khẩu, muốn làm lại): gỡ liên kết ở máy chủ trung tâm để tạo kho mới.
       Kho Supabase cũ KHÔNG bị xoá — vẫn nằm trong tài khoản Supabase của chủ quán, chủ quán tự xoá nếu muốn. */
   async function discardStoreLink() {
+    if (C.role === 'staff') throw new Error('Chỉ máy chủ quán mới gỡ được liên kết kho');   // máy nhân viên không có phiên trung tâm
     const { error } = await central().rpc('clear_store_link');
     if (error) throw new Error(friendly(error));
   }
@@ -233,6 +234,7 @@ const Cloud = (() => {
   /** Chủ quán xoá HẲN tài khoản lưu trữ ở máy chủ trung tâm (email, gói cước, liên kết kho) rồi xoá dữ liệu trên máy. Lỗi ở bước máy chủ
       thì KHÔNG xoá gì trên máy. Dữ liệu trong Supabase riêng của quán không bị đụng tới. */
   async function deleteAccount() {
+    if (C.role === 'staff') throw new Error('Chỉ máy chủ quán (tài khoản Chủ quán) mới xoá được tài khoản lưu trữ');
     const { error } = await central().rpc('delete_my_account');
     if (error) throw new Error(friendly(error));
     await unlinkAll();

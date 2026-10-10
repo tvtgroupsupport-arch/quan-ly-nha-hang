@@ -401,6 +401,45 @@ t.group('12. Chủ quán đổi máy: đăng nhập lại và khôi phục toàn
   await t.rejects(() => again.Cloud.ownerSignIn('chu@quan.vn', 'matkhau1'), /Sai email hoặc mật khẩu/, 'tài khoản đã xoá không đăng nhập lại được');
 }
 
+t.group('12b. Phân quyền ngắt liên kết / xoá dữ liệu / xoá tài khoản: chỉ Chủ quán được xoá tài khoản; tài khoản khác chỉ ngắt liên kết + xoá dữ liệu trên máy');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  A.route = { name: 'cloud', params: {} };
+  let html = A.VIEWS.cloud();
+  t.ok(html.includes('c_deleteAccountAsk') && html.includes('c_unlinkAsk'), 'Chủ quán trên máy chủ quán: có cả "Xoá tài khoản" và "Ngắt liên kết & xoá dữ liệu"');
+
+  // Tài khoản Thu ngân đăng nhập TRÊN MÁY CHỦ QUÁN
+  const r = await A.api('/staff', { method: 'POST', body: { name: 'Thu ngân A', username: 'thungana', role: 'Thu ngân' } });
+  await A.login('thungana', r.tempPassword);
+  A.route = { name: 'cloud', params: {} };
+  html = A.VIEWS.cloud();
+  t.ok(!html.includes('c_deleteAccountAsk'), 'tài khoản Thu ngân trên máy chủ quán: KHÔNG thấy nút "Xoá tài khoản lưu trữ"');
+  t.ok(html.includes('c_unlinkAsk'), '…nhưng vẫn có "Ngắt liên kết & xoá dữ liệu trên máy này"');
+  // Gọi thẳng hành động xoá (bỏ qua giao diện) cũng bị chặn, tài khoản trung tâm còn nguyên
+  A.setInput('del_confirm', 'XOA');
+  A.handleAct({ dataset: { act: 'c_deleteAccountAsk' } });
+  A.handleAct({ dataset: { act: 'c_deleteAccountGo' } });
+  for (let i = 0; i < 30; i++) await new Promise(r2 => setImmediate(r2));
+  t.eq(A.Cloud.role, 'owner', 'gọi thẳng c_deleteAccountGo bằng tài khoản Thu ngân → bị chặn, máy vẫn nguyên');
+  const probe = await newDevice(w, 'kiem-tra');
+  const okLogin = await probe.Cloud.ownerSignIn('chu@quan.vn', 'matkhau1').then(() => true, () => false);
+  t.ok(okLogin, 'tài khoản lưu trữ ở máy chủ trung tâm chưa bị xoá');
+  A.handleAct({ dataset: { act: 'c_unlinkDetachGo' } });
+  for (let i = 0; i < 30; i++) await new Promise(r2 => setImmediate(r2));
+  t.ok(A.Cloud.linked !== false && !!(await probe.Cloud.getStoreLink()), 'tài khoản Thu ngân không gỡ được liên kết kho khỏi tài khoản lưu trữ');
+
+  // Máy nhân viên: không có quyền ở lớp dữ liệu
+  const w2 = newWorld(); const O = await setupOwner(w2); const S = await addStaffDevice(w2, O, 'thungan');
+  await S.login('chuquan', 'chuquan123');
+  S.route = { name: 'cloud', params: {} };
+  html = S.VIEWS.cloud();
+  t.ok(!html.includes('c_deleteAccountAsk'), 'máy nhân viên (kể cả đăng nhập tài khoản Chủ quán): không có nút Xoá tài khoản');
+  t.ok(html.includes('c_unlinkAsk'), 'máy nhân viên có "Ngắt liên kết & xoá dữ liệu trên máy này"');
+  await t.rejects(() => S.Cloud.deleteAccount(), /Chỉ máy chủ quán/, 'máy nhân viên gọi thẳng deleteAccount() → bị từ chối ở lớp dữ liệu');
+  await t.rejects(() => S.Cloud.unlinkAndDetach(), /Chỉ máy chủ quán/, 'máy nhân viên không gỡ được liên kết kho của quán');
+  await S.Cloud.unlinkAll();
+  t.eq(S.Cloud.role, null, 'máy nhân viên tự ngắt liên kết, xoá dữ liệu trên máy mình được');
+}
 t.group('13. Nghiệp vụ lõi vẫn nguyên vẹn: gọi thêm → tách đợt; xong → gộp; ghép đơn; xuất tệp trên Android');
 {
   const w = newWorld(); const A = await setupOwner(w, { link: false });
