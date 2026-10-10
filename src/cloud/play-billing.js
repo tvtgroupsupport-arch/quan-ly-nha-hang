@@ -200,6 +200,7 @@ function vSubscriptionPlay() {
       <button class="btn ghost" data-act="c_playRestore" ${_playBusy ? 'disabled' : ''} style="margin-top:14px">Khôi phục giao dịch đã mua trước đó</button>
       <div class="t-xs" style="margin-top:10px;line-height:1.6">Thanh toán và quản lý gói cước (huỷ, đổi gói) đều thực hiện qua Google Play — đúng theo chính sách của Google, ứng dụng không tự xử lý tiền.</div>
       <button class="btn sm ghost" data-act="c_playManage" style="margin-top:8px">Quản lý gói trên Google Play</button>
+      <button class="btn sm ghost" data-act="c_diag" style="margin-top:8px">Chẩn đoán gói cước</button>
     </div>
     ${navBar('admin')}
   </div>`;

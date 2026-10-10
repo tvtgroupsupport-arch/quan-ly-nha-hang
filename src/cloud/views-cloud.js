@@ -194,9 +194,9 @@ function vCloud() {
       <div class="card">
         <div class="between" style="margin-bottom:10px"><span class="t-sm">Trạng thái</span>
           <span class="badge ${s.status === 'ok' ? 'b-green' : s.status === 'syncing' ? 'b-blue' : s.status === 'offline' ? 'b-amber' : linked ? 'b-red' : 'b-gray'}">${esc(syncStatusText())}</span></div>
-        ${linked ? `<div class="t-xs" style="line-height:1.7">Đồng bộ gần nhất: ${esc(fmtTime(s.lastSyncAt))}<br>Chờ gửi lên: ${Records.dirtyCount()} thay đổi${s.lastError ? `<br><span style="color:var(--red)">${esc(s.lastError)}</span>` : ''}</div>
+        ${linked ? `<div class="t-xs" style="line-height:1.7">${s.status === 'syncing' && s.progress ? `Đang tải dữ liệu từ kho: ${s.progress} bản ghi…<br>` : ''}Đồng bộ gần nhất: ${esc(fmtTime(s.lastSyncAt))}<br>Chờ gửi lên: ${Records.dirtyCount()} thay đổi${s.lastError ? `<br><span style="color:var(--red)">${esc(s.lastError)}</span>` : ''}</div>
           <div class="mono t-xs" style="margin-top:8px;word-break:break-all">${esc(Cloud.cfg.storeUrl || '')}</div>
-          <button class="btn sm ghost" data-act="c_syncNow" style="margin-top:10px">Đồng bộ ngay</button>`
+          <div class="row" style="gap:8px;margin-top:10px"><button class="btn sm ghost" data-act="c_syncNow" style="flex:1">Đồng bộ ngay</button><button class="btn sm ghost" data-act="c_diag" style="flex:1">Chẩn đoán</button></div>`
           : `<div class="t-xs" style="line-height:1.6">Máy này đang dùng dữ liệu riêng, chưa chia sẻ với thiết bị nào.</div>`}
       </div>
       ${s.conflicts.length ? `<div class="sec">Cần kiểm tra</div><div class="card">${s.conflicts.slice(0, 5).map(c =>
@@ -235,6 +235,60 @@ function upgradeCardHtml() {
     <button class="btn pri" data-act="c_upgradeStart" style="margin-top:6px">Tạo tài khoản &amp; bật đồng bộ</button>
   </div>`;
 }
+
+/* ---------- Chẩn đoán đồng bộ & gói cước ----------
+   Chạy lần lượt từng bước kiểm tra (mạng → kho dữ liệu → đăng nhập → quyền → số bản ghi → gói cước → Google Play), mỗi bước có
+   thời hạn 15 giây và báo ✓/✗ kèm lý do. Chủ quán chụp màn hình hoặc sao chép báo cáo gửi cho nhà phát triển khi đồng bộ/gói cước lỗi. */
+const _withTimeout = (p, ms) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error('Quá ' + Math.round(ms / 1000) + ' giây không trả lời')), ms); })]).finally(() => clearTimeout(t)); };
+async function diagnoseAll() {
+  const out = [];
+  const step = async (name, fn) => {
+    const t0 = Date.now();
+    try { const info = await _withTimeout(Promise.resolve().then(fn), 15000); out.push({ name, ok: true, ms: Date.now() - t0, info: String(info == null ? '' : info) }); }
+    catch (e) { out.push({ name, ok: false, ms: Date.now() - t0, info: String((e && (e.message || e.msg)) || e) + (e && e.code ? ' [' + e.code + ']' : '') }); }
+  };
+  await step('Mạng', async () => { if (!(await NativeBridge.network.get())) throw new Error('không có mạng'); return 'có mạng'; });
+  await step('Kho dữ liệu của quán (Supabase)', async () => {
+    if (!Cloud.cfg.storeUrl) throw new Error('chưa liên kết kho');
+    const r = await fetch(Cloud.cfg.storeUrl + '/auth/v1/health', { headers: { apikey: Cloud.cfg.storeAnon || '' } });
+    return `${Cloud.cfg.storeUrl.replace('https://', '')} — HTTP ${r.status}`;
+  });
+  await step('Phiên đăng nhập vào kho', async () => {
+    if (!Cloud.store) throw new Error('chưa có kết nối kho');
+    const { data } = await Cloud.store.auth.getSession();
+    if (!data || !data.session) throw new Error('chưa có phiên đăng nhập');
+    return data.session.user.email || 'đã đăng nhập';
+  });
+  await step('Quyền chủ quán (store_status)', async () => {
+    const { data, error } = await Cloud.store.rpc('store_status');
+    if (error) throw error;
+    return JSON.stringify(data);
+  });
+  await step('Số bản ghi trên kho', async () => {
+    const { count, error } = await Cloud.store.from('records').select('seq', { count: 'exact', head: true });
+    if (error) throw error;
+    return count == null ? 'truy cập được (không đếm được số lượng)' : count + ' bản ghi';
+  });
+  await step('Dữ liệu chờ gửi / con trỏ đồng bộ', async () => `${Records.dirtyCount()} thay đổi chờ gửi · trạng thái ${Sync.state.status}${Sync.state.lastError ? ' · ' + Sync.state.lastError : ''}`);
+  await step('Máy chủ trung tâm (gói cước)', async () => {
+    const { data: sess } = await Cloud.central().auth.getSession();
+    if (!sess || !sess.session) throw new Error('chưa đăng nhập tài khoản lưu trữ');
+    const { data, error } = await Cloud.central().rpc('get_my_subscription');
+    if (error) throw error;
+    return data ? `gói ${data.plan_months} tháng · ${data.status} · hết hạn ${data.expires_at}` : 'chưa có gói';
+  });
+  if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.billingMode === 'play') {
+    await step('Google Play Billing', async () => {
+      if (!(await NativeBridge.billing.isSupported())) throw new Error('không khả dụng — cần cài app từ Google Play (kênh thử nghiệm)');
+      const raw = await NativeBridge.billing.getProducts(PLAY_PRODUCT_IDS);
+      const ids = (raw || []).map(p => (p.planIdentifier || p.identifier) + (p.offerId ? '/' + p.offerId : '')).join(', ');
+      if (!(raw || []).length) throw new Error('Google Play không trả về gói nào');
+      return `${raw.length} dòng: ${ids}`;
+    });
+  }
+  return out;
+}
+const diagText = steps => steps.map(s => `${s.ok ? '✓' : '✗'} ${s.name} (${s.ms}ms): ${s.info}`).join('\n');
 
 /* ---------- 8. Mã QR mời thiết bị ---------- */
 function vPairQr() {
@@ -551,6 +605,18 @@ function cloudAct(el) {
       await Cloud.deleteDevice(d.id); closeSheet(); window._devices = null; toast('Đã xoá khỏi danh sách'); render();
     }); return true;
 
+    case 'c_diag': {
+      sheet('Chẩn đoán đồng bộ & gói cước', `<div id="diagBox" class="t-xs" style="line-height:1.7">Đang kiểm tra từng bước…</div>
+        <button class="btn ghost" data-act="c_diagCopy" style="margin-top:12px">Sao chép báo cáo</button>
+        <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Đóng</button>`);
+      diagnoseAll().then(steps => {
+        window._diagText = diagText(steps);
+        const box = document.getElementById('diagBox');
+        if (box) box.innerHTML = steps.map(s => `<div style="margin-bottom:8px;color:${s.ok ? 'var(--green)' : 'var(--red)'}"><b>${s.ok ? '✓' : '✗'} ${esc(s.name)}</b> <span class="muted">(${s.ms}ms)</span><br><span style="word-break:break-word">${esc(s.info)}</span></div>`).join('');
+      });
+      return true;
+    }
+    case 'c_diagCopy': { NativeBridge.copy(window._diagText || '').then(() => toast('Đã sao chép báo cáo — dán gửi cho nhà phát triển')); return true; }
     case 'c_syncNow': busy(async () => { await Sync.syncNow(); if (route.name === 'cloud') render(); }); return true;
 
     case 'c_unlinkAsk': {

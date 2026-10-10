@@ -1518,6 +1518,26 @@ t.group('35. Đồng bộ không treo mãi ở "Đang đồng bộ…" khi mạn
   t.eq(A.Records.dirtyCount(), 0, 'thay đổi đã được gửi lên');
 }
 
+t.group('36. Chẩn đoán đồng bộ & gói cước + hiện tiến độ tải dữ liệu từ kho');
+{
+  const w = newWorld(); const A = await setupOwner(w); await A.sync();
+  A.route = { name: 'cloud', params: {} };
+  const html = A.VIEWS.cloud();
+  t.ok(html.includes('c_diag') && html.includes('c_syncNow'), 'màn Đồng bộ có nút "Chẩn đoán"');
+  const steps = await A.diagnoseAll();
+  const names = steps.map(s => s.name).join(' | ');
+  t.ok(['Mạng', 'Kho dữ liệu', 'Phiên đăng nhập', 'store_status', 'Số bản ghi', 'Máy chủ trung tâm'].every(n => names.includes(n)), 'đủ các bước kiểm tra: ' + names);
+  const byName = n => steps.find(s => s.name.includes(n));
+  t.ok(byName('Số bản ghi').ok && /bản ghi/.test(byName('Số bản ghi').info), 'đếm được số bản ghi trên kho: ' + byName('Số bản ghi').info);
+  t.ok(byName('store_status').ok && byName('Máy chủ trung tâm').ok, 'quyền chủ quán và gói cước kiểm tra được');
+  t.ok(/✓/.test(A.diagText(steps)), 'có báo cáo dạng chữ để sao chép');
+  // lỗi cụ thể được báo kèm lý do, không dừng cả báo cáo
+  const st = A.Cloud.store; const orig = st.rpc.bind(st);
+  st.rpc = (n, ...a) => n === 'store_status' ? Promise.resolve({ data: null, error: { message: 'Could not find the function public.store_status', code: 'PGRST202' } }) : orig(n, ...a);
+  const bad = await A.diagnoseAll(); st.rpc = orig;
+  const qs = bad.find(s => s.name.includes('store_status'));
+  t.ok(!qs.ok && /PGRST202/.test(qs.info) && bad.length === steps.length, 'một bước lỗi (kho thiếu hàm SQL) → báo ✗ kèm mã lỗi, các bước khác vẫn chạy');
+}
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {
   const src = fs.readFileSync(new URL('../src/cloud/views-cloud.js', import.meta.url), 'utf8');

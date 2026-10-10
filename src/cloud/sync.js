@@ -36,7 +36,7 @@ const Sync = (() => {
       if (Date.now() - runStart > timeoutMs * 1.5) S.running = false;   // lượt cũ đã treo quá lâu: bỏ qua, chạy lượt mới
       else { again = true; return; }
     }
-    S.running = true; runStart = Date.now(); S.status = 'syncing'; notify();
+    S.running = true; runStart = Date.now(); S.status = 'syncing'; S.progress = 0; notify();
     try {
      await withTimeout((async () => {
       // checkAccess() tốn một vòng round-trip mạng riêng (dò xem máy còn quyền hay đã bị thu hồi).
@@ -49,7 +49,7 @@ const Sync = (() => {
       await pushAll();
       await pullAll();
      })(), timeoutMs);
-      S.status = 'ok'; S.lastSyncAt = Date.now(); S.lastError = ''; fails = 0;
+      S.status = 'ok'; S.lastSyncAt = Date.now(); S.lastError = ''; fails = 0; S.progress = 0;
     } catch (e) {
       await handleError(e);
     } finally {
@@ -165,7 +165,7 @@ const Sync = (() => {
   async function pullAll() {
     let cursor = Persist.getMeta('cursor', 0);
     let from = Math.max(0, cursor - LOOKBACK);
-    let max = cursor;
+    let max = cursor, got = 0;
     for (let guard = 0; guard < 2000; guard++) {
       const { data, error } = await Cloud.store.from('records')
         .select('collection,id,data,updated_at,deleted,seq').gt('seq', from)
@@ -173,6 +173,8 @@ const Sync = (() => {
       if (error) throw error;
       if (!data || !data.length) break;
       await applyRemote(data, {});
+      got += data.length; S.progress = got;          // hiện tiến độ tải dữ liệu để biết không bị treo (kho cũ có thể rất nhiều bản ghi)
+      notify();
       from = data[data.length - 1].seq;
       max = Math.max(max, from);
       if (data.length < 500) break;
