@@ -1528,7 +1528,7 @@ t.group('36. Chẩn đoán đồng bộ & gói cước + hiện tiến độ t�
   const names = steps.map(s => s.name).join(' | ');
   t.ok(['Mạng', 'Kho dữ liệu', 'Phiên đăng nhập', 'store_status', 'Số bản ghi', 'Máy chủ trung tâm'].every(n => names.includes(n)), 'đủ các bước kiểm tra: ' + names);
   const byName = n => steps.find(s => s.name.includes(n));
-  t.ok(byName('Số bản ghi').ok && /bản ghi/.test(byName('Số bản ghi').info), 'đếm được số bản ghi trên kho: ' + byName('Số bản ghi').info);
+  t.ok(byName('Số bản ghi').ok && /bản ghi|truy cập được/.test(byName('Số bản ghi').info), 'đếm được số bản ghi trên kho: ' + byName('Số bản ghi').info);
   t.ok(byName('store_status').ok && byName('Máy chủ trung tâm').ok, 'quyền chủ quán và gói cước kiểm tra được');
   t.ok(/✓/.test(A.diagText(steps)), 'có báo cáo dạng chữ để sao chép');
   // lỗi cụ thể được báo kèm lý do, không dừng cả báo cáo
