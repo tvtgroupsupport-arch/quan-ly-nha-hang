@@ -76,5 +76,6 @@ const I18N_EN_4 = [
   ['Google Play không trả về gói nào', 'Google Play returned no plans'], ['dòng:', 'rows:'], ['Quá', 'More than'], ['giây không trả lời', 'seconds without a reply'],
   ['thay đổi chờ gửi · trạng thái', 'changes waiting to upload · status'], ['tháng ·', 'months ·'], ['· hết hạn', '· expires'],
   ['truy cập được (không đếm được số lượng)', 'reachable (count unavailable)'],
+  ['Hướng dẫn sử dụng', 'User guide'], ['Cách dùng từng chức năng, có ảnh minh hoạ', 'How to use each feature, with pictures'],
   ['Thêm:', 'Add:'], ['Xoá:', 'Delete:'], ['Bật:', 'Turn on:'], ['Sửa:', 'Edit:'],
 ];

@@ -30,6 +30,7 @@ export const SOURCE_FILES = [
   'src/cloud/play-billing.js',
   'src/cloud/auto-provision.js',
   'src/cloud/guide-supabase.js',
+  'src/web/guide-app.js',
   'src/web/pdf-qr.js',
   'src/web/receipt.js',
   'src/web/bill-print.js',

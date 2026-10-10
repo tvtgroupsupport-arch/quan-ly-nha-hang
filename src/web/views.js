@@ -757,6 +757,7 @@ function vAdmin(){
           </button>`;
         }).join('')}
       </div>
+      <button class="card row" data-go="userGuide" style="width:100%;text-align:left;margin-top:12px;border-color:var(--accent)"><span style="color:var(--accent)">${icon('search')}</span><span style="flex:1"><span class="t-md">Hướng dẫn sử dụng</span><br><span class="t-xs">Cách dùng từng chức năng, có ảnh minh hoạ</span></span></button>
       ${subscriptionCardHtml()}
       ${cloudCardHtml()}
       <div class="sec">Hiển thị trên máy này</div>

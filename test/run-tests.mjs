@@ -1538,6 +1538,44 @@ t.group('36. Chẩn đoán đồng bộ & gói cước + hiện tiến độ t�
   const qs = bad.find(s => s.name.includes('store_status'));
   t.ok(!qs.ok && /PGRST202/.test(qs.info) && bad.length === steps.length, 'một bước lỗi (kho thiếu hàm SQL) → báo ✗ kèm mã lỗi, các bước khác vẫn chạy');
 }
+t.group('37. Trang Hướng dẫn sử dụng trong app: song ngữ, ảnh thật + khung đỏ, mở được từ Quản lý (kể cả khi bị khoá)');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  A.route = { name: 'admin', params: {} };
+  t.ok(A.VIEWS.admin().includes('data-go="userGuide"'), 'màn Quản lý có mục "Hướng dẫn sử dụng"');
+  A.route = { name: 'userGuide', params: {} };
+  const vi = A.VIEWS.userGuide();
+  const VI = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
+  t.eq((vi.match(/class="card gd-step"/g) || []).length, 10, 'có đủ 10 bước đánh số (giống trang hướng dẫn Supabase)');
+  t.ok((vi.match(/<details class="card gd-det"/g) || []).length >= 8, 'có mục "Gặp lỗi?" bấm để mở (' + (vi.match(/<details class="card gd-det"/g) || []).length + ' mục)');
+  t.ok(vi.includes('Bắt đầu dùng ngay') && vi.includes('Gửi xuống bếp') && vi.includes('Xác nhận đã nhận tiền') && vi.includes('Chẩn đoán'), 'nội dung tiếng Việt nêu đúng tên nút trong app');
+  // ảnh có thật trong gói app + khung đỏ nằm trong ảnh
+  const imgs = [...new Set([...vi.matchAll(/src="guide\/([^"]+)"/g)].map(m => m[1]))];
+  t.ok(imgs.length >= 6 && imgs.every(f => fs.existsSync(new URL('../src/assets/guide/' + f, import.meta.url))), 'mọi ảnh minh hoạ (' + imgs.length + ') đều có trong src/assets/guide → được đóng vào app');
+  const marks = [...vi.matchAll(/class="gd-mark[^"]*" style="left:([\d.]+)%;top:([\d.]+)%;width:([\d.]+)%;height:([\d.]+)%/g)].map(m => m.slice(1).map(Number));
+  t.ok(marks.length >= 15 && marks.every(([l, tp, wd, h]) => l >= 0 && tp >= 0 && l + wd <= 100.01 && tp + h <= 100.01), 'có ' + marks.length + ' khung đỏ chỉ chỗ bấm, đều nằm trong ảnh');
+  // nút mở thẳng màn hình trỏ tới màn có thật
+  const targets = [...new Set([...vi.matchAll(/data-go="([^"]+)"/g)].map(m => m[1]))];
+  t.ok(targets.length >= 8 && targets.every(x => A.VIEWS[x]), 'các nút "Mở …" trỏ tới màn hình có thật: ' + targets.join(', '));
+  // song ngữ
+  A.setLang('en'); const en = A.VIEWS.userGuide(); A.setLang('vi');
+  const enText = en.split('data-notr')[1].split('class="nav"')[0].replace(/<[^>]+>/g, ' ');   // chỉ phần nội dung hướng dẫn (thanh điều hướng dưới do bộ dịch tự động lo)
+  t.ok(/User guide|Start right away|Having problems/.test(en) && !VI.test(enText.replace(/Tiếng Việt/g, '')), 'bản English không còn chữ Việt có dấu');
+  t.ok(en.includes('Create PDF file') && en.includes('Confirm payment received'), 'bản English nêu đúng tên nút tiếng Anh');
+  t.ok(vi.includes('data-notr') && en.includes('data-notr'), 'vùng nội dung gắn data-notr để bộ dịch tự động không đụng vào');
+  // phân quyền: nhân viên không có quyền thì không thấy nút mở màn đó
+  const r = await A.api('/staff', { method: 'POST', body: { name: 'Bếp A', username: 'bepa', role: 'Bếp' } });
+  await A.login('bepa', r.tempPassword); A.route = { name: 'userGuide', params: {} };
+  const kv = A.VIEWS.userGuide();
+  t.ok(kv.includes('data-go="kds"') && !kv.includes('data-go="reports"') && !kv.includes('data-go="tablesAdmin"'), 'tài khoản Bếp chỉ thấy nút mở các màn mình được vào');
+  // vẫn đọc được khi gói hết hạn
+  await A.login('chuquan', 'chuquan123');
+  w.central.now = () => Date.now() + 40 * 86400000; w.central.subs.forEach(s => { s.expires_at = Date.now() - 1000; });
+  await A.License.refresh();
+  A.route = { name: 'userGuide', params: {} }; A.render();
+  t.eq(A.route.name, 'userGuide', 'khi gói hết hạn (khoá mềm) vẫn đọc được hướng dẫn');
+}
+
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {
   const src = fs.readFileSync(new URL('../src/cloud/views-cloud.js', import.meta.url), 'utf8');

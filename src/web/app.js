@@ -21,7 +21,7 @@ const VIEWS = {
   // đám mây: thiết lập máy, liên kết Supabase, thiết bị, gói cước
   setup: vSetup, ownerAuth: vOwnerAuth, ownerInit: vOwnerInit, ownerLink: vOwnerLink, ownerRestore: vOwnerRestore,
   restoring: vRestoring, staffJoin: vStaffJoin, cloud: vCloud, pairQr: vPairQr, subscription: vSubscription, locked: vLocked,
-  supabaseGuide: vSupabaseGuide, quickStart: vQuickStart, lang: vLang
+  supabaseGuide: vSupabaseGuide, quickStart: vQuickStart, userGuide: vUserGuide, lang: vLang
 };
 /** Chỉ tài khoản Chủ quán trên máy chủ quán mới vào được */
 const OWNER_ONLY_ROUTES = ['subscription', 'pairQr', 'ownerLink'];

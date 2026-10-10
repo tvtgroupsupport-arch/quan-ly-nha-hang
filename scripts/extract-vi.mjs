@@ -32,7 +32,7 @@ export function extractFragments(src) {
 export function allFragments() {
   const all = new Map();
   for (const f of [...SOURCE_FILES, ...EXTRA_FILES]) {
-    if (/src\/web\/i18n/.test(f)) continue;   // bảng dịch và màn chọn ngôn ngữ (song ngữ cố định)
+    if (/src\/web\/i18n|src\/web\/guide-app/.test(f)) continue;   // bảng dịch và màn chọn ngôn ngữ (song ngữ cố định)
     const p = path.join(ROOT, f);
     if (!fs.existsSync(p)) continue;
     for (const s of extractFragments(fs.readFileSync(p, 'utf8'))) { if (!all.has(s)) all.set(s, f); }

@@ -9,8 +9,8 @@ const FREE_ROUTES = ['setup', 'quickStart', 'ownerAuth', 'ownerInit', 'ownerLink
 /** Khi gói cước hết hạn (khoá mềm): chủ quán vẫn xem được báo cáo và gia hạn */
 // Khi khoá vì hết hạn chủ quán PHẢI vào được các bước tạo/đăng nhập tài khoản và liên kết kho (nếu không: bấm gia hạn/tạo tài khoản bị đá ngược về màn hết hạn)
 const LOCK_OK_OWNER = ['locked', 'subscription', 'cloud', 'admin', 'reports', 'history', 'historyDetail', 'exportHub', 'login',
-                       'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'supabaseGuide', 'restoring'];
-const LOCK_OK_STAFF = ['locked', 'login'];
+                       'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'supabaseGuide', 'restoring', 'userGuide'];
+const LOCK_OK_STAFF = ['locked', 'login', 'userGuide'];
 
 const fmtTime = ts => ts ? new Date(ts).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—';
 
