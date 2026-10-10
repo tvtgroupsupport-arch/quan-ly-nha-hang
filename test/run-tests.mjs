@@ -949,7 +949,8 @@ t.group('29d. Ghép đơn nhiều bàn, chuyển nhiều ghế/cả bàn cùng l
   await A.refresh?.();
   A.route = { name: 'cashier', params: {} };
   const html = A.VIEWS.cashier();
-  t.ok(html.includes('data-mode="merge" data-from="cashier"') && html.includes('data-mode="transfer" data-from="cashier"'), 'màn Thu ngân có nút Ghép đơn và Chuyển bàn/ghế');
+  t.ok(html.includes('data-mode="merge" data-from="cashier"'), 'màn Thu ngân có nút Ghép đơn');
+  t.ok(!html.includes('data-mode="transfer"'), 'màn Thu ngân KHÔNG có chức năng chuyển bàn/ghế');
   A.window._seatSel = new Set([T4.id + '#1']);
   A.route = { name: 'seatPick', params: { mode: 'merge', from: 'cashier' } };
   const pick = A.VIEWS.seatPick();

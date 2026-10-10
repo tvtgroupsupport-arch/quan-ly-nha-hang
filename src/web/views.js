@@ -798,10 +798,7 @@ function vCashier(){
         </div>
       </div>
 
-      <div class="row" style="gap:8px">
-        <button class="btn sm ghost" data-act="seatPickStart" data-mode="merge" data-from="cashier" style="flex:1">${icon('merge')} Ghép đơn</button>
-        <button class="btn sm ghost" data-act="seatPickStart" data-mode="transfer" data-from="cashier" style="flex:1">${icon('move')} Chuyển bàn/ghế</button>
-      </div>
+      <button class="btn sm ghost" data-act="seatPickStart" data-mode="merge" data-from="cashier">${icon('merge')} Ghép đơn</button>
 
       ${areasWithGuests.length>1?`<div class="scrollx">${areasWithGuests.map(a=>{
         const n = DB.tables.filter(t=>t.area===a).reduce((s,t)=>s+tableSummary(t).pay,0);
