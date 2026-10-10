@@ -9,7 +9,7 @@ const PLAY_MONTHS = { goi_1_thang: 1, goi_6_thang: 6, goi_12_thang: 12 };
 // ID base plan của từng gói trên Play Console (chỉ chữ thường, số, gạch ngang) — plugin bắt buộc truyền khi mua gói đăng ký.
 const PLAY_BASE_PLANS = { goi_1_thang: 'goi-1-thang', goi_6_thang: 'goi-6-thang', goi_12_thang: 'goi-12-thang' };
 
-let _playProducts = null, _playLoading = false, _playBusy = false;
+let _playProducts = null, _playLoading = false, _playBusy = false, _playError = '', _playTries = 0;
 
 /** Mã sản phẩm thật của một dòng plugin trả về. Android gói đăng ký: plugin trả MỖI base plan/ưu đãi một dòng, trong đó
     `identifier` là mã base plan (goi-1-thang) còn `planIdentifier` mới là mã sản phẩm (goi_1_thang) — dùng nhầm sẽ
@@ -29,15 +29,25 @@ function normalizePlayProducts(list) {
   return PLAY_PRODUCT_IDS.filter(id => byId.has(id)).map(id => byId.get(id));
 }
 
-async function loadPlayProducts() {
-  if (_playProducts || _playLoading) return;
-  _playLoading = true;
+/** Tải danh sách gói từ Google Play. Lỗi/rỗng KHÔNG còn bị nhớ mãi: tự thử lại tối đa 3 lần (cách nhau 4 giây — dịch vụ thanh toán đôi khi chưa kịp kết nối
+    lúc mở màn), có nút "Thử tải lại"; lý do lỗi được giữ lại để hiện cho người dùng. */
+async function loadPlayProducts(force) {
+  if (_playLoading) return;
+  if (force) { _playProducts = null; _playTries = 0; }
+  if (_playProducts) return;
+  _playLoading = true; _playError = '';
   try {
     const ok = await NativeBridge.billing.isSupported();
-    if (!ok) { _playProducts = []; return; }
-    _playProducts = normalizePlayProducts(await NativeBridge.billing.getProducts(PLAY_PRODUCT_IDS));
-  } catch (e) { _playProducts = []; }
-  finally { _playLoading = false; if (route.name === 'subscription') render(); }
+    if (!ok) { _playProducts = []; _playError = 'Google Play Billing không khả dụng — hãy cài app từ Google Play (kênh thử nghiệm), không cài tệp APK trực tiếp.'; return; }
+    const raw = await NativeBridge.billing.getProducts(PLAY_PRODUCT_IDS);
+    _playProducts = normalizePlayProducts(raw);
+    if (!_playProducts.length) _playError = `Google Play trả về ${(raw || []).length} gói nhưng không khớp mã gói cước của app (kiểm tra gói đã được kích hoạt trên Play Console và tài khoản Google là người thử nghiệm).`;
+  } catch (e) { _playProducts = []; _playError = String((e && e.message) || e || ''); }
+  finally {
+    _playLoading = false;
+    if (_playProducts && !_playProducts.length && _playTries < 3) { _playTries++; setTimeout(() => { if (_playProducts && !_playProducts.length) { _playProducts = null; loadPlayProducts(); } }, 4000); }
+    if (route.name === 'subscription') render();
+  }
 }
 
 /** Gọi Edge Function verify-purchase bằng chính phiên đăng nhập Supabase trung tâm hiện tại. */
@@ -177,7 +187,9 @@ function vSubscriptionPlay() {
       ${(_playProducts && _playProducts.length === 0 && !_playLoading) ? `
         <div class="card row" style="background:var(--amber-soft);border-color:var(--amber)">
           <span style="color:var(--amber)">${icon('warn')}</span>
-          <div class="t-sm" style="color:var(--amber);flex:1">Không tải được gói cước — kiểm tra đã đăng nhập tài khoản Google có quyền mua hàng trên thiết bị này chưa, hoặc thử lại sau.</div>
+          <div style="flex:1"><div class="t-sm" style="color:var(--amber)">Không tải được gói cước — kiểm tra đã đăng nhập tài khoản Google có quyền mua hàng trên thiết bị này chưa, hoặc thử lại sau.</div>
+            ${_playError ? `<div class="t-xs" style="color:var(--amber);margin-top:6px;word-break:break-word">Chi tiết: ${esc(_playError)}</div>` : ''}
+            <button class="btn sm ghost" data-act="c_playReload" style="margin-top:8px">Thử tải lại</button></div>
         </div>` : ''}
       ${(_playProducts || []).map(p => `
         <button class="card between" data-act="c_playBuy" data-id="${esc(playProductId(p))}" ${_playBusy ? 'disabled' : ''} style="width:100%;text-align:left">

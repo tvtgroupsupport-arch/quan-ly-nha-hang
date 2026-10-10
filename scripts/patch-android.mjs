@@ -122,8 +122,8 @@ if (fs.existsSync(gradleForRelease)) {
   }
   if (fs.existsSync(proguardFile)) {
     let r = fs.readFileSync(proguardFile, 'utf8');
-    if (!r.includes('com.rt.printerlibrary')) {
-      r += `\n# Thêm bởi scripts/patch-android.mjs\n-keep class ee.forgr.nativepurchases.** { *; }\n-keep class com.rt.printerlibrary.** { *; }\n-keep class com.clj.fastble.** { *; }\n-keep class android_serialport_api.** { *; }\n-keep class com.malik12tree.** { *; }\n-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }\n-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod\n-keepattributes SourceFile,LineNumberTable\n`;
+    if (!r.includes('com.android.billingclient')) {
+      r += `\n# Thêm bởi scripts/patch-android.mjs\n-keep class ee.forgr.nativepurchases.** { *; }\n-keep class com.android.billingclient.** { *; }\n-keep class ee.forgr.** { *; }\n-dontwarn com.google.errorprone.annotations.**\n-keep class com.rt.printerlibrary.** { *; }\n-keep class com.clj.fastble.** { *; }\n-keep class android_serialport_api.** { *; }\n-keep class com.malik12tree.** { *; }\n-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }\n-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod\n-keepattributes SourceFile,LineNumberTable\n`;
       fs.writeFileSync(proguardFile, r);
       console.log('✓ Đã thêm quy tắc giữ lại cho R8');
     }

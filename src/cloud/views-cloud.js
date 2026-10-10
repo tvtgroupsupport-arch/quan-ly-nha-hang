@@ -604,9 +604,11 @@ function cloudAct(el) {
     }); return true;
     case 'c_licCheck': busy(async () => {
       await refreshLicenseWithPlay(true); window._reqsLoaded = false;
+      if (typeof _playProducts !== 'undefined' && _playProducts && !_playProducts.length) loadPlayProducts(true);   // danh sách gói đang trống: thử tải lại luôn
       toast(License.locked() ? 'Gói vẫn hết hạn' : 'Đã cập nhật gói cước'); render();
     }); return true;
 
+    case 'c_playReload': { loadPlayProducts(true); render(); return true; }
     case 'c_playBuy': { playPurchase(d.id); return true; }
     case 'c_playBuyAnyway': { closeSheet(); playPurchase(d.id, true); return true; }
     case 'c_playRestore': { playRestore(); return true; }

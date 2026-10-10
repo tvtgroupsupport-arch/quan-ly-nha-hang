@@ -63,5 +63,8 @@ const I18N_EN_4 = [
   ['Dùng quán cũ trên tài khoản này', 'Use the existing restaurant on this account'], ['Tải dữ liệu quán cũ về máy này.', 'Download the existing restaurant data to this device.'], ['Dữ liệu đang có trên máy này (dùng thử) sẽ bị thay thế', 'The data currently on this device (trial) will be replaced'],
   ['. Nên chọn nếu máy này chỉ mới dùng thử.', '. Recommended if this device has only been used as a trial.'], ['Giữ dữ liệu máy này, bỏ liên kết quán cũ', 'Keep this device’s data, unlink the old restaurant'], ['Đưa dữ liệu trên máy này lên một kho mới. Quán cũ', 'Upload this device’s data to a new store. The old restaurant'],
   ['không bị xoá', 'is not deleted'], ['trên Supabase nhưng app sẽ không đọc nó nữa.', 'on Supabase but the app will no longer read it.'], ['Đã bỏ liên kết quán cũ — liên kết kho mới cho quán đang dùng', 'Old restaurant unlinked — link a new store for the restaurant in use'],  ['Tạo tài khoản & gia hạn', 'Create account & renew'],
+  ['Google Play Billing không khả dụng — hãy cài app từ Google Play (kênh thử nghiệm), không cài tệp APK trực tiếp.', 'Google Play Billing is unavailable — install the app from Google Play (testing track), not as an APK file.'],
+  ['Google Play trả về', 'Google Play returned'], ['gói nhưng không khớp mã gói cước của app (kiểm tra gói đã được kích hoạt trên Play Console và tài khoản Google là người thử nghiệm).', 'plans but none match the app’s plan codes (check the plans are active in Play Console and the Google account is a tester).'],
+  ['Chi tiết:', 'Details:'], ['Thử tải lại', 'Try loading again'],
   ['Thêm:', 'Add:'], ['Xoá:', 'Delete:'], ['Bật:', 'Turn on:'], ['Sửa:', 'Edit:'],
 ];

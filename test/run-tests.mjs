@@ -917,6 +917,14 @@ t.group('29. Gói cước qua Google Play — mua gói, xác minh qua Edge Funct
   html = A.vSubscriptionPlay();
   t.ok(html.includes('Không tải được gói cước'), 'máy không hỗ trợ Billing → báo rõ ràng, không im lặng trắng màn hình');
 
+  // 4b) Danh sách gói rỗng/lỗi KHÔNG bị nhớ mãi: hiện lý do và tải lại được (trước đây phải thoát app mới thử lại)
+  t.ok(html.includes('Chi tiết:') && html.includes('c_playReload'), 'báo lỗi kèm lý do chi tiết và nút "Thử tải lại"');
+  A.billingSupported = true;
+  A.handleAct({ dataset: { act: 'c_playReload' } });
+  await A.until(() => (A.playProducts || []).length > 0, 3000);
+  t.ok((A.playProducts || []).length > 0, 'bấm "Thử tải lại" khi Google Play đã sẵn sàng → có danh sách gói');
+  A.billingSupported = false; A.handleAct({ dataset: { act: 'c_playReload' } }); await A.until(() => A.playProducts && A.playProducts.length === 0, 3000);
+
   // 5) Nút quản lý gói mở đúng trang quản lý của Google
   A.handleAct({ dataset: { act: 'c_playManage' } });
   for (let i = 0; i < 10; i++) await new Promise(r => setImmediate(r));
