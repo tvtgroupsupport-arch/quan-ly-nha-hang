@@ -332,8 +332,38 @@ function handleAct(el, ev) {
       </div>
       <div id="tblPreview" style="display:flex;justify-content:center;padding:4px 0 8px"></div>
       <button class="btn pri" data-act="saveTable" data-id="${t ? t.id : ''}">Lưu</button>
+      ${t ? `<div class="row" style="gap:8px;margin-top:8px"><button class="btn ghost" data-act="tblQrView" data-id="${t.id}" style="flex:1">Xem mã QR</button><button class="btn ghost" data-act="tblQrRotate" data-id="${t.id}" style="flex:1">Đổi mã QR</button></div>` : ''}
       ${t ? `<button class="btn danger" data-act="delTable" data-id="${t.id}" style="margin-top:8px">Xoá bàn này</button>` : ''}`);
     renderTablePreview();
+    return;
+  }
+  case 'tblQrView': {
+    const t = tableById(d.id); if (!t) return;
+    const items = Array.from({ length: t.seats }, (_, i) => {
+      const url = guestUrl(t.id, i + 1);
+      return `<div style="text-align:center"><div class="t-xs" style="margin-bottom:4px">Ghế ${i + 1}</div>${url ? `<div style="width:100%;max-width:150px;margin:0 auto;background:#fff;padding:6px;border-radius:8px">${QR.svg(url, { label: 'Mã QR ' + t.name + ' ghế ' + (i + 1) })}</div>` : '<div class="t-xs muted">Chưa có mã</div>'}</div>`;
+    }).join('');
+    sheet('Mã QR · ' + t.name, `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px">${items}</div>
+      <div class="t-xs muted" style="line-height:1.6;margin-bottom:12px">Mỗi ghế có một mã riêng. Cần in thành tem thì vào Quản lý bàn → In mã QR.</div>
+      <button class="btn pri" data-act="tblQrPrint" data-id="${t.id}">Tạo file PDF tem của bàn này</button>
+      <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Đóng</button>`);
+    return;
+  }
+  case 'tblQrPrint': { const t = tableById(d.id); if (!t) return; openQrSheet(Array.from({ length: t.seats }, (_, i) => t.id + ':' + (i + 1))); return; }
+  case 'tblQrRotate': {
+    const t = tableById(d.id); if (!t) return;
+    window._rotateList = Array.from({ length: t.seats }, (_, i) => ({ tableId: t.id, seatNo: i + 1 }));
+    sheet('Đổi mã QR của ' + t.name + '?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">${t.seats} ghế của bàn này sẽ nhận mã QR mới. <b>Mã đã in trước đó lập tức hết hiệu lực</b> — nhớ in lại tem.</div>
+      <button class="btn danger" data-act="tblQrRotateGo">Đổi mã mới</button>
+      <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Huỷ</button>`);
+    return;
+  }
+  case 'tblQrRotateGo': {
+    const seats = window._rotateList || [];
+    run(async () => {
+      for (const s of seats) await api(`/seats/${s.tableId}/${s.seatNo}/rotate`, { method: 'POST' });
+      window._rotateList = null; closeSheet();
+    }, 'Đã đổi mã QR — nhớ in lại tem');
     return;
   }
   case 'pickSeats': {
@@ -460,7 +490,7 @@ function handleAct(el, ev) {
   /* ---------- sửa đơn ---------- */
   case 'it+': {
     const o = orderById(d.o), i = o.items.find(x => x.lid === d.l);
-    if (i.status === 'cooking') {
+    if (i.status === 'cooking' || i.status === 'ready') {
       // Món đã vào bếp — thêm 1 phần coi như một đợt gọi mới, tách riêng khỏi phần đang nấu
       // (giữ đúng ghế đã gọi món này, quan trọng với đơn đã ghép nhiều ghế).
       run(() => api('/orders/items', { method: 'POST', body: {
@@ -595,21 +625,21 @@ function handleAct(el, ev) {
   /* ---------- bếp ---------- */
   case 'kdsToggle': {
     const o = orderById(d.o), i = o.items.find(x => x.lid === d.l);
-    const next = i.status === 'queued' ? 'start' : i.status === 'cooking' ? 'done' : 'reset';
+    const next = i.status === 'queued' ? 'start' : i.status === 'cooking' ? 'ready' : i.status === 'ready' ? 'done' : 'reset';
     run(() => api(`/kds/items/${d.l}/${next}`, { method: 'POST' }));
     return;
   }
   case 'kdsBulk': {
     // Gom mọi phần cùng món đang ở trạng thái trước đó rồi chuyển một lượt
-    const from = d.to === 'served' ? 'cooking' : 'queued';
-    const action = d.to === 'served' ? 'done' : 'start';
+    const from = d.to === 'served' ? 'ready' : d.to === 'ready' ? 'cooking' : 'queued';
+    const action = d.to === 'served' ? 'done' : d.to === 'ready' ? 'ready' : 'start';
     const list = [];
     DB.orders.filter(o => o.status === 'open').forEach(o => o.items.forEach(i => {
       if (i.name === d.name && i.status === from && (d.k === 'all' || i.kitchen === d.k)) list.push(i.lid);
     }));
     if (!list.length) { toast('Không còn phần nào ở trạng thái này'); return; }
     run(async () => { for (const lid of list) await api(`/kds/items/${lid}/${action}`, { method: 'POST' }); },
-      d.to === 'served' ? `Đã xong ${list.length} phần` : `Đã bắt đầu làm ${list.length} phần`);
+      d.to === 'served' ? `Đã phục vụ ${list.length} phần` : d.to === 'ready' ? `Đã làm xong ${list.length} phần` : `Đã bắt đầu làm ${list.length} phần`);
     return;
   }
   case 'kdsDone': {
@@ -932,7 +962,7 @@ function handleAct(el, ev) {
     (async () => {
       try {
         const r = await api('/staff', { method: 'POST', body: { name: val('sn').trim(), role: val('sr2'), username: val('su').trim() } });
-        await refresh();
+        await refresh(); render();
         sheet('Đã tạo tài khoản', `<div class="card col" style="align-items:center;gap:8px;padding:24px">
           <div class="t-xs">Mật khẩu tạm thời</div><div class="mono" style="font-size:26px;font-weight:700;letter-spacing:2px">${esc(r.tempPassword)}</div>
           <div class="t-xs" style="text-align:center">Nhân viên đổi mật khẩu ở lần đăng nhập đầu.</div></div>

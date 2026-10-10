@@ -267,7 +267,7 @@ function vHistory() {
 function vHistoryDetail() {
   const o = window._histDetail;
   if (!o) return `<div class="screen">${hdr('Chi tiết đơn')}<div class="body"><div class="empty">Đang tải…</div></div></div>`;
-  const stName = { queued: ['Chờ bếp', 'b-blue'], cooking: ['Đang làm', 'b-amber'],
+  const stName = { queued: ['Chờ bếp', 'b-blue'], cooking: ['Đang làm', 'b-amber'], ready: ['Đã làm xong', 'b-blue'],
                    served: ['Đã phục vụ', 'b-green'], cancelled: ['Đã huỷ', 'b-red'] };
   const batches = [...new Set(o.items.map(i => i.batch))].sort((a, b) => a - b);
   return `<div class="screen">

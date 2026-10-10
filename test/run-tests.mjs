@@ -1538,6 +1538,45 @@ t.group('36. Chẩn đoán đồng bộ & gói cước + hiện tiến độ t�
   const qs = bad.find(s => s.name.includes('store_status'));
   t.ok(!qs.ok && /PGRST202/.test(qs.info) && bad.length === steps.length, 'một bước lỗi (kho thiếu hàm SQL) → báo ✗ kèm mã lỗi, các bước khác vẫn chạy');
 }
+t.group('38. Trạng thái "đã làm xong" của bếp, nhật ký ghi giá trị trước/sau, xem/đổi mã QR bàn, danh sách thiết bị báo lỗi rõ');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  // bếp: queued → cooking → ready → served
+  const tb = A.D.tables[0];
+  const r0 = await A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: A.D.menu[0].id, qty: 1 }] } });
+  const it = A.D.orderItems[A.D.orderItems.length - 1];
+  await A.api(`/kds/items/${it.id}/start`, { method: 'POST' });
+  await A.api(`/kds/items/${it.id}/ready`, { method: 'POST' });
+  t.eq(A.D.orderItems.find(x => x.id === it.id).status, 'ready', 'bếp bấm "đã làm xong" → trạng thái ready (chưa phải đã phục vụ)');
+  await A.api(`/kds/items/${it.id}/done`, { method: 'POST' });
+  t.eq(A.D.orderItems.find(x => x.id === it.id).status, 'served', 'sau đó mới chuyển "đã phục vụ"');
+  // nhật ký: giá trị trước → sau
+  const m = A.D.menu[0], oldName = m.name, oldPrice = m.price;
+  await A.api('/menu/' + m.id, { method: 'PATCH', body: { price: oldPrice + 5000 } });
+  const lg = A.D.logs.find(l => l.action === 'Sửa món');
+  t.ok(lg && lg.detail.includes(oldName) && lg.detail.includes(String(oldPrice)) && lg.detail.includes(String(oldPrice + 5000)) && lg.detail.includes('→'), 'sửa giá món ghi cả giá cũ lẫn giá mới: ' + (lg && lg.detail));
+  const n0 = A.D.logs.length;
+  await A.api('/menu/' + m.id, { method: 'PATCH', body: { price: oldPrice + 5000 } });
+  t.eq(A.D.logs.length, n0, 'lưu lại không đổi gì → không ghi nhật ký thừa');
+  await A.api('/tables/' + tb.id, { method: 'PATCH', body: { name: tb.name + ' X', seats: tb.seats } });
+  t.ok(A.D.logs.find(l => l.action === 'Sửa bàn').detail.includes('→'), 'sửa tên bàn ghi trước → sau');
+  await A.api('/settings', { method: 'PATCH', body: { sound: false } });
+  t.ok(A.D.logs.find(l => l.action === 'Đổi cài đặt'), 'đổi cài đặt được ghi nhật ký');
+  // nút QR trong khung sửa bàn
+  A.route = { name: 'tablesAdmin', params: {} };
+  const src = fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8');
+  t.ok(src.includes('data-act="tblQrView"') && src.includes('data-act="tblQrRotate"'), 'khung sửa bàn có nút "Xem mã QR" và "Đổi mã QR"');
+  const before = A.D.seats.filter(s => s.table_id === tb.id).map(s => s.qr_token);
+  await A.api(`/seats/${tb.id}/1/rotate`, { method: 'POST' });
+  t.ok(A.D.seats.find(s => s.table_id === tb.id && s.seat_no === 1).qr_token !== before[0], 'đổi mã QR ghế → mã mới khác mã cũ');
+  // danh sách thiết bị: lỗi không bị nuốt
+  A.route = { name: 'cloud', params: {} };
+  const orig = A.Cloud.listDevices; A.Cloud.listDevices = async () => { throw new Error('permission denied for table staff_devices'); };
+  A.window._devices = null; A.window._devicesErr = '';
+  await A.loadDevices();
+  t.ok(/permission denied/.test(A.window._devicesErr) && A.VIEWS.cloud().includes('c_devReload'), 'tải danh sách thiết bị lỗi → hiện lý do + nút tải lại (không im lặng để trống)');
+  A.Cloud.listDevices = orig;
+}
 t.group('37. Trang Hướng dẫn sử dụng trong app: song ngữ, ảnh thật + khung đỏ, mở được từ Quản lý (kể cả khi bị khoá)');
 {
   const w = newWorld(); const A = await setupOwner(w);

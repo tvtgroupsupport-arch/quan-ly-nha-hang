@@ -187,7 +187,7 @@ function syncStatusText() {
 }
 function vCloud() {
   const isOwner = Cloud.role === 'owner', s = Sync.state, linked = Cloud.linked;
-  if (isOwnerDevice() && linked && !window._devices && !window._devicesLoading) loadDevices();
+  if (isOwnerDevice() && linked && !window._devices && !window._devicesLoading && !(window._devicesErr && Date.now() - (window._devicesErrAt || 0) < 20000)) loadDevices();
   const devs = window._devices || [];
   return `<div class="screen">
     ${hdr('Đồng bộ & thiết bị', isOwner ? 'Máy chủ quán (máy gốc)' : `Máy nhân viên · ${esc(Cloud.cfg.deviceName || '')}`)}
@@ -211,6 +211,7 @@ function vCloud() {
       ${isOwnerDevice() && linked ? `
         <div class="sec">Thiết bị nhân viên</div>
         <button class="btn pri" data-act="c_inviteNew">Thêm thiết bị nhân viên (mã QR)</button>
+        ${window._devicesErr ? `<div class="card" style="border-color:var(--red);gap:6px"><div class="t-xs" style="color:var(--red);line-height:1.6">Không tải được danh sách thiết bị: ${esc(window._devicesErr)}</div><button class="btn sm ghost" data-act="c_devReload" style="width:auto">Tải lại danh sách</button></div>` : `<div class="between"><span class="t-xs muted">${devs.length} thiết bị</span><button class="btn sm ghost" data-act="c_devReload" style="width:auto">Tải lại</button></div>`}
         ${devs.map(d => `<div class="card between">
           <div style="flex:1;min-width:0"><div class="t-md">${esc(d.device_name)}</div>
             <div class="t-xs">Liên kết ${esc(fmtTime(Date.parse(d.created_at)))} · Hoạt động ${esc(fmtTime(d.last_seen_at ? Date.parse(d.last_seen_at) : 0))}</div></div>
@@ -228,7 +229,8 @@ function vCloud() {
 }
 async function loadDevices() {
   window._devicesLoading = true;
-  try { window._devices = await Cloud.listDevices(); } catch (e) { window._devices = []; }
+  try { window._devices = await Cloud.listDevices(); window._devicesErr = ''; }
+  catch (e) { window._devices = null; window._devicesErr = fmtErr(e); window._devicesErrAt = Date.now(); }
   window._devicesLoading = false;
   if (route.name === 'cloud') render();
 }
@@ -584,8 +586,10 @@ function cloudAct(el) {
       await doStaffJoin(val('sj_code'), val('sj_name'));
     }); return true;
 
+    case 'c_devReload': window._devices = null; window._devicesErr = ''; render(); return true;
     case 'c_inviteNew': busy(async () => {
       if (!canManageDevices()) throw new Error(DEVICES_OWNER_ONLY);
+      window._devices = null; window._devicesErr = '';
       window._invite = await Cloud.createInvite();
       go('pairQr');
     }); return true;

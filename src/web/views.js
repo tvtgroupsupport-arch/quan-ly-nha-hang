@@ -422,8 +422,8 @@ function vOrder(){
   if(!o) return vTables();
   const {sub,disc,total,promo} = orderTotal(o);
   const allServed = o.items.length>0 && o.items.every(i=>i.status==='served');
-  const stName = {pending:'Chờ xác nhận',queued:'Đã gửi bếp',cooking:'Đang làm',served:'Đã phục vụ'};
-  const stCls = {pending:'b-amber',queued:'b-blue',cooking:'b-amber',served:'b-green'};
+  const stName = {pending:'Chờ xác nhận',queued:'Đã gửi bếp',cooking:'Đang làm',ready:'Đã làm xong',served:'Đã phục vụ'};
+  const stCls = {pending:'b-amber',queued:'b-blue',cooking:'b-amber',ready:'b-blue',served:'b-green'};
   const waiting = o.items.filter(i=>i.status==='pending');
   const t = o.tableId==='delivery'?null:tableById(o.tableId);
   const merged = isMerged(o);
@@ -685,7 +685,7 @@ function kdsByTicket(tickets, k){
       <span class="mono" style="font-size:13px;font-weight:700;color:${done?'#6FBB92':late?'#E08276':'#D8B24C'}">${done?'✓ Xong':elapsed(o.createdAt)}</span></div>
       <div class="tb">
         ${items.map(i=>`<button class="li ${i.status==='served'?'x':''}" data-act="kdsToggle" data-o="${o.id}" data-l="${i.lid}" style="text-align:left;width:100%">
-          <span style="font-size:15px">${i.status==='served'?'☑':i.status==='cooking'?'🔥':'☐'}</span>
+          <span style="font-size:15px">${i.status==='served'?'☑':i.status==='ready'?'🍽':i.status==='cooking'?'🔥':'☐'}</span>
           <span style="flex:1">${esc(i.name)} ×${i.qty}${i.note?` <span style="color:#8C8071">(${esc(i.note)})</span>`:''}</span>
           <span style="font-size:11px;color:#8C8071">${esc(i.kitchen)}</span>
         </button>`).join('')}
@@ -700,19 +700,19 @@ function kdsByItem(tickets, k){
   const agg = new Map();
   tickets.forEach(({o,items})=>items.forEach(i=>{
     if(!agg.has(i.name)) agg.set(i.name, { name:i.name, emoji:i.emoji, kitchen:i.kitchen,
-      queued:0, cooking:0, served:0, total:0, refs:[], oldest:o.createdAt });
+      queued:0, cooking:0, ready:0, served:0, total:0, refs:[], oldest:o.createdAt });
     const a = agg.get(i.name);
     a[i.status] += i.qty;
     a.total += i.qty;
     a.oldest = Math.min(a.oldest, o.createdAt);
     a.refs.push({ orderId:o.id, lid:i.lid, status:i.status, qty:i.qty, tableId:o.tableId, seatNo:o.seatNo });
   }));
-  const rows = [...agg.values()].sort((a,b)=> (b.queued+b.cooking)-(a.queued+a.cooking) || a.oldest-b.oldest);
+  const rows = [...agg.values()].sort((a,b)=> (b.queued+b.cooking+b.ready)-(a.queued+a.cooking+a.ready) || a.oldest-b.oldest);
   if(!rows.length) return '<div class="empty" style="color:#8C8071">Không có món nào đang chờ</div>';
 
   const chip = (n, lb, color) => n ? `<span class="badge" style="background:${color};color:#221208">${lb} ${n}</span>` : '';
   return rows.map(r=>{
-    const waiting = r.queued + r.cooking;
+    const waiting = r.queued + r.cooking + r.ready;
     const late = mins(r.oldest) > 15 && waiting > 0;
     const where = r.refs.filter(x=>x.status!=='served').map(x=>{
       const t = x.tableId==='delivery'?null:tableById(x.tableId);
@@ -727,15 +727,18 @@ function kdsByItem(tickets, k){
         <div style="display:flex;flex-wrap:wrap;gap:6px">
           ${chip(r.queued,'Chưa làm','#BDAF9F')}
           ${chip(r.cooking,'Đang làm','#D8B24C')}
-          ${chip(r.served,'Đã xong','#6FBB92')}
+          ${chip(r.ready,'Đã làm xong','#8FB8DE')}
+          ${chip(r.served,'Đã phục vụ','#6FBB92')}
           <span class="badge" style="background:#3A3228;color:#BDAF9F">Tổng ${r.total}</span>
         </div>
         ${where.length?`<div style="font-size:11px;color:#8C8071;line-height:1.5">${esc(where.join(' · '))}</div>`:''}
       </div>
       ${r.queued?`<button class="btn ok" data-act="kdsBulk" data-name="${esc(r.name)}" data-k="${esc(k)}" data-to="cooking"
         style="margin:0 12px 8px;width:calc(100% - 24px);padding:9px;background:#D8B24C;color:#221208">Bắt đầu làm ${r.queued} phần</button>`:''}
-      ${r.cooking?`<button class="btn ok" data-act="kdsBulk" data-name="${esc(r.name)}" data-k="${esc(k)}" data-to="served"
-        style="margin:0 12px 12px;width:calc(100% - 24px);padding:9px">Xong ${r.cooking} phần</button>`:''}
+      ${r.cooking?`<button class="btn ok" data-act="kdsBulk" data-name="${esc(r.name)}" data-k="${esc(k)}" data-to="ready"
+        style="margin:0 12px 8px;width:calc(100% - 24px);padding:9px;background:#8FB8DE;color:#10202E">Đã làm xong ${r.cooking} phần</button>`:''}
+      ${r.ready?`<button class="btn ok" data-act="kdsBulk" data-name="${esc(r.name)}" data-k="${esc(k)}" data-to="served"
+        style="margin:0 12px 12px;width:calc(100% - 24px);padding:9px">Đã phục vụ ${r.ready} phần</button>`:''}
     </div>`;
   }).join('');
 }

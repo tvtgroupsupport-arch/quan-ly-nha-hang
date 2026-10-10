@@ -90,8 +90,8 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&am
 const fmt = n => (Math.round(n) || 0).toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.') + 'đ';
 const $ = id => document.getElementById(id);
 let sb = null, state = null, cart = {}, curCat = 0, called = false, view = 'menu', poller = null;
-const ST_LABEL = { pending: 'Chờ xác nhận', queued: 'Đã gửi bếp', cooking: 'Đang làm', served: 'Đã phục vụ' };
-const ST_CLASS = { pending: 'ob-pending', queued: 'ob-queued', cooking: 'ob-cooking', served: 'ob-served' };
+const ST_LABEL = { pending: 'Chờ xác nhận', queued: 'Đã gửi bếp', cooking: 'Đang làm', ready: 'Đã làm xong', served: 'Đã phục vụ' };
+const ST_CLASS = { pending: 'ob-pending', queued: 'ob-queued', cooking: 'ob-cooking', ready: 'ob-cooking', served: 'ob-served' };
 
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', 2400); }
 

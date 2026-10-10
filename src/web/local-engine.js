@@ -115,6 +115,28 @@ function addLog(actor, action, detail, level) {
   D.logs.unshift({ id: 'l' + rid(), level: level || 'info', actor, action, detail: detail || null, created_at: nowMs() });
   if (D.logs.length > 3000) D.logs.pop();   // chỉ cắt nhật ký cục bộ; máy chủ vẫn giữ
 }
+/** Nhật ký thay đổi: ghi rõ GIÁ TRỊ TRƯỚC → SAU của từng trường đã đổi (bỏ qua nếu không có gì đổi).
+    fields = { khoá: ['Nhãn hiển thị', hàmĐổiGiáTrị?] } — hàm đổi giá trị dùng để hiện tên thay vì mã (khu vực, danh mục, khu bếp…). */
+function showLogVal(v) {
+  if (v === undefined || v === null || v === '') return '(trống)';
+  if (typeof v === 'boolean') return v ? 'bật' : 'tắt';
+  if (typeof v === 'object') { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+  const s = String(v);
+  return s.length > 80 ? s.slice(0, 77) + '…' : s;
+}
+function diffLog(action, name, before, after, fields) {
+  const parts = [];
+  for (const k of Object.keys(fields)) {
+    const [label, fmt] = fields[k];
+    const a = before[k], b = after[k];
+    if (JSON.stringify(a ?? null) === JSON.stringify(b ?? null)) continue;
+    if (k === 'image') { parts.push(label + ': ' + (b ? (a ? 'đổi ảnh' : 'thêm ảnh') : 'xoá ảnh')); continue; }
+    parts.push(label + ': ' + showLogVal(fmt ? fmt(a) : a) + ' → ' + showLogVal(fmt ? fmt(b) : b));
+  }
+  if (parts.length) addLog(who(), action, (name ? name + ' — ' : '') + parts.join('; '));
+  return parts.length;
+}
+const snapOf = (o, keys) => { const r = {}; keys.forEach(k => { r[k] = o[k]; }); return r; };
 function moveStockD(ingId, type, qty, reason, orderId) {
   const ing = D.ingredients.find(i => i.id === ingId);
   if (!ing) return;
@@ -281,11 +303,14 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     const busy = Math.max(0, ...D.orders.filter(o => o.table_id === t.id && o.status === 'open').map(o => o.seat_no || 0));
     if (busy && n < busy) throw err(409, `Ghế ${busy} đang có khách`);
     const layout = body.layout === undefined ? t.layout : (VALID_TABLE_LAYOUTS.includes(body.layout) ? body.layout : 'auto');
+    const tBefore = snapOf(t, ['name', 'area_id', 'seats', 'layout']);
     Object.assign(t, { name: body.name ?? t.name, area_id: body.areaId ?? t.area_id, seats: n, layout, updated_at: nowMs() });
     for (let i = 1; i <= n; i++) if (!D.seats.some(s => s.table_id === t.id && s.seat_no === i))
       D.seats.push({ table_id: t.id, seat_no: i, qr_token: tok(), locked: 0, calling: 0, bound_order_id: null, updated_at: nowMs() });
     D.seats = D.seats.filter(s => s.table_id !== t.id || s.seat_no <= n);
-    addLog(who(), 'Sửa bàn', t.name); saveD(); return { ok: true };
+    const areaName = id => (D.areas.find(a => a.id === id) || {}).name || id;
+    diffLog('Sửa bàn', tBefore.name, tBefore, snapOf(t, ['name', 'area_id', 'seats', 'layout']), { name: ['Tên bàn'], area_id: ['Khu vực', areaName], seats: ['Số ghế'], layout: ['Bố trí ghế'] });
+    saveD(); return { ok: true };
   }
   if (M('DELETE', 'tables', '*')) {
     if (D.orders.some(o => o.table_id === seg[1] && o.status === 'open')) throw err(409, 'Bàn đang có khách');
@@ -549,7 +574,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
 
   /* --- bếp --- */
   if (M('POST', 'kds', 'items', '*', '*')) {
-    const map = { start: 'cooking', done: 'served', reset: 'queued' };
+    const map = { start: 'cooking', ready: 'ready', done: 'served', reset: 'queued' };
     const it = D.orderItems.find(i => i.id === seg[2]);
     if (!it) throw err(404, 'Không tìm thấy món');
     it.status = map[seg[3]] || it.status; it.updated_at = nowMs();
@@ -588,8 +613,8 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('PATCH', 'reservations', '*')) {
     const r = D.reservations.find(x => x.id === seg[1]);
     if (!r) throw err(404, 'Không tìm thấy lịch');
-    r.status = body?.status; r.updated_at = nowMs();
-    addLog(who(), 'Cập nhật đặt bàn', `${r.name} · ${r.status}`); saveD(); return { ok: true };
+    const rsOld = r.status; r.status = body?.status; r.updated_at = nowMs();
+    addLog(who(), 'Cập nhật đặt bàn', `${r.name} — Trạng thái: ${showLogVal(rsOld)} → ${showLogVal(r.status)}`); saveD(); return { ok: true };
   }
 
   /* --- thực đơn, kho, khuyến mãi, nhân viên --- */
@@ -605,22 +630,32 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('PATCH', 'menu', '*')) {
     const m = D.menu.find(x => x.id === seg[1]);
     if (!m) throw err(404, 'Không tìm thấy món');
+    const mBefore = snapOf(m, ['name', 'description', 'emoji', 'image', 'price', 'category_id', 'kitchen_id', 'stock_state']);
     Object.assign(m, { name: body.name ?? m.name, description: body.description ?? m.description,
       emoji: body.emoji ?? m.emoji, image: body.image !== undefined ? body.image : m.image,
       price: body.price !== undefined ? Math.round(body.price) : m.price,
       category_id: body.categoryId ?? m.category_id, kitchen_id: body.kitchenId ?? m.kitchen_id,
       stock_state: body.stockState ?? m.stock_state, updated_at: nowMs() });
-    addLog(who(), 'Sửa món', m.name); saveD(); return { ok: true };
+    const catName = id => (D.categories.find(c => c.id === id) || {}).name || id, kitName = id => (D.kitchens.find(k => k.id === id) || {}).name || id;
+    diffLog('Sửa món', mBefore.name, mBefore, snapOf(m, ['name', 'description', 'emoji', 'image', 'price', 'category_id', 'kitchen_id', 'stock_state']),
+      { name: ['Tên'], description: ['Mô tả'], emoji: ['Biểu tượng'], image: ['Ảnh'], price: ['Giá (đ)'], category_id: ['Danh mục', catName], kitchen_id: ['Khu bếp', kitName],
+        stock_state: ['Tình trạng', v => ({ ok: 'còn hàng', low: 'sắp hết', out: 'hết hàng' }[v] || v)] });
+    saveD(); return { ok: true };
   }
   if (M('DELETE', 'menu', '*')) {
     const m = D.menu.find(x => x.id === seg[1]); if (m) m.active = 0;
     addLog(who(), 'Xoá món', m?.name); saveD(); return { ok: true };
   }
   if (M('PUT', 'menu', '*', 'recipe')) {
+    const ingNm = id => (D.ingredients.find(i => i.id === id) || {}).name || id;
+    const recTxt = list => list.map(r => ingNm(r.ingredient_id) + ' ' + r.qty_per_serve).join(', ');
+    const recBefore = recTxt(D.recipes.filter(r => r.menu_item_id === seg[1]));
     D.recipes = D.recipes.filter(r => r.menu_item_id !== seg[1]);
     (body?.lines || []).forEach(l => { if (Number(l.qtyPerServe) > 0)
       D.recipes.push({ menu_item_id: seg[1], ingredient_id: l.ingredientId, qty_per_serve: Number(l.qtyPerServe) }); });
-    addLog(who(), 'Cập nhật công thức'); saveD(); return { ok: true };
+    const recAfter = recTxt(D.recipes.filter(r => r.menu_item_id === seg[1]));
+    addLog(who(), 'Cập nhật công thức', ((D.menu.find(x => x.id === seg[1]) || {}).name || seg[1]) + ' — Công thức: ' + showLogVal(recBefore) + ' → ' + showLogVal(recAfter));
+    saveD(); return { ok: true };
   }
   if (M('POST', 'ingredients')) {
     if (!body?.name?.trim()) throw err(400, 'Nhập tên nguyên liệu');
@@ -631,8 +666,10 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('PATCH', 'ingredients', '*')) {
     const i = D.ingredients.find(x => x.id === seg[1]);
     if (!i) throw err(404, 'Không tìm thấy nguyên liệu');
+    const iBefore = snapOf(i, ['name', 'unit', 'min_qty']);
     Object.assign(i, { name: body.name ?? i.name, unit: body.unit ?? i.unit,
       min_qty: body.minQty !== undefined ? Number(body.minQty) : i.min_qty, updated_at: nowMs() });
+    diffLog('Sửa nguyên liệu', iBefore.name, iBefore, snapOf(i, ['name', 'unit', 'min_qty']), { name: ['Tên'], unit: ['Đơn vị'], min_qty: ['Mức tối thiểu'] });
     saveD(); return { ok: true };
   }
   if (M('POST', 'stock', 'moves')) {
@@ -657,12 +694,15 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('PATCH', 'promos', '*')) {
     const p = D.promos.find(x => x.id === seg[1]);
     if (!p) throw err(404, 'Không tìm thấy chương trình');
+    const pBefore = snapOf(p, ['name', 'type', 'value', 'min_total', 'use_limit', 'expires_on', 'active']);
     Object.assign(p, { name: body.name ?? p.name, type: body.type ?? p.type,
       value: body.value !== undefined ? Math.round(body.value) : p.value,
       min_total: body.minTotal !== undefined ? Number(body.minTotal) : p.min_total,
       use_limit: body.useLimit !== undefined ? Number(body.useLimit) : p.use_limit,
       expires_on: body.expiresOn ?? p.expires_on,
       active: body.active !== undefined ? (body.active ? 1 : 0) : p.active, updated_at: nowMs() });
+    diffLog('Sửa khuyến mãi', pBefore.name, pBefore, snapOf(p, ['name', 'type', 'value', 'min_total', 'use_limit', 'expires_on', 'active']),
+      { name: ['Tên'], type: ['Loại', v => ({ percent: 'giảm %', amount: 'giảm tiền' }[v] || v)], value: ['Giá trị giảm'], min_total: ['Đơn tối thiểu'], use_limit: ['Giới hạn lượt dùng'], expires_on: ['Hết hạn'], active: ['Đang áp dụng', v => !!v] });
     saveD(); return { ok: true };
   }
   if (M('POST', 'staff')) {
@@ -686,9 +726,12 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     // Không cho khoá tài khoản Chủ quán qua API này dưới bất kỳ hình thức nào — kể cả tự khoá chính mình —
     // vì đây là tài khoản duy nhất không ai khác mở lại được.
     if (s.role === 'Chủ quán' && body.active === false) throw err(403, 'Không thể tự khoá tài khoản chủ quán');
+    const sBefore = { name: s.name, active: s.active, perms: Object.keys(s.perms || {}).filter(k => s.perms[k]).sort().join(', ') };
     if (body.perms) s.perms = body.perms;
     if (body.active !== undefined) s.active = body.active ? 1 : 0;
     if (body.name) s.name = body.name;
+    diffLog('Sửa nhân viên', sBefore.name, sBefore, { name: s.name, active: s.active, perms: Object.keys(s.perms || {}).filter(k => s.perms[k]).sort().join(', ') },
+      { name: ['Họ tên'], active: ['Tài khoản hoạt động', v => !!v], perms: ['Quyền'] });
     saveD(); return { ok: true };
   }
   if (M('POST', 'staff', '*', 'reset-password')) {
@@ -726,9 +769,10 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       const name = body.name.trim();
       if (!name) throw err(400, 'Tên không được để trống');
       if (D.categories.some(x => x.id !== c.id && x.name === name)) throw err(409, 'Tên danh mục đã tồn tại');
-      c.name = name;
+      const old = c.name; c.name = name;
+      if (old !== name) addLog(who(), 'Sửa danh mục', 'Tên: ' + showLogVal(old) + ' → ' + showLogVal(name));
     }
-    addLog(who(), 'Sửa danh mục', c.name); saveD();
+    saveD();
     return { ok: true };
   }
   if (M('DELETE', 'categories', '*')) {
@@ -759,9 +803,10 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       const name = body.name.trim();
       if (!name) throw err(400, 'Tên không được để trống');
       if (D.kitchens.some(x => x.id !== k.id && x.name === name)) throw err(409, 'Tên khu bếp đã tồn tại');
-      k.name = name;
+      const old = k.name; k.name = name;
+      if (old !== name) addLog(who(), 'Sửa khu bếp', 'Tên: ' + showLogVal(old) + ' → ' + showLogVal(name));
     }
-    addLog(who(), 'Sửa khu bếp', k.name); saveD();
+    saveD();
     return { ok: true };
   }
   if (M('DELETE', 'kitchens', '*')) {
@@ -775,11 +820,18 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     return { ok: true };
   }
 
-  if (M('PATCH', 'settings')) { Object.assign(D.settings, body || {}); saveD(); return D.settings; }
+  if (M('PATCH', 'settings')) {
+    const before = { ...D.settings };
+    Object.assign(D.settings, body || {});
+    const f = {}; Object.keys(body || {}).forEach(k => { f[k] = [k]; });
+    diffLog('Đổi cài đặt', '', before, D.settings, f);
+    saveD(); return D.settings;
+  }
   if (M('PATCH', 'restaurant')) {
     if (body?.name !== undefined && !String(body.name).trim()) throw err(400, 'Nhập tên nhà hàng');
+    const rBefore = snapOf(D.restaurant, ['name', 'phone', 'address']);
     Object.assign(D.restaurant, { name: body?.name?.trim() ?? D.restaurant.name, phone: body?.phone ?? D.restaurant.phone, address: body?.address ?? D.restaurant.address });
-    addLog(who(), 'Đổi thông tin nhà hàng');
+    diffLog('Đổi thông tin nhà hàng', '', rBefore, snapOf(D.restaurant, ['name', 'phone', 'address']), { name: ['Tên nhà hàng'], phone: ['Số điện thoại'], address: ['Địa chỉ'] });
     saveD(); return D.restaurant;
   }
 
