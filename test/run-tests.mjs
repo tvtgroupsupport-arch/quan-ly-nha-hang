@@ -1423,6 +1423,12 @@ t.group('34. Bắt đầu dùng ngay (không cần email/tài khoản): chạy h
     t.ok(E.License.locked(), 'sau 14 ngày dùng thử hết hạn → khoá');
     E.route = { name: 'subscription', params: {} }; E.render();
     t.eq(E.route.name, 'subscription', 'khi khoá vẫn vào được màn Gói cước (để tạo tài khoản gia hạn)');
+    // lỗi thật đã gặp: hết hạn mà bấm tạo tài khoản/gia hạn bị đá ngược về màn "hết hạn", không tạo được tài khoản
+    E.route = { name: 'tables', params: {} }; E.render();
+    t.ok(E.route.name === 'locked' && E.VIEWS.locked().includes('c_upgradeStart'), 'màn hết hạn (dùng ngay) có nút "Tạo tài khoản & gia hạn"');
+    E.handleAct({ dataset: { act: 'c_upgradeStart' } }); E.render();
+    t.eq(E.route.name, 'ownerAuth', 'đang bị khoá vẫn vào được màn tạo/đăng nhập tài khoản (không bị đá về màn hết hạn)');
+    for (const r of ['ownerLink', 'ownerRestore', 'ownerInit']) { E.route = { name: r, params: {} }; E.render(); t.ok(E.route.name === r, 'đang bị khoá vẫn ở được bước ' + r); }
   }
 
   // làm lại quán không "làm mới" 14 ngày (mốc nhớ ngoài bộ nhớ dữ liệu)

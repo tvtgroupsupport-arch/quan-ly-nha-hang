@@ -7,7 +7,9 @@
 
 const FREE_ROUTES = ['setup', 'quickStart', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'staffJoin', 'restoring', 'login', 'supabaseGuide'];
 /** Khi gói cước hết hạn (khoá mềm): chủ quán vẫn xem được báo cáo và gia hạn */
-const LOCK_OK_OWNER = ['locked', 'subscription', 'cloud', 'admin', 'reports', 'history', 'historyDetail', 'exportHub', 'login'];
+// Khi khoá vì hết hạn chủ quán PHẢI vào được các bước tạo/đăng nhập tài khoản và liên kết kho (nếu không: bấm gia hạn/tạo tài khoản bị đá ngược về màn hết hạn)
+const LOCK_OK_OWNER = ['locked', 'subscription', 'cloud', 'admin', 'reports', 'history', 'historyDetail', 'exportHub', 'login',
+                       'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'supabaseGuide', 'restoring'];
 const LOCK_OK_STAFF = ['locked', 'login'];
 
 const fmtTime = ts => ts ? new Date(ts).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—';
@@ -325,7 +327,9 @@ function vLocked() {
     <div style="font-size:44px">🔒</div>
     <div class="t-lg">Gói cước đã hết hạn</div>
     <div class="t-sm muted" style="line-height:1.7">${owner ? 'Bạn vẫn xem và xuất được báo cáo. Gia hạn để tiếp tục gọi món, thanh toán và các thao tác khác.' : 'Vui lòng liên hệ chủ quán để gia hạn.'}</div>
-    ${owner ? `<button class="btn pri" data-go="subscription">Gia hạn gói cước</button><button class="btn ghost" data-go="reports">Xem báo cáo</button>` : ''}
+    ${owner ? (Cloud.localMode
+      ? `<button class="btn pri" data-act="c_upgradeStart">Tạo tài khoản &amp; gia hạn</button><button class="btn ghost" data-go="reports">Xem báo cáo</button>`
+      : `<button class="btn pri" data-go="subscription">Gia hạn gói cước</button><button class="btn ghost" data-go="reports">Xem báo cáo</button>`) : ''}
     <button class="btn ghost" data-act="logout">Đăng xuất</button>
   </div></div>`;
 }
