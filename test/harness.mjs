@@ -34,7 +34,7 @@ const tail = `
   QR, VietQR, Persist, Records, Sync, Cloud, License, AuthLocal, apiLocal, refresh, render, createStore, emptyD, VIEWS, handleAct, tableChairsSvg, guestUrl,
   hasNewStaffCall, hasNewKitchenTicket, playChime, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
   openQrZoom, closeQrZoom, get qrZoomOpen() { return !!qrZoomEl; }, uploadMenuImage,
-  playPurchase, playRestore, vSubscriptionPlay, normalizePlayProducts, playProductId,
+  playPurchase, playRestore, playSyncPurchases, refreshLicenseWithPlay, ownedPlayPurchases, vSubscriptionPlay, normalizePlayProducts, playProductId,
   AutoProv, autoProvCard, vSupabaseGuide, guideGallery, GUIDE_FIGS,
   get playBusy() { return _playBusy; }, get playProducts() { return _playProducts; },
   buildMenuPageHtml, exportMenuPage, addLog, engineGuard, can, INVITE_PREFIX

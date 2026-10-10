@@ -56,13 +56,68 @@ async function verifyPlayPurchase(purchaseToken, productId) {
   return j;
 }
 
-async function playPurchase(productId) {
+/** Các lượt mua gói còn hiệu lực trên tài khoản Google của máy này — KHÔNG lọc theo tài khoản app, vì giao dịch tạo thẳng trên
+    Google Play (nút "Đăng ký lại"…) không mang mã tài khoản của app nhưng vẫn là tiền thật khách đã trả. */
+async function ownedPlayPurchases() {
+  let owned = [];
+  try { owned = await NativeBridge.billing.getPurchases(); } catch (e) { owned = []; }
+  return (owned || []).filter(p => p?.purchaseToken && PLAY_PRODUCT_IDS.includes(p.productIdentifier) && String(p.purchaseState) === '1');
+}
+
+/** Gửi mọi lượt mua đang có trên máy lên server xác minh (server hỏi lại Google rồi mới ghi nhận). Trả về số lượt được ghi nhận.
+    Gọi khi mở màn Gói cước / bấm "Kiểm tra lại" / mở app / quay lại app — nên có chặn gọi dồn (10 phút) trừ khi force. */
+let _playSyncAt = 0, _playSyncing = false;
+async function playSyncPurchases(force) {
+  if (_playSyncing) return 0;
+  if (!force && Date.now() - _playSyncAt < 10 * 60000) return 0;
+  _playSyncing = true;
+  let ok = 0;
+  try {
+    if (!(await NativeBridge.billing.isSupported())) return 0;
+    for (const p of await ownedPlayPurchases()) {
+      try { await verifyPlayPurchase(p.purchaseToken, p.productIdentifier); ok++; }
+      catch (e) { /* giao dịch của tài khoản app khác / đang chờ thanh toán / mạng lỗi: bỏ qua, lần sau thử lại */ }
+    }
+    _playSyncAt = Date.now();
+  } catch (e) { /* không đồng bộ được — để lần sau */ }
+  finally { _playSyncing = false; }
+  return ok;
+}
+
+/** Làm mới gói cước: đồng bộ giao dịch Google Play (bản Google Play) rồi hỏi lại hạn từ máy chủ. */
+async function refreshLicenseWithPlay(force) {
+  if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.billingMode === 'play') await playSyncPurchases(force);
+  await License.refresh(!!force);
+}
+
+function _playLabel(id) { return ({ goi_1_thang: '1 tháng', goi_6_thang: '6 tháng', goi_12_thang: '12 tháng' }[id] || id); }
+
+async function playPurchase(productId, force) {
   if (_playBusy) return;
   _playBusy = true; render();
   try {
     const { data: userRes } = await Cloud.central().auth.getUser();
     const ownerId = userRes?.user?.id;
     if (!ownerId) throw new Error('Chưa đăng nhập tài khoản lưu trữ');
+
+    // Chặn mua trùng: Google Play cho phép giữ NHIỀU gói đăng ký cùng lúc (mỗi gói là một sản phẩm riêng) và tính tiền cả hai.
+    // Plugin hiện không hỗ trợ "đổi gói" nên hỏi lại cho chắc trước khi thu thêm tiền.
+    if (!force) {
+      const owned = await ownedPlayPurchases();
+      if (owned.length) {
+        const same = owned.find(p => p.productIdentifier === productId);
+        if (same) {
+          await playSyncPurchases(true); await License.refresh(true);
+          toast('Bạn đang có gói ' + _playLabel(productId) + ' trên Google Play — đã cập nhật lại trạng thái gói cước');
+          return;
+        }
+        const have = [...new Set(owned.map(p => _playLabel(p.productIdentifier)))].join(', ');
+        sheet('Bạn đang có gói khác', `<div class="t-sm" style="line-height:1.6">Tài khoản Google Play trên máy này đang đăng ký gói <b>${esc(have)}</b>. Mua thêm gói <b>${esc(_playLabel(productId))}</b> sẽ bị tính tiền <b>cả hai gói</b> (Google không tự thay thế gói cũ).<br><br>Muốn đổi gói: vào "Quản lý gói trên Google Play" để huỷ gói cũ rồi mua gói mới sau khi gói cũ hết hạn.</div>
+          <button class="btn" data-act="c_playManage" style="margin-top:12px">Quản lý gói trên Google Play</button>
+          <button class="btn ghost" data-act="c_playBuyAnyway" data-id="${esc(productId)}" style="margin-top:8px">Vẫn mua thêm gói ${esc(_playLabel(productId))}</button>`);
+        return;
+      }
+    }
 
     // Ưu tiên base plan do chính Google trả về cho gói này; không có thì dùng bảng quy ước PLAY_BASE_PLANS.
     const prod = (_playProducts || []).find(p => playProductId(p) === productId);
@@ -84,7 +139,6 @@ async function playPurchase(productId) {
     _playBusy = false; render();
   }
 }
-
 async function playRestore() {
   if (_playBusy) return;
   _playBusy = true; render();
@@ -92,14 +146,7 @@ async function playRestore() {
     await NativeBridge.billing.restore();
     toast('Đang kiểm tra lại các giao dịch trước đó…');
     // Gửi từng lượt mua còn trên tài khoản Google lên server xác minh (cài lại app trước khi verify xong vẫn không mất gói).
-    const { data: userRes } = await Cloud.central().auth.getUser();
-    const ownerId = userRes?.user?.id;
-    const owned = ownerId ? await NativeBridge.billing.getPurchases(ownerId) : [];
-    for (const p of owned) {
-      if (p?.purchaseToken && PLAY_PRODUCT_IDS.includes(p.productIdentifier) && String(p.purchaseState) === '1') {
-        try { await verifyPlayPurchase(p.purchaseToken, p.productIdentifier); } catch (e) { /* token của tài khoản khác/hết hạn: bỏ qua */ }
-      }
-    }
+    await playSyncPurchases(true);
     await License.refresh(true);
     toast('Đã kiểm tra xong');
   } catch (e) { toast('Khôi phục giao dịch không thành công'); }
@@ -111,8 +158,9 @@ function vSubscriptionPlay() {
   const st = License.status();
   const tone = st.state === 'expired' ? 'var(--red)' : st.state === 'expiring' ? 'var(--amber)' : 'var(--green)';
   if (!_playProducts && !_playLoading) loadPlayProducts();
+  if (!_playSyncing && Date.now() - _playSyncAt > 10 * 60000) playSyncPurchases(false).then(n => { if (n && route.name === 'subscription') License.refresh(true).then(() => render()); });
 
-  const labelOf = (id) => ({ goi_1_thang: '1 tháng', goi_6_thang: '6 tháng', goi_12_thang: '12 tháng' }[id] || id);
+  const labelOf = _playLabel;
 
   return `<div class="screen">
     ${hdr('Gói cước')}

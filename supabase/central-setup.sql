@@ -122,7 +122,7 @@ create or replace function public.record_play_purchase(
 ) returns void
 language plpgsql security definer set search_path = public as $$
 declare v_months int; v_best_months int; v_best_expiry timestamptz; v_has_active boolean;
-        v_bonus timestamptz; v_final timestamptz; v_active boolean;
+        v_bonus timestamptz; v_final timestamptz; v_active boolean; v_store timestamptz;
 begin
   select plan_months into v_months from public.play_products where product_id = p_product_id;
   if v_months is null then raise exception 'Không nhận ra mã gói: %', p_product_id using errcode = '22023'; end if;
@@ -153,12 +153,15 @@ begin
   select bonus_until into v_bonus from public.subscriptions where owner_id = p_owner;
   v_final  := greatest(v_best_expiry, coalesce(v_bonus, v_best_expiry));
   v_active := v_final > now() and (v_has_active or coalesce(v_bonus > now(), false));
+  -- Không còn quyền lợi (bị thu hồi/hoàn tiền, tạm giữ do thanh toán lỗi, tạm dừng, hết hạn…) thì hạn lưu cho app KHÔNG được ở tương lai:
+  -- app (license.js) tính trạng thái chỉ từ expires_at, nên một gói bị thu hồi mà expires_at còn xa sẽ vẫn hiện "còn hạn".
+  v_store := case when v_active then v_final else least(v_final, now()) end;
 
   insert into public.subscriptions (owner_id, plan_months, status, source, started_at, expires_at)
   values (p_owner, v_best_months, case when v_active then 'active' else 'expired' end,
-          'google_play', now(), v_final)
+          'google_play', now(), v_store)
   on conflict (owner_id) do update
-    set plan_months = v_best_months, source = 'google_play', expires_at = v_final,
+    set plan_months = v_best_months, source = 'google_play', expires_at = v_store,
         status = case when v_active then 'active' else 'expired' end,
         updated_at = now()
     -- Không cho một token HẾT HẠN ghi đè gói đang còn hiệu lực từ nguồn khác (dùng thử / admin gia hạn tay).

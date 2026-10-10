@@ -1453,7 +1453,7 @@ function wireCloud() {
   NativeBridge.network.get().then(on => Sync.setOnline(on));
   NativeBridge.app.onResume(() => {
     Sync.kick(0);
-    if (Cloud.role === 'owner') License.refresh().then(() => { if (ME && License.locked()) render(); });
+    if (Cloud.role === 'owner') refreshLicenseWithPlay().then(() => { if (ME && License.locked()) render(); });
   });
   // Nút Back của Android: đóng hộp thoại → quay lại màn trước → thu nhỏ app
   NativeBridge.app.onBack(() => {
@@ -1462,7 +1462,7 @@ function wireCloud() {
     if (histStack.length && !['login', 'setup'].includes(route.name)) { back(); return true; }
     return false;
   });
-  setInterval(() => { if (Cloud.role === 'owner') License.refresh().then(() => { if (ME && License.locked()) render(); }); }, 6 * 3600000);
+  setInterval(() => { if (Cloud.role === 'owner') refreshLicenseWithPlay().then(() => { if (ME && License.locked()) render(); }); }, 6 * 3600000);
 }
 
 (async function boot() {
@@ -1489,7 +1489,7 @@ function wireCloud() {
       } catch (e) { TOKEN = null; try { localStorage.removeItem(TOKEN_KEY); } catch (e2) {} }
     }
     Sync.start();
-    if (Cloud.role === 'owner') License.refresh().then(() => { if (ME && License.locked()) render(); });
+    if (Cloud.role === 'owner') refreshLicenseWithPlay().then(() => { if (ME && License.locked()) render(); });
   }
   render();
 })();

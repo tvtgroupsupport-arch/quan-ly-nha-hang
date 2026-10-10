@@ -14,7 +14,7 @@
 //   https://<project-ref>.functions.supabase.co/rtdn-webhook?secret=<RTDN_SECRET>
 // ============================================================
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { fetchSubscription, isActiveState } from '../_shared/google-play.ts';
+import { fetchSubscription, acknowledgeSubscription, isActiveState } from '../_shared/google-play.ts';
 
 const PACKAGE_NAME = Deno.env.get('PLAY_PACKAGE_NAME') ?? '';
 const SA_JSON = Deno.env.get('PLAY_SERVICE_ACCOUNT_JSON') ?? '';
@@ -49,6 +49,13 @@ Deno.serve(async (req) => {
     const line = sub.lineItems?.[0];
     if (!line) return ok({ skipped: 'không có lineItem' });
 
+    // Giao dịch tạo thẳng trên Google Play (nút "Đăng ký lại"…) chưa ai xác nhận: Google tự HOÀN TIỀN sau 3 ngày nếu không xác nhận.
+    // Xác nhận ngay tại đây, không phụ thuộc đã biết chủ hay chưa (quyền lợi được cấp khi app gửi mã lên qua verify-purchase).
+    if (sub.acknowledgementState === 'ACKNOWLEDGEMENT_STATE_PENDING' && isActiveState(sub.subscriptionState)) {
+      try { await acknowledgeSubscription(sa, PACKAGE_NAME, line.productId, n.purchaseToken); }
+      catch (e) { console.error('rtdn-webhook: xác nhận giao dịch thất bại:', (e as Error).message); }
+    }
+
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
     // RTDN của lần mua ĐẦU TIÊN có thể tới TRƯỚC cả khi verify-purchase (do máy khách) kịp chạy
@@ -57,7 +64,13 @@ Deno.serve(async (req) => {
     let owner: string | null = null;
     const { data: found } = await admin.rpc('find_play_purchase_owner', { p_purchase_token: n.purchaseToken });
     owner = found ?? sub.externalAccountIdentifiers?.obfuscatedExternalAccountId ?? null;
-    if (!owner) { console.error('rtdn-webhook: không tra được chủ sở hữu cho token', n.purchaseToken); return ok({ skipped: 'không rõ chủ sở hữu' }); }
+    // Đăng ký lại gói đã huỷ nhưng chưa hết hạn: mã mới không mang mã tài khoản, nhưng nối tiếp mã cũ đã có chủ.
+    if (!owner && sub.linkedPurchaseToken) {
+      const { data: lineage } = await admin.rpc('find_play_purchase_owner', { p_purchase_token: sub.linkedPurchaseToken });
+      owner = lineage ?? null;
+    }
+    // Vẫn không rõ (đăng ký lại sau khi hết hạn): bỏ qua, app sẽ gửi mã lên khi chủ quán mở màn Gói cước.
+    if (!owner) { console.error('rtdn-webhook: chưa tra được chủ sở hữu, chờ app gửi mã lên:', n.purchaseToken); return ok({ skipped: 'chưa rõ chủ sở hữu — chờ app gửi lên' }); }
 
     const { error } = await admin.rpc('record_play_purchase', {
       p_owner: owner, p_purchase_token: n.purchaseToken, p_product_id: line.productId,

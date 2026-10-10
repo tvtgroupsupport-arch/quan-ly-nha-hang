@@ -841,6 +841,63 @@ t.group('29. Gói cước qua Google Play — mua gói, xác minh qua Edge Funct
   t.eq(A.billingManageCalls, 1, 'bấm "Quản lý gói trên Google Play" gọi đúng manageSubscriptions()');
 }
 
+/* ============================================================ */
+t.group('29b. Gói Google Play — đăng ký lại ngoài app, hai gói cùng lúc, đồng bộ giao dịch trên máy');
+{
+  const w = newWorld(); const A = await setupOwner(w, { link: false });
+  const verified = [];
+  A.fetchImpl = async (url, opts) => { const b = JSON.parse(opts.body); verified.push(b); return { ok: true, json: async () => ({ ok: true }) }; };
+
+  // 1) Đăng ký lại ngay trên Google Play (không qua app): app phải tự gửi mã giao dịch lên, KHÔNG lọc theo tài khoản app
+  A.billingOwned = [{ purchaseToken: 'tok-resub', productIdentifier: 'goi_1_thang', purchaseState: '1' }];
+  let n = await A.playSyncPurchases(true);
+  t.eq(n, 1, 'đồng bộ ghi nhận 1 giao dịch đăng ký lại ngoài app');
+  t.eq(verified.map(v => v.purchaseToken), ['tok-resub'], 'đã gửi mã giao dịch của lượt đăng ký lại lên máy chủ xác minh');
+
+  // 2) Chỉ gửi giao dịch hợp lệ: bỏ sản phẩm lạ, bỏ giao dịch chưa hoàn tất, bỏ giao dịch thiếu mã
+  verified.length = 0;
+  A.billingOwned = [
+    { purchaseToken: 'a', productIdentifier: 'san_pham_la', purchaseState: '1' },
+    { purchaseToken: 'b', productIdentifier: 'goi_6_thang', purchaseState: '0' },
+    { productIdentifier: 'goi_6_thang', purchaseState: '1' },
+    { purchaseToken: 'c', productIdentifier: 'goi_12_thang', purchaseState: '1' },
+  ];
+  await A.playSyncPurchases(true);
+  t.eq(verified.map(v => v.purchaseToken), ['c'], 'chỉ gửi giao dịch gói hợp lệ, đã hoàn tất, có mã');
+
+  // 3) Một giao dịch lỗi (tài khoản khác) không làm hỏng các giao dịch còn lại
+  verified.length = 0;
+  A.billingOwned = [{ purchaseToken: 'x', productIdentifier: 'goi_1_thang', purchaseState: '1' }, { purchaseToken: 'y', productIdentifier: 'goi_6_thang', purchaseState: '1' }];
+  A.fetchImpl = async (url, opts) => { const b = JSON.parse(opts.body); verified.push(b); return b.purchaseToken === 'x' ? { ok: false, status: 403, json: async () => ({ error: 'không thuộc' }) } : { ok: true, json: async () => ({ ok: true }) }; };
+  n = await A.playSyncPurchases(true);
+  t.eq(verified.length, 2, 'giao dịch bị từ chối không chặn giao dịch sau');
+  t.eq(n, 1, 'chỉ đếm giao dịch được ghi nhận');
+
+  // 4) Chặn gọi dồn: không ép thì trong 10 phút sau không gửi lại
+  verified.length = 0;
+  n = await A.playSyncPurchases(false);
+  t.eq(verified.length, 0, 'không ép → trong 10 phút không đồng bộ lại (tránh gọi máy chủ liên tục)');
+
+  // 5) Mua gói KHÁC khi đang có gói: không tự mua, hỏi lại
+  A.billingOwned = [{ purchaseToken: 'own', productIdentifier: 'goi_6_thang', purchaseState: '1' }];
+  A.lastPurchaseCall = null;
+  A.billingPurchaseImpl = async (productId) => ({ purchaseToken: 'new-' + productId, productId });
+  A.fetchImpl = async () => ({ ok: true, json: async () => ({ ok: true }) });
+  await A.playPurchase('goi_1_thang');
+  t.ok(!A.lastPurchaseCall, 'đang có gói 6 tháng → bấm mua gói 1 tháng KHÔNG gọi Google ngay (tránh bị tính tiền hai gói)');
+  t.eq(A.playBusy, false, 'trạng thái đang xử lý được tắt');
+
+  // 6) Chủ động "vẫn mua" thì mua thật
+  await A.playPurchase('goi_1_thang', true);
+  t.ok(A.lastPurchaseCall && A.lastPurchaseCall.productId === 'goi_1_thang', 'chọn "vẫn mua thêm" → gọi mua thật');
+
+  // 7) Mua đúng gói đang có: đồng bộ lại thay vì mua trùng
+  A.lastPurchaseCall = null; verified.length = 0;
+  A.fetchImpl = async (url, opts) => { verified.push(JSON.parse(opts.body)); return { ok: true, json: async () => ({ ok: true }) }; };
+  await A.playPurchase('goi_6_thang');
+  t.ok(!A.lastPurchaseCall, 'mua lại đúng gói đang có → không mua trùng');
+  t.eq(verified.map(v => v.purchaseToken), ['own'], 'thay vào đó đồng bộ giao dịch đang có lên máy chủ');
+}
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {
   const src = fs.readFileSync(new URL('../src/cloud/views-cloud.js', import.meta.url), 'utf8');

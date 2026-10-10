@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>render-app (công cụ chụp màn hình app, không đưa vào bản phát hành)</title>
+<base href="/src/assets/"><link rel="stylesheet" href="/src/web/styles.css">
+<style>html,body{margin:0;height:100%}#app{height:100%}</style>
+</head><body>
+<div id="app"></div>
+<script>
+/* Dựng lại đúng màn "Liên kết Supabase của quán" bằng MÃ THẬT của app (styles.css + vOwnerLink + auto-provision.js),
+   chỉ giả lập phần mạng/Cloud. Dùng để chụp ảnh minh hoạ cho hướng dẫn: ?state=idle | working | error */
+const q = new URLSearchParams(location.search), STATE = q.get('state') || 'idle';
+async function text(u) { return await (await fetch(u)).text(); }
+function grab(src, names) {
+  let out = '';
+  for (const n of names) {
+    const i = src.indexOf('function ' + n + '('); if (i < 0) throw new Error('khong thay ' + n);
+    let k = src.indexOf('{', i), d = 0;
+    for (; k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}') { d--; if (!d) { k++; break; } } }
+    out += src.slice(i, k) + '\n';
+  }
+  return out;
+}
+(async () => {
+  const views = grab(await text('/src/web/views.js'), ['icon', 'hdr']);
+  const cloudViews = grab(await text('/src/cloud/views-cloud.js'), ['vOwnerLink', 'vOwnerAuth', 'vOwnerInit', 'vOwnerRestore']);
+  const auto = await text('/src/cloud/auto-provision.js');
+  const guide = await text('/src/cloud/guide-supabase.js');
+  const body = `
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const SCREEN = new URLSearchParams(location.search).get('screen') || 'link';   // link | auth | init | restore
+    window._ownerEmail = 'testapp.tvtgroup@gmail.com'; window._shopName = 'Nha hang thu nghiem';
+    let route = { name: 'ownerLink', params: { mode: 'signup' } };
+    const APP_CONFIG = { centralUrl: 'https://central.test', centralAnonKey: 'anon' };
+    const toast = () => {};
+    const NativeBridge = { browser: { open: async () => {} } };
+    const EMAIL = 'testapp.tvtgroup@gmail.com';
+    const Cloud = {
+      linked: false, cfg: {}, ownerPw: null,
+      central: () => ({ auth: { getSession: async () => ({ data: { session: { access_token: 't' } } }) } }),
+      centralEmail: async () => EMAIL, ownerSignIn: async () => ({}), linkStoreAsOwner: async () => {},
+    };
+    const VIEW = { link: () => vOwnerLink(), auth: () => vOwnerAuth(), init: () => vOwnerInit(), restore: () => vOwnerRestore(), guide: () => vSupabaseGuide() };
+    function render() { document.getElementById('app').innerHTML = VIEW[SCREEN](); }
+    ${views}
+    ${cloudViews}
+    ${auto}
+    ${guide}
+    AutoProv.setDelays(0, 0);
+    let stepCalls = 0;
+    globalThis.fetch = async (url) => {
+      const name = String(url).split('/functions/v1/')[1];
+      if (name === 'provision-start') return { ok: true, json: async () => ({ authorize_url: 'https://api.supabase.com/v1/oauth/authorize' }) };
+      stepCalls++;
+      if (STATE === 'error') return { ok: true, json: async () => ({ state: 'error', message: 'Tài khoản Supabase bạn vừa đồng ý không dùng email ' + EMAIL + '. Hãy đăng xuất Supabase trong trình duyệt (hoặc mở cửa sổ ẩn danh), đăng nhập hoặc đăng ký Supabase bằng đúng email ' + EMAIL + ', rồi bấm "Tạo tự động" lại.' }) };
+      if (stepCalls === 1) return { ok: true, json: async () => ({ state: 'creating', step: 4, total: 8, message: 'Dự án đang khởi động (khoảng 1–2 phút)…' }) };
+      return new Promise(() => {});   // treo ở trạng thái "đang chạy" để chụp ảnh
+    };
+    render();
+    await new Promise(r => setTimeout(r, 60));   // chờ AutoProv.loadEmail() hiện dòng nhắc email
+    if (SCREEN === 'link' && STATE !== 'idle') { AutoProv.start('mat-khau'); await new Promise(r => setTimeout(r, 120)); }
+    render();
+    document.title = 'xong:' + STATE;
+  `;
+  try { await new (Object.getPrototypeOf(async function(){}).constructor)(body)(); }
+  catch (e) { document.body.innerHTML = '<pre style="color:#f66;padding:16px">' + e.message + '\n' + e.stack + '</pre>'; document.title = 'loi'; }
+})();
+</script>
+</body></html>

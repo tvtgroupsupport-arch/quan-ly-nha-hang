@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chuẩn bị tài khoản Supabase</title>
+<style>
+  :root {
+    --bg:#f6f4ef; --card:#ffffff; --ink:#1d1b16; --muted:#6b675c; --line:#e3dfd3;
+    --accent:#d9581f; --accent-soft:#fbeadf; --green:#1f7a4d; --green-soft:#e3f3ea;
+    --amber:#8a5a00; --amber-soft:#fdf1d6; --red:#b3261e; --red-soft:#fbe4e2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16140f; --card:#211e17; --ink:#f1ede2; --muted:#a9a495; --line:#37322540;
+      --accent:#ff7a3d; --accent-soft:#3a2415; --green:#58d196; --green-soft:#16301f;
+      --amber:#f0b84a; --amber-soft:#3a2d10; --red:#ff8a80; --red-soft:#3a1816; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:20px 16px 64px; }
+  h1 { font-size:26px; line-height:1.25; margin:8px 0 6px; }
+  h2 { font-size:19px; margin:0 0 6px; }
+  .lead { color:var(--muted); margin:0 0 18px; }
+  .box { border-radius:12px; padding:12px 14px; margin:14px 0; border:1px solid var(--line); background:var(--card); }
+  .box.warn { background:var(--amber-soft); border-color:transparent; color:var(--amber); }
+  .box.ok { background:var(--green-soft); border-color:transparent; color:var(--green); }
+  .box.bad { background:var(--red-soft); border-color:transparent; color:var(--red); }
+  .box b { color:inherit; }
+  ul.check { list-style:none; padding:0; margin:8px 0 0; }
+  ul.check li { padding-left:28px; position:relative; margin:6px 0; }
+  ul.check li::before { content:"☐"; position:absolute; left:2px; color:var(--accent); font-size:18px; }
+  .toc { display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 18px; }
+  .toc a { text-decoration:none; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:999px; padding:4px 12px; font-size:14px; }
+  .step { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; margin:16px 0; }
+  .step-head { display:flex; gap:12px; align-items:flex-start; margin-bottom:8px; }
+  .num { flex:none; width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; display:grid; place-items:center; }
+  .num.zero { background:var(--muted); }
+  .step ol { padding-left:20px; margin:6px 0; }
+  .step li { margin:5px 0; }
+  .gallery { display:flex; gap:14px; overflow-x:auto; padding:6px 2px 10px; margin-top:8px; scroll-snap-type:x proximity; }
+  .gallery figure { flex:none; width:210px; margin:0; scroll-snap-align:start; }
+  .gallery figcaption { font-size:13px; color:var(--muted); margin-top:6px; line-height:1.4; }
+  .gallery figcaption b { color:var(--accent); }
+  .pic { position:relative; border-radius:14px; overflow:hidden; box-shadow:0 2px 14px #0004; line-height:0; }
+  .pic img { width:100%; height:auto; display:block; }
+  .mark { position:absolute; border:2.5px dashed #ff3b30; border-radius:10px; box-shadow:0 0 0 2px #0005; }
+  .mark.bad { border-color:#ff9500; }
+  .mark i { position:absolute; right:-2px; top:-24px; background:#ff3b30; color:#fff; font:700 11px/1 system-ui; padding:4px 7px; border-radius:7px; white-space:nowrap; }
+  .mark.bad i { background:#ff9500; }
+  .mark.below i { top:auto; bottom:-24px; }
+  .tag { display:inline-block; font-size:12px; padding:1px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent); margin-left:6px; vertical-align:middle; }
+  .k { background:var(--accent-soft); color:var(--accent); border-radius:6px; padding:0 6px; font-weight:600; font-size:.95em; white-space:nowrap; }
+  details { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 14px; margin:8px 0; }
+  summary { cursor:pointer; font-weight:600; }
+  details p { margin:8px 0 2px; }
+  .note { color:var(--muted); font-size:14px; }
+  table.two { width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }
+  table.two th, table.two td { border:1px solid var(--line); padding:6px 8px; vertical-align:top; text-align:left; }
+  table.two th { background:var(--accent-soft); color:var(--accent); }
+  table.two td:first-child { color:var(--muted); white-space:nowrap; }
+  hr { border:0; border-top:1px solid var(--line); margin:26px 0; }
+  
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Chuẩn bị tài khoản Supabase<br><span style="color:var(--accent)">trước khi để app tự tạo kho dữ liệu</span></h1>
+  <p class="lead">App sẽ tự tạo kho dữ liệu riêng cho quán của bạn trên Supabase (miễn phí). Để làm được, bạn cần chuẩn bị <b>một tài khoản Supabase</b> trước. Làm lần lượt các bước dưới đây — khoảng <b>10 phút</b>, chỉ làm <b>một lần duy nhất</b>.</p>
+
+  <div class="box warn">
+    <b>Quan trọng nhất:</b> tài khoản Supabase phải dùng <b>đúng email bạn đã nhập khi tạo tài khoản lưu trữ dữ liệu trong app</b>.
+    App sẽ kiểm tra và từ chối nếu email khác nhau. Khi đăng ký Supabase, <b>không bấm “Continue with GitHub” hay “Continue with ChatGPT”</b> — hãy đăng ký bằng email.
+  </div>
+
+  <div class="box">
+    <b>Trước khi bắt đầu, hãy chuẩn bị:</b>
+    <ul class="check">
+      <li>Điện thoại đang có mạng (Wi‑Fi hoặc 4G).</li>
+      <li>Email của tài khoản lưu trữ (email bạn đã nhập trong app) và <b>mở được hộp thư</b> của email đó (Supabase sẽ gửi thư xác nhận).</li>
+      <li>Một mật khẩu mới cho Supabase: ít nhất 8 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt. Ghi lại ở nơi an toàn.</li>
+    </ul>
+  </div>
+
+  <div class="box">
+    <b>Có 2 loại tài khoản — đừng nhầm lẫn:</b>
+    <table class="two">
+      <tr><th></th><th>1. Tài khoản lưu trữ dữ liệu</th><th>2. Tài khoản đăng nhập app</th></tr>
+      <tr><td>Gồm</td><td><b>Email</b> + <b>mật khẩu lưu trữ</b></td><td><b>Tên đăng nhập app</b> + <b>mật khẩu đăng nhập app</b></td></tr>
+      <tr><td>Dùng để</td><td>Lưu dữ liệu quán trên Supabase, gói cước, khôi phục khi đổi máy hoặc cài lại app</td><td>Đăng nhập vào app bán hàng hằng ngày (xem bàn, gọi món, thanh toán…)</td></tr>
+      <tr><td>Đặt ở</td><td>Màn <i>Tạo tài khoản lưu trữ dữ liệu</i></td><td>Màn <i>Thiết lập quán</i> (bước sau)</td></tr>
+      <tr><td>Liên quan Supabase</td><td><b>Có</b> — dùng cùng email để đăng ký Supabase</td><td><b>Không</b></td></tr>
+    </table>
+    <div class="note" style="margin-top:8px">Nên đặt hai mật khẩu <b>khác nhau</b>. Khi app hỏi “mật khẩu lưu trữ”, bạn nhập mật khẩu của tài khoản số 1.</div>
+  </div>
+  <div class="toc">
+    <a href="#b0">Trước tiên</a><a href="#b1">1. Đăng xuất</a><a href="#b2">2. Đăng ký</a><a href="#b3">3. Xác nhận email</a>
+    <a href="#b4">4. Tạo tổ chức</a><a href="#b5">5. Quay lại app</a><a href="#sc">Gặp lỗi?</a>
+  </div>
+
+  <!-- ===== Bước 0 ===== -->
+  <section class="step" id="b0">
+    <div class="step-head"><div class="num zero">0</div><div><h2>Bạn đã tạo tài khoản lưu trữ dữ liệu trong app</h2><div class="note">Việc này làm lúc mới cài app. Hãy nhớ lại <b>email</b> và <b>mật khẩu lưu trữ</b> bạn đã đặt ở đó.</div></div></div>
+    <p>Trong app, màn <b>Tạo tài khoản lưu trữ dữ liệu</b> yêu cầu bạn nhập email và <b>mật khẩu lưu trữ</b>. <b>Đúng email này</b> sẽ dùng để đăng ký Supabase ở các bước dưới. Sau đó, màn <b>Thiết lập quán</b> mới hỏi <b>tài khoản đăng nhập app</b> (tên đăng nhập + mật khẩu đăng nhập app) — đó là <b>một tài khoản khác</b>. Nếu quên email, mở lại app, vào màn Liên kết Supabase — app hiện sẵn email cần dùng.</p>
+    <div class="gallery" data-gallery="g0"></div>
+  </section>
+
+  <!-- ===== Bước 1 ===== -->
+  <section class="step" id="b1">
+    <div class="step-head"><div class="num">1</div><div><h2>Đăng xuất Supabase cũ (nếu có)</h2><div class="note">Bỏ qua bước này nếu điện thoại chưa từng dùng Supabase.</div></div></div>
+    <p>Nếu trình duyệt đang đăng nhập Supabase bằng tài khoản khác (ví dụ tài khoản GitHub), trang web sẽ tự vào tài khoản đó và <b>không cho bạn đăng ký bằng email mới</b>.</p>
+    <ol>
+      <li>Mở trình duyệt, vào <span class="k">supabase.com/dashboard</span></li>
+      <li>Bấm vào <b>biểu tượng tài khoản</b> (hình tròn, góc phải trên).</li>
+      <li>Chọn <span class="k">Sign out</span> ở cuối menu.</li>
+      <li>Thấy dòng <b>“Successfully logged out”</b> và trang <b>Welcome back</b> là xong. Bấm <span class="k">Sign up</span> ở cuối trang để sang bước 2.</li>
+    </ol>
+    <div class="gallery" data-gallery="g1"></div>
+  </section>
+
+  <!-- ===== Bước 2 ===== -->
+  <section class="step" id="b2">
+    <div class="step-head"><div class="num">2</div><div><h2>Đăng ký tài khoản bằng email</h2></div></div>
+    <ol>
+      <li>Ở trang <b>Get started</b> (Create a new account), kéo xuống phần <b>sau chữ “or”</b>.</li>
+      <li>Ô <b>Email</b>: gõ <b>đúng email của tài khoản lưu trữ</b>.</li>
+      <li>Ô <b>Password</b>: đặt mật khẩu mới. Bên dưới hiện 5 điều kiện — khi cả 5 đều có dấu tick xanh/xám đậm là đủ: <b>chữ hoa, chữ thường, số, ký tự đặc biệt (ví dụ @ # $ %), từ 8 ký tự trở lên</b>.</li>
+      <li>Bấm <span class="k">Sign up</span>.</li>
+      <li>Thấy <b>“Signed up successfully!”</b> và hộp <b>“Check your email”</b> là đã gửi thư xác nhận.</li>
+    </ol>
+    <div class="box bad"><b>Đừng bấm</b> “Continue with GitHub”, “Continue with ChatGPT” hay “Continue with SSO”. Nếu bấm, Supabase dùng email của tài khoản đó chứ không phải email của tài khoản lưu trữ. Nút GitHub có nhãn <b>LAST USED</b> nghĩa là máy từng đăng nhập bằng GitHub — cứ bỏ qua.</div>
+    <div class="gallery" data-gallery="g2"></div>
+  </section>
+
+  <!-- ===== Bước 3 ===== -->
+  <section class="step" id="b3">
+    <div class="step-head"><div class="num">3</div><div><h2>Mở email và xác nhận <span class="tag">bắt buộc</span></h2></div></div>
+    <p>Chưa xác nhận thì <b>chưa dùng được tài khoản</b>.</p>
+    <ol>
+      <li>Mở ứng dụng email (Gmail…) — dùng <b>đúng email vừa đăng ký</b>.</li>
+      <li>Tìm thư từ <b>Supabase</b>, tiêu đề bắt đầu bằng <b>“Confirm your email and launch you…”</b>. Không thấy? Kiểm tra mục <b>Thư rác / Spam / Quảng cáo</b>.</li>
+      <li>Mở thư, bấm nút xanh <span class="k">Confirm Email Address</span>.</li>
+      <li>Trình duyệt mở Supabase và bạn được đăng nhập luôn.</li>
+    </ol>
+    <div class="box warn"><b>Liên kết trong thư chỉ có hiệu lực 10 phút.</b> Quá 10 phút, hãy quay lại trang đăng nhập Supabase và đăng ký lại để nhận thư mới.</div>
+    <div class="gallery" data-gallery="g3"></div>
+  </section>
+
+  <!-- ===== Bước 4 ===== -->
+  <section class="step" id="b4">
+    <div class="step-head"><div class="num">4</div><div><h2>Tạo một “tổ chức” (Organization)</h2><div class="note">Supabase bắt buộc phải có một tổ chức thì app mới tạo được kho dữ liệu.</div></div></div>
+    <p>Sau khi xác nhận email, nếu Supabase chưa có tổ chức nào cho bạn, hãy tạo một cái (hoặc bấm <b>New organization</b>):</p>
+    <ol>
+      <li><b>Name</b>: gõ tên quán (nên gõ không dấu cho an toàn).</li>
+      <li><b>Type</b>: để <b>Personal</b>.</li>
+      <li><b>Plan</b>: để <b>Free – $0/month</b>. <b>Đừng chọn gói trả phí.</b></li>
+      <li>Bấm <span class="k">Create organization</span>.</li>
+    </ol>
+    <div class="box warn">Nếu Supabase hỏi tiếp <b>“Create a new project”</b> thì <b>bỏ qua</b> (Cancel / đóng lại). App sẽ tự tạo dự án cho bạn — bạn không cần tạo.</div>
+    <div class="gallery" data-gallery="g4"></div>
+  </section>
+
+  <!-- ===== Bước 5 ===== -->
+  <section class="step" id="b5">
+    <div class="step-head"><div class="num">5</div><div><h2>Quay lại app và bấm “Tạo tự động”</h2></div></div>
+    <ol>
+      <li>Mở app → màn <b>Liên kết Supabase của quán</b>.</li>
+      <li>Nhập <b>mật khẩu lưu trữ</b> (mật khẩu bạn đặt khi tạo tài khoản lưu trữ dữ liệu — <b>không phải</b> mật khẩu Supabase, <b>không phải</b> mật khẩu đăng nhập app).</li>
+      <li>Bấm <span class="k">Tạo tự động bằng Supabase</span>.</li>
+      <li>Trình duyệt mở ra trang <b>Authorize</b>. Chọn tổ chức vừa tạo (nếu được hỏi) rồi bấm <span class="k">Authorize</span>.</li>
+      <li>Quay lại app. Thanh tiến trình chạy <b>1–3 phút</b>. <b>Đừng đóng app</b> trong lúc này.</li>
+      <li>Xong, app tự đồng bộ và chuyển sang màn đăng nhập.</li>
+    </ol>
+    <div class="gallery" data-gallery="g5"></div>
+    <p class="note">Các ảnh trên là ảnh chụp thật từ app và từ Supabase.</p>
+  </section>
+
+  <hr>
+
+  <h2 id="sc">Gặp lỗi? Xem cách xử lý</h2>
+
+  <details>
+    <summary>Trang Supabase báo “No organizations found”</summary>
+    <p>Bạn chưa tạo tổ chức. Bấm <b>Create an organization</b> (Name tuỳ ý, Type <b>Personal</b>, Plan <b>Free</b>), rồi quay lại app bấm <b>Tạo tự động</b> lần nữa.</p>
+    <div class="gallery" data-gallery="gErr1"></div>
+  </details>
+
+  <details>
+    <summary>Không nhận được email xác nhận</summary>
+    <p>Đợi 2 phút, kiểm tra thư rác. Kiểm tra bạn gõ đúng email chưa. Vẫn không có: ở trang đăng nhập Supabase bấm <b>Forgot password?</b> hoặc đăng ký lại để nhận thư mới. Dùng Gmail cho chắc, vì một số email công ty chặn thư tự động.</p>
+  </details>
+
+  <details>
+    <summary>Bấm vào liên kết trong thư nhưng báo hết hạn</summary>
+    <p>Liên kết chỉ có hiệu lực 10 phút. Vào <span class="k">supabase.com/dashboard/sign-up</span>, đăng ký lại bằng cùng email để nhận thư mới.</p>
+  </details>
+
+  <details>
+    <summary>Trang đăng ký tự vào tài khoản GitHub, không cho nhập email</summary>
+    <p>Điện thoại đang đăng nhập Supabase bằng GitHub. Làm <b>Bước 1</b> (Sign out) rồi mở lại trang đăng ký.</p>
+  </details>
+
+  <details>
+    <summary>App báo “Tài khoản Supabase bạn vừa đồng ý không dùng email …”</summary>
+    <p>Bạn đã Authorize bằng tài khoản Supabase có email khác với email tài khoản lưu trữ. Sign out Supabase (Bước 1), đăng nhập lại bằng <b>đúng email tài khoản lưu trữ</b>, rồi bấm <b>Tạo tự động</b> lại.</p>
+    <div class="gallery" data-gallery="gErr2"></div>
+  </details>
+
+  <details>
+    <summary>App báo “đã đủ số dự án miễn phí”</summary>
+    <p>Tài khoản Supabase này đã có 2 dự án miễn phí. Vào supabase.com, tạm dừng hoặc xoá một dự án không dùng (hoặc nâng cấp gói), rồi bấm <b>Tiếp tục</b> trong app.</p>
+  </details>
+
+  <details>
+    <summary>Đang chạy thì app bị tắt / mất mạng</summary>
+    <p>Không sao. Mở lại app → màn Liên kết Supabase → nhập mật khẩu → bấm <b>Tạo tự động</b>. App sẽ làm tiếp đúng chỗ đang dở, không tạo dự án thứ hai.</p>
+  </details>
+
+  <details>
+    <summary>Thanh tiến trình đứng ở “Dự án đang khởi động” rất lâu</summary>
+    <p>Supabase đôi khi mất tới 3–4 phút. Hãy đợi. Quá 10 phút thì bấm <b>Tiếp tục / thử lại</b>.</p>
+  </details>
+
+  <div class="box ok" style="margin-top:22px"><b>Mật khẩu Supabase</b> chỉ dùng để bạn vào trang quản lý Supabase khi cần. App không lưu mật khẩu này. Dữ liệu bán hàng của quán nằm trong tài khoản Supabase của chính bạn.</div>
+
+</div>
+
+<script>
+/* Ảnh thật: kích thước gốc 900x2000. Toạ độ khoanh đỏ tính theo pixel gốc → đổi sang %. */
+const IW = 900, IH = 2000, DIR = 'anh/';
+const G = {
+  g0: [
+    { img:'09-app-tao-tai-khoan.jpg', cap:'Màn <i>Tạo tài khoản lưu trữ dữ liệu</i>: <b>Email</b> này chính là email dùng cho Supabase.', marks:[{x:36,y:486,w:828,h:104,label:'Email dùng cho Supabase'}] },
+    { img:'10-app-thiet-lap-quan.jpg', cap:'Màn <i>Thiết lập quán</i>: phần <b>Tài khoản đăng nhập app</b> (tên đăng nhập + mật khẩu đăng nhập app) — KHÁC tài khoản lưu trữ.', marks:[{x:36,y:552,w:828,h:68},{x:36,y:852,w:828,h:540}] },
+  ],
+  g1: [
+    { img:'01-menu-sign-out.jpg', cap:'Bấm biểu tượng tài khoản → <b>Sign out</b>.', marks:[{x:273,y:1015,w:597,h:92,label:'Bấm đây',below:true}] },
+    { img:'02-sign-in-sau-khi-dang-xuat.jpg', cap:'Đã đăng xuất. Bấm <b>Sign up</b> ở cuối trang.', marks:[{x:540,y:1752,w:160,h:58,label:'Bấm đây'}] },
+  ],
+  g2: [
+    { img:'03-sign-up-trong.jpg', cap:'Trang <b>Get started</b>. Bỏ qua 3 nút phía trên, dùng ô Email bên dưới chữ “or”.', marks:[{x:55,y:650,w:790,h:410,label:'KHÔNG bấm',bad:true},{x:55,y:1240,w:790,h:90,label:'Gõ email ở đây'}] },
+    { img:'04-sign-up-da-dien.jpg', cap:'Điền email + mật khẩu (đủ 5 điều kiện) rồi bấm <b>Sign up</b>.', marks:[{x:55,y:980,w:790,h:100},{x:55,y:1162,w:790,h:100},{x:55,y:1572,w:790,h:116,label:'Bấm Sign up'}] },
+    { img:'05-check-your-email.jpg', cap:'Thấy <b>Check your email</b> là đã gửi thư xác nhận. Hết hạn sau 10 phút.', marks:[{x:55,y:920,w:790,h:250}] },
+  ],
+  g3: [
+    { img:'06-gmail-hop-thu.jpg', cap:'Trong Gmail: mở thư từ <b>Supabase</b> (nếu không thấy, xem mục Thư rác).', marks:[{x:15,y:808,w:870,h:228,label:'Mở thư này'}] },
+    { img:'07-gmail-confirm.jpg', cap:'Bấm nút <b>Confirm Email Address</b>.', marks:[{x:88,y:1300,w:724,h:98,label:'Bấm đây',below:true}] },
+  ],
+  g4: [
+    { img:'08-tao-organization.jpg', cap:'Form <b>Create a new organization</b>: Name tuỳ ý, Type <b>Personal</b>, Plan <b>Free</b>, rồi <b>Create organization</b>.', marks:[{x:30,y:632,w:840,h:112},{x:38,y:1280,w:824,h:92},{x:545,y:1548,w:320,h:76,label:'Bấm đây',below:true}] },
+  ],
+  g5: [
+    { img:'12-app-lien-ket-ban-dau.jpg', cap:'Trong app: nhập <b>mật khẩu lưu trữ</b> rồi bấm <b>Tạo tự động bằng Supabase</b>.', marks:[{x:62,y:956,w:776,h:104,label:'Nhập mật khẩu lưu trữ'},{x:62,y:1078,w:776,h:104,label:'Bấm đây',below:true}] },
+    { img:'15-supabase-authorize.jpg', cap:'Trình duyệt mở trang <b>Authorize</b>: kiểm tra đúng tổ chức vừa tạo, rồi bấm <b>Authorize</b>.', marks:[{x:77,y:808,w:746,h:90,label:'Tổ chức của bạn'},{x:77,y:1466,w:746,h:72,label:'Bấm đây',below:true}] },
+    { img:'13-app-dang-chay.jpg', cap:'Quay lại app: thanh tiến trình chạy <b>1–3 phút</b>. Đừng đóng app.', marks:[{x:62,y:808,w:776,h:130}] },
+  ],
+  gErr2: [
+    { img:'14-app-loi-sai-email.jpg', cap:'App báo email Supabase không khớp → làm lại Bước 1 rồi bấm <b>Tiếp tục / thử lại</b>.', marks:[{x:62,y:1090,w:776,h:210},{x:62,y:1314,w:776,h:102,label:'Bấm sau khi đăng nhập đúng email',below:true}] },
+  ],
+  gErr1: [
+    { img:'11-no-organizations.jpg', cap:'Trang Authorize khi chưa có tổ chức → bấm <b>Create an organization</b>.', marks:[{x:196,y:1348,w:354,h:66,label:'Bấm đây'}] },
+  ],
+};
+for (const [id, figs] of Object.entries(G)) {
+  const box = document.querySelector(`[data-gallery="${id}"]`); if (!box) continue;
+  box.innerHTML = figs.map(f => `<figure><div class="pic"><img src="${DIR}${f.img}" alt="${f.cap.replace(/<[^>]+>/g,'')}" loading="lazy">${
+    (f.marks||[]).map(m => `<span class="mark ${m.bad?'bad':''} ${m.below?'below':''}" style="left:${m.x/IW*100}%;top:${m.y/IH*100}%;width:${m.w/IW*100}%;height:${m.h/IH*100}%">${m.label?`<i>${m.label}</i>`:''}</span>`).join('')
+  }</div><figcaption>${f.cap}</figcaption></figure>`).join('');
+}
+
+
+</script>
+</body>
+</html>

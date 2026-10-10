@@ -55,6 +55,8 @@ export interface SubscriptionPurchaseV2 {
   acknowledgementState: string; // ACKNOWLEDGEMENT_STATE_PENDING | _ACKNOWLEDGED
   lineItems: Array<{ productId: string; expiryTime: string }>;
   externalAccountIdentifiers?: { obfuscatedExternalAccountId?: string };
+  /** Mã giao dịch CŨ mà giao dịch này nối tiếp (đăng ký lại gói đã huỷ nhưng chưa hết hạn, đổi gói…) — dùng để tìm đúng chủ khi thiếu mã tài khoản. */
+  linkedPurchaseToken?: string;
   latestOrderId?: string;
 }
 

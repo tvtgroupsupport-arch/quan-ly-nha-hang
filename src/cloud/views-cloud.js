@@ -477,11 +477,12 @@ function cloudAct(el) {
       window._reqsLoaded = false; toast('Đã gửi yêu cầu gia hạn'); render();
     }); return true;
     case 'c_licCheck': busy(async () => {
-      await License.refresh(true); window._reqsLoaded = false;
+      await refreshLicenseWithPlay(true); window._reqsLoaded = false;
       toast(License.locked() ? 'Gói vẫn hết hạn' : 'Đã cập nhật gói cước'); render();
     }); return true;
 
     case 'c_playBuy': { playPurchase(d.id); return true; }
+    case 'c_playBuyAnyway': { closeSheet(); playPurchase(d.id, true); return true; }
     case 'c_playRestore': { playRestore(); return true; }
     case 'c_playManage': { NativeBridge.billing.manage(); return true; }
   }

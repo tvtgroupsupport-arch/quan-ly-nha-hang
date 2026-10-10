@@ -54,11 +54,26 @@ Deno.serve(async (req) => {
   const line = sub.lineItems?.find((l) => l.productId === productId);
   if (!line) return json({ error: 'Giao dịch không có gói nào khớp' }, 400);
 
-  // Đối chiếu đúng người: lúc khởi tạo mua hàng app PHẢI gửi kèm obfuscatedAccountId = chính ownerId
-  // này (xem src/cloud/play-billing.js) — nếu không khớp, token này KHÔNG PHẢI của người đang gọi.
+  const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+  // Đối chiếu đúng người. Mua TRONG app: app gửi kèm obfuscatedAccountId = chính ownerId (xem src/cloud/play-billing.js) →
+  // có thì BẮT BUỘC khớp người gọi.
   const tokenOwner = sub.externalAccountIdentifiers?.obfuscatedExternalAccountId;
-  // BẮT BUỘC có và khớp — thiếu ID thì không chứng minh được token là của người gọi.
-  if (!tokenOwner || tokenOwner !== ownerId) return json({ error: 'Giao dịch này không thuộc về tài khoản đang đăng nhập' }, 403);
+  let claimedWithoutAccountId = false;
+  if (tokenOwner) {
+    if (tokenOwner !== ownerId) return json({ error: 'Giao dịch này không thuộc về tài khoản đang đăng nhập' }, 403);
+  } else {
+    // Giao dịch tạo THẲNG TRÊN GOOGLE PLAY (nút "Đăng ký lại", khôi phục gói…) KHÔNG mang mã tài khoản của app. Không thể từ chối hết
+    // — khách đã trả tiền nhưng app sẽ báo hết hạn mãi. Cách xử lý an toàn:
+    //  • Nếu giao dịch này nối tiếp một mã cũ (linkedPurchaseToken) đã có chủ → chỉ chủ đó mới được nhận.
+    //  • Không thì "ai gửi trước được trước": mã giao dịch là bí mật của riêng tài khoản Google đó (app chỉ lấy được từ chính máy của họ),
+    //    và record_play_purchase từ chối mọi lần đổi chủ về sau.
+    if (sub.linkedPurchaseToken) {
+      const { data: lineageOwner } = await admin.rpc('find_play_purchase_owner', { p_purchase_token: sub.linkedPurchaseToken });
+      if (lineageOwner && lineageOwner !== ownerId) return json({ error: 'Giao dịch này không thuộc về tài khoản đang đăng nhập' }, 403);
+    }
+    claimedWithoutAccountId = true;
+  }
 
   if (sub.subscriptionState === 'SUBSCRIPTION_STATE_PENDING') return json({ error: 'Giao dịch đang chờ thanh toán — sẽ tự kích hoạt khi Google xác nhận', pending: true }, 202);
 
@@ -67,13 +82,16 @@ Deno.serve(async (req) => {
     catch (e) { return json({ error: `Xác nhận với Google thất bại: ${(e as Error).message}` }, 502); }
   }
 
-  const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { error: rpcErr } = await admin.rpc('record_play_purchase', {
     p_owner: ownerId, p_purchase_token: purchaseToken, p_product_id: line.productId,
     p_expires_at: line.expiryTime, p_state: isActiveState(sub.subscriptionState) ? 'active' : 'expired',
-    p_raw: sub,
+    p_raw: { ...sub, _claimed_without_account_id: claimedWithoutAccountId },
   });
-  if (rpcErr) return json({ error: `Ghi nhận thất bại: ${rpcErr.message}` }, 500);
+  if (rpcErr) {
+    // 42501 = mã giao dịch đã thuộc về tài khoản khác (record_play_purchase không cho đổi chủ)
+    if (rpcErr.code === '42501') return json({ error: 'Giao dịch này không thuộc về tài khoản đang đăng nhập' }, 403);
+    return json({ error: `Ghi nhận thất bại: ${rpcErr.message}` }, 500);
+  }
 
   return json({ ok: true, state: sub.subscriptionState, expires_at: line.expiryTime });
 });
