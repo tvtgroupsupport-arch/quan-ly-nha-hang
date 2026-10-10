@@ -1165,6 +1165,8 @@ t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuy
   t.ok(buildSrc.includes("cfg.billingMode === 'play'") && buildSrc.includes('cfg.playAppId'),
     'build.mjs tự đặt đúng package name riêng cho bản Google Play, không trùng bản chuyển khoản');
 
+  const capCfg = JSON.parse(fs.readFileSync(new URL('../capacitor.config.json', import.meta.url), 'utf8'));
+  t.eq(capCfg.android.adjustMarginsForEdgeToEdge, 'auto', 'Android 15+ (targetSdk 36 bắt buộc tràn viền): Capacitor tự chừa lề thanh trạng thái/thanh điều hướng, tiêu đề không bị che');
   const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   t.ok(pkg.dependencies['@capgo/native-purchases'] === '^7.19.3', 'plugin billing đúng bản tương thích Capacitor 7 đang dùng (không lặp lại lỗi lệch bản như screen-brightness trước đây)');
 }
