@@ -398,7 +398,15 @@ function cloudAct(el) {
       await License.refresh(true);
       const link = await Cloud.getStoreLink();
       if (Cloud.localMode) {                 // đang nâng cấp từ chế độ dùng ngay: GIỮ dữ liệu trên máy, chỉ liên kết kho đám mây
-        if (link) throw new Error('Tài khoản này đã liên kết một kho dữ liệu khác. Hãy dùng tài khoản mới để bật đồng bộ cho quán đang dùng, hoặc cài lại app để khôi phục quán cũ.');
+        if (link) {                          // tài khoản đã có kho dữ liệu: để người dùng CHỌN, không tự ghi đè bên nào
+          sheet('Tài khoản này đã có quán', `<div class="t-sm" style="line-height:1.7;margin-bottom:14px">Tài khoản <b>${esc(window._ownerEmail || '')}</b> đang liên kết với một kho dữ liệu quán khác. Chọn cách xử lý:</div>
+            <button class="btn pri" data-act="c_upgradeRestore">Dùng quán cũ trên tài khoản này</button>
+            <div class="t-xs" style="margin:6px 2px 14px;line-height:1.6">Tải dữ liệu quán cũ về máy này. <b>Dữ liệu đang có trên máy này (dùng thử) sẽ bị thay thế</b>. Nên chọn nếu máy này chỉ mới dùng thử.</div>
+            <button class="btn danger" data-act="c_upgradeNewStore">Giữ dữ liệu máy này, bỏ liên kết quán cũ</button>
+            <div class="t-xs" style="margin:6px 2px 14px;line-height:1.6">Đưa dữ liệu trên máy này lên một kho mới. Quán cũ <b>không bị xoá</b> trên Supabase nhưng app sẽ không đọc nó nữa.</div>
+            <button class="btn ghost" data-act="closeSheet">Huỷ</button>`);
+          return;
+        }
         go('ownerLink'); return;
       }
       go(link ? 'ownerRestore' : 'ownerInit');
@@ -422,6 +430,13 @@ function cloudAct(el) {
       toast('Đã sẵn sàng — dùng thử 14 ngày');
     }); return true;
 
+    case 'c_upgradeRestore': { closeSheet(); go('ownerRestore'); return true; }
+    case 'c_upgradeNewStore': busy(async () => {
+      closeSheet();
+      await Cloud.discardStoreLink();
+      toast('Đã bỏ liên kết quán cũ — liên kết kho mới cho quán đang dùng');
+      go('ownerLink');
+    }); return true;
     case 'c_upgradeStart': { go('ownerAuth', { mode: 'signup' }); return true; }
 
     case 'c_ownerInitGo': busy(async () => {

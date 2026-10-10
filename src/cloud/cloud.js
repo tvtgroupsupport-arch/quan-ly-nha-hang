@@ -158,7 +158,7 @@ const Cloud = (() => {
     C.store = client;
     await Persist.wipe();
     D = emptyD();
-    await saveCfg({ role: 'owner', storeUrl: link.url, storeAnon: link.anon_key });
+    await saveCfg({ role: 'owner', storeUrl: link.url, storeAnon: link.anon_key, local: false });
     Records.codeTag = '';
     // Kéo dữ liệu THẬT về trước — tuyệt đối không để bất cứ gì có cơ hội đẩy D rỗng này lên
     // trước khi kéo xong, kẻo đè mất tên quán/cài đặt/dữ liệu thật đang có trên Supabase.

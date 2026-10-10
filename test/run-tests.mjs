@@ -1454,6 +1454,37 @@ t.group('34. Bắt đầu dùng ngay (không cần email/tài khoản): chạy h
   t.ok(B.D.orders.some(x => x.id === o.id), 'đổi máy: dữ liệu đã dùng từ chế độ "dùng ngay" khôi phục đầy đủ trên máy mới');
 }
 
+t.group('34b. Nâng cấp bằng tài khoản ĐÃ CÓ quán: cho chọn dùng quán cũ hoặc giữ dữ liệu máy này (không tự ghi đè)');
+{
+  const quick = async (w, name) => { const L = await newDevice(w, name); L.setInput('qs_shop', 'Quán Thử'); L.setInput('qs_pass', 'abcdef'); L.setInput('qs_pass2', 'abcdef');
+    L.handleAct({ dataset: { act: 'c_quickStartGo' } }); await L.until(() => L.ME, 8000); return L; };
+  const login = async (L) => { L.handleAct({ dataset: { act: 'c_upgradeStart' } }); L.setInput('oa_email', 'chu@quan.vn'); L.setInput('oa_pass', 'matkhau1');
+    L.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'login' } }); await L.until(() => L.Cloud.getStoreLink && true && L.lastToast !== undefined, 50); await new Promise(r => setTimeout(r, 400)); };
+
+  // (a) dùng quán cũ: dữ liệu quán cũ thay thế dữ liệu máy này
+  const w = newWorld(); const O = await setupOwner(w);
+  await order(O, 'Bàn 01', 1, [['Trà đá', 1]]); await O.sync();
+  const L = await quick(w, 'may-thu');
+  t.ok(L.Cloud.localMode && L.D.restaurant.name === 'Quán Thử', 'máy thử đang ở chế độ dùng ngay');
+  await login(L);
+  t.eq(L.route.name, 'ownerAuth', 'tài khoản đã có quán: ở lại màn tài khoản và hiện hộp chọn (không tự ghi đè, không báo lỗi cụt)');
+  t.ok(L.Cloud.localMode && L.D.restaurant.name === 'Quán Thử', 'chưa chọn thì dữ liệu máy này còn nguyên');
+  L.handleAct({ dataset: { act: 'c_upgradeRestore' } });
+  t.eq(L.route.name, 'ownerRestore', 'chọn "Dùng quán cũ" → sang màn khôi phục');
+  await L.Cloud.restoreOwner({ email: 'chu@quan.vn', password: 'matkhau1' }); await L.sync();
+  t.ok(L.Cloud.linked && !L.Cloud.localMode, 'khôi phục xong: đã đồng bộ, hết chế độ dùng ngay');
+  t.ok(L.D.restaurant.name === 'Quán A' && L.D.orders.length >= 1, 'dữ liệu là của quán cũ (' + L.D.restaurant.name + '), thay cho dữ liệu dùng thử');
+
+  // (b) giữ dữ liệu máy này: bỏ liên kết quán cũ, đưa dữ liệu máy này lên kho mới
+  const w2 = newWorld(); await setupOwner(w2);
+  const L2 = await quick(w2, 'may-thu-2'); await login(L2);
+  const before = await L2.Cloud.getStoreLink(); t.ok(!!before, 'tài khoản đang có liên kết quán cũ');
+  L2.handleAct({ dataset: { act: 'c_upgradeNewStore' } });
+  await L2.until(() => L2.route.name === 'ownerLink', 8000);
+  t.eq(await L2.Cloud.getStoreLink(), null, 'chọn "Giữ dữ liệu máy này" → bỏ liên kết quán cũ ở máy chủ trung tâm');
+  t.ok(L2.Cloud.localMode && L2.D.restaurant.name === 'Quán Thử', 'dữ liệu trên máy này vẫn nguyên, sẵn sàng liên kết kho mới');
+}
+
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {
   const src = fs.readFileSync(new URL('../src/cloud/views-cloud.js', import.meta.url), 'utf8');
