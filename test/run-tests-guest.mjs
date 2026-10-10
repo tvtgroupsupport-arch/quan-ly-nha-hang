@@ -229,7 +229,7 @@ t.group('G9. Màn "Mã QR gọi món" và in tem — trang dùng chung, sẵn s�
   t.ok(qv.includes('Chọn tất cả bàn') && qv.includes('khổ 50×60mm') === false, 'màn chọn tem hiện đúng, chưa chọn ghế thì chưa có nút in');
   A.handleAct({ dataset: { act: 'qrSelAll' } });
   A.route = { name: 'qrPrint', params: {} };
-  t.ok(A.VIEWS.qrPrint().includes('khổ 50×60mm'), 'chọn hết bàn xong → hiện nút tạo bản in');
+  t.ok(A.VIEWS.qrPrint().includes('Tạo file PDF · ') && A.VIEWS.qrPrint().includes('A4'), 'chọn hết bàn xong → hiện nút tạo file PDF (khổ A4)');
 }
 
 t.group('G10. Máy nhân viên không sửa được cài đặt liên quan tới mã QR/thanh toán (chặn cả UI lẫn Postgres)');
