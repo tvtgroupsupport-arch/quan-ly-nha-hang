@@ -1,6 +1,6 @@
 {
   "appId": "vn.quanly.nhahang",
-  "appName": "Quản Lý Nhà Hàng",
+  "appName": "BEPO",
   "webDir": "www",
   "server": {
     "androidScheme": "https"

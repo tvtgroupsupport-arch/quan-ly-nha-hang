@@ -2,7 +2,7 @@
   "name": "quan-ly-nha-hang-android",
   "version": "4.0.0",
   "private": true,
-  "description": "Quản Lý Nhà Hàng — app Android: lưu cục bộ, tự đồng bộ Supabase của quán, gói cước qua Supabase trung tâm",
+  "description": "BEPO - Quản lý nhà hàng — app Android: lưu cục bộ, tự đồng bộ Supabase của quán, gói cước qua Supabase trung tâm",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",

@@ -31,7 +31,7 @@ function vSetup() {
   return `<div class="screen"><div class="body" style="justify-content:center;padding:28px 22px;gap:14px">
     <div style="text-align:center;margin-bottom:10px">
       <div style="width:60px;height:60px;border-radius:17px;background:var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:28px">🍜</div>
-      <div class="t-lg" style="margin-top:12px">Quản Lý Nhà Hàng</div>
+      <div class="t-lg" style="margin-top:12px">BEPO</div><div class="t-sm muted">Quản lý nhà hàng</div>
       <div class="t-xs" style="margin-top:4px">Thiết lập thiết bị này</div>
     </div>
     ${notice ? `<div class="card" style="background:var(--amber-soft);border-color:var(--amber)"><div class="t-sm" style="color:var(--amber);line-height:1.6">${esc(notice)}</div></div>` : ''}

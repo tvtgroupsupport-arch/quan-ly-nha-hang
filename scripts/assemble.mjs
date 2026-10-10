@@ -89,7 +89,7 @@ export function assembleHtml({ cfg, bridgeJs }) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#D9581F">
-<title>Quản Lý Nhà Hàng</title>
+<title>BEPO - Quản lý nhà hàng</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap">

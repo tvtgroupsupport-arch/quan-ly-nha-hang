@@ -223,7 +223,7 @@ const alerts = isNative ? {
       if (on && !_fgOn) {
         if (!(await this.init())) return;
         await ForegroundService.startForegroundService({
-          id: 7001, title: 'Quản Lý Nhà Hàng', body: 'Đang nhận thông báo khách gọi và món mới',
+          id: 7001, title: 'BEPO', body: 'Đang nhận thông báo khách gọi và món mới',
           smallIcon: 'ic_stat_notify', notificationChannelId: 'nen', silent: true, serviceType: 1   // 1 = dataSync
         });
         _fgOn = true;

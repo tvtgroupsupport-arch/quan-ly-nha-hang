@@ -7,7 +7,7 @@ Giới hạn ký tự của Google: tên 30 · mô tả ngắn 80 · mô tả đ
 
 ### Tên ứng dụng (≤ 30)
 ```
-Quản Lý Nhà Hàng
+BEPO - Quản lý nhà hàng
 ```
 
 ### Mô tả ngắn (≤ 80)
@@ -17,7 +17,7 @@ Gọi món, bếp, thu ngân, VietQR cho nhà hàng — dùng được cả khi 
 
 ### Mô tả đầy đủ (≤ 4000)
 ```
-Quản Lý Nhà Hàng là ứng dụng bán hàng trọn bộ cho quán ăn, nhà hàng, quán cà phê: từ gọi món tại bàn, màn hình bếp, thu ngân đến báo cáo doanh thu — ngay trên điện thoại hoặc máy tính bảng, không cần máy POS đắt tiền.
+BEPO là ứng dụng bán hàng trọn bộ cho quán ăn, nhà hàng, quán cà phê: từ gọi món tại bàn, màn hình bếp, thu ngân đến báo cáo doanh thu — ngay trên điện thoại hoặc máy tính bảng, không cần máy POS đắt tiền.
 
 ★ HOẠT ĐỘNG CẢ KHI MẤT MẠNG
 Dữ liệu lưu ngay trên máy. Mất Internet vẫn gọi món, gửi bếp, thu tiền bình thường; có mạng trở lại, các máy trong quán tự đồng bộ với nhau.
@@ -78,7 +78,7 @@ Tải về, tạo tài khoản và mở quán trong vài phút. Cần hỗ trợ
 
 ## Tiếng Anh (en-US) — nên thêm để người duyệt của Google đọc được
 
-**App name:** `Restaurant Manager VN` _(hoặc giữ nguyên "Quản Lý Nhà Hàng")_
+**App name:** `BEPO - Quản lý nhà hàng` _(23 ký tự, trong giới hạn 30 của Google Play)_
 
 **Short description (≤ 80):**
 ```

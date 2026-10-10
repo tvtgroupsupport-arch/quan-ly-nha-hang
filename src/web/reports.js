@@ -129,7 +129,7 @@ function buildStyledWorkbook(kind, rows, range) {
   const headers = headers0.map(repTr), data = data0.map(r => r.map(repTr));
   const currencyIdx = REPORT_CURRENCY_IDX[kind] || [];
   const wb = new ExcelJS.Workbook();
-  wb.creator = DB.restaurant.name || trText('Quản Lý Nhà Hàng');
+  wb.creator = DB.restaurant.name || 'BEPO';
   wb.created = new Date();
   const ws = wb.addWorksheet(trText(REPORT_TITLES[kind]).slice(0, 31), { views: [{ state: 'frozen', ySplit: 5 }] });
   ws.columns = headers.map(() => ({ width: 14 }));
@@ -139,7 +139,7 @@ function buildStyledWorkbook(kind, rows, range) {
     const c = ws.getCell(row, 1);
     c.value = text; c.font = font; c.alignment = { horizontal: 'center', vertical: 'middle' };
   };
-  titleCell(1, DB.restaurant.name || 'Quản Lý Nhà Hàng', { size: 14, bold: true, color: { argb: BRAND_ARGB } });
+  titleCell(1, DB.restaurant.name || 'BEPO', { size: 14, bold: true, color: { argb: BRAND_ARGB } });
   titleCell(2, trText(REPORT_TITLES[kind]), { size: 12, bold: true });
   titleCell(3, REPORT_RANGED[kind]
     ? `${range.label}  ·  ${trText('Xuất lúc')} ${new Date().toLocaleString(repLocale())}`

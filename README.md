@@ -1,4 +1,4 @@
-# Quản Lý Nhà Hàng — app Android (v4.0)
+# BEPO - Quản lý nhà hàng — app Android (v4.0)
 
 Lưu dữ liệu **cục bộ trên điện thoại** (SQLite), khi có mạng **tự đồng bộ** lên Supabase **riêng của quán**
 để chia sẻ với các máy khác. Gói cước do **một Supabase trung tâm của bạn** quản lý.

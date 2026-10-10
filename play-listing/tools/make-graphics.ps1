@@ -67,10 +67,10 @@ $fTitle = New-Object Drawing.Font('Segoe UI', 54, [Drawing.FontStyle]::Bold, [Dr
 $fSub   = New-Object Drawing.Font('Segoe UI', 30, [Drawing.FontStyle]::Bold, [Drawing.GraphicsUnit]::Pixel)
 $fSmall = New-Object Drawing.Font('Segoe UI', 25, [Drawing.FontStyle]::Regular, [Drawing.GraphicsUnit]::Pixel)
 $wh = [Drawing.Brushes]::White; $cream = New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(255,255,232,208))
-$g.DrawString('Quản Lý Nhà Hàng', $fTitle, $wh, 56, 156)
-$g.DrawString('Gọi món · Bếp · Thu ngân · VietQR', $fSub, $cream, 58, 236)
-$lines = @('✓  Chạy cả khi mất mạng', '✓  Đồng bộ nhiều máy trong quán', '✓  Báo cáo doanh thu, quản lý kho')
-$y = 310; foreach ($l in $lines) { $g.DrawString($l, $fSmall, $wh, 58, $y); $y += 40 }
+$g.DrawString('BEPO', (New-Object Drawing.Font('Segoe UI', 72, [Drawing.FontStyle]::Bold, [Drawing.GraphicsUnit]::Pixel)), $wh, 52, 140)
+$g.DrawString('Quản lý nhà hàng', $fSub, $cream, 58, 232)
+$lines = @('Gọi món · Bếp · Thu ngân · VietQR', '✓  Chạy cả khi mất mạng', '✓  Đồng bộ nhiều máy trong quán', '✓  Báo cáo doanh thu, quản lý kho')
+$y = 292; foreach ($l in $lines) { $g.DrawString($l, $fSmall, $wh, 58, $y); $y += 40 }
 # hai điện thoại bên phải (ảnh chụp thật của app)
 function Draw-Phone($g, [string]$file, [float]$x, [float]$y, [float]$w) {
   $img = [Drawing.Image]::FromFile($file); $h = $w * 2.0
