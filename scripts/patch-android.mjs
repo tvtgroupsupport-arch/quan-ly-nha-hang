@@ -66,6 +66,34 @@ if (fs.existsSync(varsFile)) {
   }
 }
 
+/* ---------- Hai cảnh báo của Play Console khi tải .aab ----------
+   1) "Không có tệp gỡ rối mã nguồn (deobfuscation)": bật R8 cho bản release — Gradle tự sinh mapping.txt và nhét vào .aab.
+      Quy tắc giữ lại: Capacitor đã tự giữ plugin/bridge (consumer rules); thêm rõ ràng plugin thanh toán và WebView JS bridge cho chắc.
+   2) "Có mã gốc nhưng chưa có biểu tượng gỡ lỗi (native debug symbols)": ndk.debugSymbolLevel = SYMBOL_TABLE — .aab kèm bảng ký hiệu. */
+const gradleForRelease = path.join(ROOT, 'android/app/build.gradle');
+const proguardFile = path.join(ROOT, 'android/app/proguard-rules.pro');
+if (fs.existsSync(gradleForRelease)) {
+  let g = fs.readFileSync(gradleForRelease, 'utf8');
+  if (!g.includes('debugSymbolLevel')) {
+    const re = /(buildTypes\s*\{[\s\S]*?release\s*\{)([\s\S]*?)(\n\s*\}\s*\n\s*\})/;
+    if (!re.test(g)) throw new Error('build.gradle không có khối buildTypes/release như mong đợi — không bật được R8/biểu tượng gỡ lỗi.');
+    g = g.replace(re, (m, head, body, tail) => {
+      body = body.replace(/minifyEnabled\s+false/, 'minifyEnabled true');
+      if (!/minifyEnabled\s+true/.test(body)) body += '\n            minifyEnabled true';
+      return `${head}${body}\n            ndk { debugSymbolLevel 'SYMBOL_TABLE' }${tail}`;
+    });
+    fs.writeFileSync(gradleForRelease, g);
+    console.log('✓ Đã bật R8 (mapping.txt) và native debug symbols cho bản release');
+  }
+  if (fs.existsSync(proguardFile)) {
+    let r = fs.readFileSync(proguardFile, 'utf8');
+    if (!r.includes('ee.forgr.nativepurchases')) {
+      r += `\n# Thêm bởi scripts/patch-android.mjs\n-keep class ee.forgr.nativepurchases.** { *; }\n-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }\n-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod\n-keepattributes SourceFile,LineNumberTable\n`;
+      fs.writeFileSync(proguardFile, r);
+      console.log('✓ Đã thêm quy tắc giữ lại cho R8');
+    }
+  }
+}
 /* ---------- Ký bản release (chỉ khi đã có android/app/release.keystore — xem android-play.yml) ----------
    Mật khẩu KHÔNG được ghi cứng vào file này — đọc từ biến môi trường lúc Gradle chạy, giữ ở
    GitHub Secrets, không bao giờ nằm trong mã nguồn. */
