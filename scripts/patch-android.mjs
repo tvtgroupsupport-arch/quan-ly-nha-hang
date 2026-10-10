@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './assemble.mjs';
+import { makeSounds } from './make-sounds.mjs';
 
 const file = path.join(ROOT, 'android/app/src/main/AndroidManifest.xml');
 if (!fs.existsSync(file)) { console.log('Chưa có thư mục android/ — chạy "npx cap add android" trước.'); process.exit(0); }
@@ -11,7 +12,13 @@ let x = fs.readFileSync(file, 'utf8');
 const perms = [
   'android.permission.INTERNET',
   'android.permission.ACCESS_NETWORK_STATE',
-  'android.permission.CAMERA'            // quét mã QR liên kết máy nhân viên
+  'android.permission.CAMERA',           // quét mã QR liên kết máy nhân viên
+  // Thông báo + rung + chạy nền (xem src/native/bridge.js, mục alerts)
+  'android.permission.VIBRATE',
+  'android.permission.WAKE_LOCK',
+  'android.permission.POST_NOTIFICATIONS',
+  'android.permission.FOREGROUND_SERVICE',
+  'android.permission.FOREGROUND_SERVICE_DATA_SYNC'
 ];
 for (const p of perms) {
   if (!x.includes(`android:name="${p}"`)) x = x.replace('</manifest>', `    <uses-permission android:name="${p}" />\n</manifest>`);
@@ -26,8 +33,26 @@ else x = x.replace(/android:allowBackup="true"/, 'android:allowBackup="false"');
 // Bàn phím ảo không che ô nhập
 if (!/android:windowSoftInputMode=/.test(x)) x = x.replace('<activity', '<activity android:windowSoftInputMode="adjustResize"');
 
+// Dịch vụ nền (giữ app sống khi ở chế độ nền). Loại dataSync: đồng bộ dữ liệu quán — phải khai báo ở Play Console (Nội dung ứng dụng > Dịch vụ nền).
+if (!x.includes('AndroidForegroundService')) {
+  x = x.replace('</application>', `        <receiver android:name="io.capawesome.capacitorjs.plugins.foregroundservice.NotificationActionBroadcastReceiver" />
+        <service android:name="io.capawesome.capacitorjs.plugins.foregroundservice.AndroidForegroundService" android:foregroundServiceType="dataSync" />
+    </application>`);
+}
 fs.writeFileSync(file, x);
 console.log('✓ Đã cập nhật AndroidManifest.xml');
+
+/* Biểu tượng nhỏ (hình chuông, trắng) cho thanh trạng thái + chuông thông báo (res/raw/chime_N.wav) */
+{
+  const res = path.join(ROOT, 'android/app/src/main/res');
+  fs.mkdirSync(path.join(res, 'drawable'), { recursive: true });
+  fs.writeFileSync(path.join(res, 'drawable/ic_stat_notify.xml'), `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M12,22c1.1,0 2,-0.9 2,-2h-4c0,1.1 0.9,2 2,2zM18,16v-5c0,-3.07 -1.63,-5.64 -4.5,-6.32V4c0,-0.83 -0.67,-1.5 -1.5,-1.5s-1.5,0.67 -1.5,1.5v0.68C7.64,5.36 6,7.92 6,11v5l-2,2v1h16v-1l-2,-2z"/>
+</vector>
+`);
+  console.log(`✓ Đã tạo biểu tượng thông báo và ${makeSounds(path.join(res, 'raw')).length} tệp âm báo (res/raw)`);
+}
 
 /* Google Play từ chối .aab có versionCode trùng bản đã tải lên trước đó → mỗi lần build trên GitHub Actions
    lấy số lần chạy workflow làm versionCode (luôn tăng dần). Build trên máy riêng (không có biến này) giữ nguyên. */

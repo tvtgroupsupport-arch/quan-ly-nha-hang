@@ -17,6 +17,7 @@ export const SOURCE_FILES = [
   'src/cloud/sync.js',
   'src/cloud/cloud.js',
   'src/cloud/license.js',
+  'src/web/chime-synth.js',
   'src/web/core.js',
   'src/web/views.js',
   'src/web/views-extra.js',

@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@capacitor-community/screen-brightness": "^7.0.0",
-    "@capgo/native-purchases": "^7.19.3",
     "@capacitor-community/sqlite": "^7.0.0",
     "@capacitor-mlkit/barcode-scanning": "^7.0.0",
     "@capacitor/android": "^7.0.0",
@@ -21,8 +20,12 @@
     "@capacitor/clipboard": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "@capacitor/filesystem": "^7.0.0",
+    "@capacitor/haptics": "^7.0.5",
+    "@capacitor/local-notifications": "^7.0.7",
     "@capacitor/network": "^7.0.0",
     "@capacitor/share": "^7.0.0",
+    "@capawesome-team/capacitor-android-foreground-service": "^7.0.1",
+    "@capgo/native-purchases": "^7.19.3",
     "@supabase/supabase-js": "^2.45.0",
     "exceljs": "^4.4.0"
   },

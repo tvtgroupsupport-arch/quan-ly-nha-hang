@@ -755,6 +755,7 @@ function vAdmin(){
           </button>`;
         }).join('')}
       </div>
+      ${subscriptionCardHtml()}
       ${cloudCardHtml()}
       <div class="sec">Hiển thị trên máy này</div>
       <div class="card">
@@ -1177,16 +1178,27 @@ function vBilling(){
         <input type="checkbox" class="switch" data-act="setSetting" data-k="callSound" ${DB.settings.callSound!==false?'checked':''} aria-label="Âm báo gọi nhân viên">
       </label>
       <div class="card">
-        <div class="t-md" style="margin-bottom:10px">Kiểu chuông &amp; âm lượng</div>
+        <div class="t-md" style="margin-bottom:10px">Âm báo &amp; âm lượng</div>
         <div class="row" style="gap:8px;flex-wrap:wrap">
-          ${[1,2,3].map(k=>`<button class="chip ${Number(DB.settings.chime||1)===k?'on':''}" data-act="pickChime" data-k="${k}" style="flex:1 1 100px;justify-content:center">Chuông ${k}</button>`).join('')}
+          ${CHIME_IDS.map(k=>`<button class="chip ${Number(DB.settings.chime||1)===k?'on':''}" data-act="pickChime" data-k="${k}" style="flex:1 1 100px;justify-content:center">${esc(CHIME_NAMES[k])}</button>`).join('')}
         </div>
-        <button class="btn sm ghost" data-act="tryChime" style="margin-top:8px">${icon('bell')} Nghe thử (kêu như thật, lặp lại 2 giây)</button>
-        <input type="range" min="0" max="100" step="5" value="${Number(DB.settings.soundVolume!=null?DB.settings.soundVolume:70)}"
+        <button class="btn sm ghost" data-act="tryChime" style="margin-top:8px">${icon('bell')} Nghe thử (kêu như thật, lặp lại 3 giây)</button>
+        <input type="range" min="0" max="100" step="5" value="${Number(DB.settings.soundVolume!=null?DB.settings.soundVolume:100)}"
                data-act="setVolume" style="width:100%;margin-top:14px" aria-label="Âm lượng">
-        <div class="t-xs" style="text-align:right">Âm lượng: ${Number(DB.settings.soundVolume!=null?DB.settings.soundVolume:70)}%</div>
+        <div class="t-xs" style="text-align:right">Âm lượng trong app: ${Number(DB.settings.soundVolume!=null?DB.settings.soundVolume:100)}%</div>
+        <div class="t-xs" style="line-height:1.6;margin-top:6px">Âm lượng thật còn phụ thuộc phím âm lượng của điện thoại: tiếng trong app theo âm lượng <b>đa phương tiện</b>, thông báo khi chạy nền theo âm lượng <b>thông báo</b> — hãy kéo cả hai lên cao.</div>
       </div>
-    </div>
+      <div class="sec">Rung &amp; thông báo — riêng máy này</div>
+      <label class="card between">
+        <div style="flex:1"><div class="t-md">Rung điện thoại khi có thông báo</div><div class="t-xs">Rung cùng lúc với chuông khách gọi / món mới</div></div>
+        <input type="checkbox" class="switch" data-act="devPref" data-k="vibrate" ${devicePref('vibrate', true)?'checked':''} aria-label="Rung khi có thông báo">
+      </label>
+      <label class="card between">
+        <div style="flex:1"><div class="t-md">Nhận thông báo khi chạy nền</div><div class="t-xs">Giữ app hoạt động (hiện một thông báo cố định) để vẫn kêu chuông và rung khi đang mở app khác hoặc tắt màn hình</div></div>
+        <input type="checkbox" class="switch" data-act="devPref" data-k="background" ${devicePref('background', true)?'checked':''} aria-label="Nhận thông báo khi chạy nền">
+      </label>
+      <button class="btn sm ghost" data-act="tryNotify">${icon('bell')} Gửi thông báo thử (như khi chạy nền)</button>
+      <div class="t-xs" style="line-height:1.6">Nếu không thấy chuông/rung khi chạy nền: bật quyền Thông báo cho app, và tắt "Tối ưu hoá pin" cho app này trong Cài đặt điện thoại.</div>    </div>
     ${navBar('admin')}
   </div>`;
 }

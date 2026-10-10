@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import { newWorld, newDevice, suite, STORE_URL, ANON, GUEST_PAGE_URL } from './harness.mjs';
 import { makeSupabase } from './fake-supabase.mjs';
@@ -417,7 +419,7 @@ t.group('13. Nghiệp vụ lõi vẫn nguyên vẹn: gọi thêm → tách đợ
   await A.exportMenuPage();
   t.ok(A.saved.length === 1 && /thuc-don/.test(A.saved[0].name), 'xuất trang thực đơn trên Android đi qua Filesystem+Share: ' + (A.saved[0] || {}).name);
   A.route = { name: 'admin', params: {} };
-  t.ok(A.VIEWS.admin().includes('Đồng bộ &amp; gói cước') || A.VIEWS.admin().includes('Đồng bộ & gói cước'), 'màn Quản lý có thẻ Đồng bộ & gói cước');
+  t.ok(A.VIEWS.admin().includes('Đồng bộ dữ liệu') && A.VIEWS.admin().includes('data-go="cloud"'), 'màn Quản lý có thẻ Đồng bộ dữ liệu');
   let bad = [];
   for (const n of Object.keys(A.VIEWS)) for (const p of [{}, { id: 'nope' }, { tab: 'stock' }, { mode: 'merge' }, { period: 'week' }]) {
     try { A.route = { name: n, params: p }; const x = A.VIEWS[n](); if (!x || x.length < 20) bad.push(n + ' rỗng'); } catch (e) { bad.push(n + ': ' + e.message); }
@@ -589,9 +591,9 @@ t.group('21. Cài đặt chuông: chọn kiểu, chỉnh âm lượng, nghe th�
 
   A.route = { name: 'billing', params: {} };
   let html = A.VIEWS.billing();
-  t.ok(html.includes('Âm báo khách gọi nhân viên') && html.includes('Kiểu chuông'), 'màn cài đặt có đủ mục chuông gọi nhân viên');
-  t.ok((html.match(/Chuông \d/g) || []).length === 3, 'có đủ 3 lựa chọn kiểu chuông');
-  t.ok(html.includes('value="70"'), 'âm lượng mặc định 70%, hiện đúng trên thanh trượt');
+  t.ok(html.includes('Âm báo khách gọi nhân viên') && html.includes('Âm báo &amp; âm lượng'), 'màn cài đặt có đủ mục chuông gọi nhân viên');
+  t.eq((html.match(/data-act="pickChime"/g) || []).length, 5, 'có đủ 5 kiểu âm báo phổ biến (Ding, Ting-tong, Tin nhắn, Báo thức, Chuông reo)');
+  t.ok(html.includes('value="100"'), 'âm lượng mặc định 100% (to nhất), hiện đúng trên thanh trượt');
 
   A.handleAct({ dataset: { act: 'pickChime', k: '2' } });
   for (let i = 0; i < 30; i++) await new Promise(r => setImmediate(r));   // chờ run()->api()->refresh() bên trong chạy xong
@@ -610,7 +612,7 @@ t.group('21. Cài đặt chuông: chọn kiểu, chỉnh âm lượng, nghe th�
   t.ok(repeatPlayTones > singlePlayTones * 2, `"Nghe thử" kêu LẶP LẠI khoảng 2 giây (${repeatPlayTones} nốt) — nhiều hơn hẳn kiểu chọn-nhanh chỉ 1 lượt (${singlePlayTones} nốt)`);
 
   html = A.VIEWS.billing();
-  const iChuong3 = html.indexOf('Chuông 3');
+  const iChuong3 = html.indexOf('Chuông reo');
   const iRowClose = html.indexOf('</div>', iChuong3);             // thẻ đóng của hàng chứa 3 chip chuông
   const iTryBtn = html.indexOf('data-act="tryChime"');
   t.ok(iChuong3 > 0 && iRowClose > 0 && iTryBtn > iRowClose, 'nút "Nghe thử" nằm SAU khi hàng 3 nút chọn kiểu chuông đã đóng lại — không còn chen chung một hàng (tránh tràn ngang)');
@@ -628,7 +630,7 @@ t.group('22. Khách gọi nhân viên → tự động kêu chuông ở máy ch�
   await A.Sync.syncNow(); await A.runTimers();   // Sync.onChange có debounce 300ms, đợi nó chạy xong
 
   t.ok(A.chimeCalls > before, 'có cuộc gọi mới từ khách → máy chủ quán tự kêu chuông, dù đang ở màn khác');
-  t.ok(A.toneCalls >= 4, `báo thật kêu LẶP LẠI khoảng 2 giây (${A.toneCalls} nốt được lên lịch), không chỉ kêu một tiếng ngắn rồi im`);
+  t.ok(A.toneCalls >= 2, `báo thật kêu LẶP LẠI khoảng 3 giây (${A.toneCalls} nốt được lên lịch), không chỉ kêu một tiếng ngắn rồi im`);
 
   const again = A.chimeCalls;
   await A.Sync.syncNow(); await A.runTimers();
@@ -796,7 +798,7 @@ t.group('28. Sửa lỗi tràn/đè chữ ở cỡ chữ 150% — phát hiện t
 
   A.route = { name: 'billing', params: {} };
   html = A.VIEWS.billing();
-  t.ok(/Kiểu chuông[\s\S]{0,80}row" style="gap:8px;flex-wrap:wrap"/.test(html), 'hàng chọn kiểu chuông cũng cho phép xuống dòng (đúng lỗi nút chuông thứ 3 lòi ra ngoài trong ảnh)');
+  t.ok(/Âm báo &amp; âm lượng[\s\S]{0,80}row" style="gap:8px;flex-wrap:wrap"/.test(html), 'hàng chọn kiểu chuông cũng cho phép xuống dòng (đúng lỗi nút chuông thứ 3 lòi ra ngoài trong ảnh)');
 }
 
 /* ============================================================ */
@@ -960,6 +962,78 @@ t.group('29d. Ghép đơn nhiều bàn, chuyển nhiều ghế/cả bàn cùng l
   A.window._moveSrc = [{ tableId: T4.id, seatNo: 1 }, { tableId: T4.id, seatNo: 2 }]; A.window._moveDst = [];
   A.route = { name: 'transferTo', params: {} };
   t.ok(A.VIEWS.transferTo().includes('data-act="moveDstFill"'), 'màn chọn chỗ mới có nút điền tự động ghế trống');
+}
+/* ============================================================ */
+t.group('29e. Âm báo to hơn + rung + thông báo hệ thống khi chạy nền; Gói cước tách riêng, chỉ máy chủ quán thấy');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  // — Gói cước: mục riêng ở màn Quản lý, không còn nằm chung với Đồng bộ
+  const admin = A.VIEWS.admin();
+  t.ok(admin.includes('data-go="subscription"'), 'điện thoại chủ quán thấy mục Gói cước riêng ở màn Quản lý');
+  t.ok(admin.indexOf('data-go="subscription"') < admin.indexOf('data-go="cloud"'), 'Gói cước là mục riêng, tách khỏi thẻ Đồng bộ dữ liệu');
+  const cloud = A.VIEWS.cloud();
+  t.ok(!cloud.includes('data-go="subscription"'), 'màn Đồng bộ & thiết bị không còn nút Gói cước');
+  const wS = newWorld(); const O = await setupOwner(wS); const S = await addStaffDevice(wS, O, 'thungan');
+  await S.login('chuquan', 'chuquan123');
+  t.ok(!S.VIEWS.admin().includes('data-go="subscription"') && !S.VIEWS.admin().includes('Gói cước'), 'máy nhân viên (kể cả đăng nhập tài khoản Chủ quán) KHÔNG thấy mục Gói cước');
+
+  // — Âm báo: 5 kiểu, to (chuẩn hoá sát mức tối đa)
+  const sounds = await import('../scripts/make-sounds.mjs');
+  const { CHIME_IDS, synthChime } = sounds.loadSynth();
+  t.eq(CHIME_IDS.length, 5, 'có 5 kiểu âm báo');
+  for (const k of CHIME_IDS) {
+    const s = synthChime(k, 22050);
+    let peak = 0, sq = 0; for (const v of s) { peak = Math.max(peak, Math.abs(v)); sq += v * v; }
+    const rms = Math.sqrt(sq / s.length);
+    t.ok(peak > 0.9 && peak <= 1, `âm báo ${k}: đỉnh ${peak.toFixed(2)} sát mức tối đa`);
+    t.ok(rms > 0.2, `âm báo ${k}: độ to trung bình (RMS ${rms.toFixed(2)}) cao hơn hẳn sóng sin cũ (~0.15 ở mức 70%)`);
+  }
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'snd-'));
+  const files = sounds.makeSounds(tmp);
+  t.eq(files.length, 5, 'sinh đủ 5 tệp .wav cho thông báo hệ thống');
+  const hdr = fs.readFileSync(files[0]);
+  t.ok(hdr.toString('ascii', 0, 4) === 'RIFF' && hdr.toString('ascii', 8, 12) === 'WAVE' && hdr.readUInt16LE(20) === 1, 'tệp .wav đúng định dạng PCM');
+  t.ok(hdr.readUInt32LE(40) / 2 / 22050 >= 3, 'mỗi tệp dài tối thiểu 3 giây');
+  fs.rmSync(tmp, { recursive: true, force: true });
+
+  // — Đang mở app: chuông trong app + rung, không bật thông báo hệ thống
+  A.document.hidden = false;
+  const c0 = A.chimeCalls;
+  A.alertStaff('Khách gọi nhân viên', 'Bàn 1 · Ghế 2');
+  t.eq(A.chimeCalls, c0 + 1, 'đang mở app → kêu chuông trong app');
+  t.eq(A.vibrations, 1, '…và rung điện thoại');
+  t.ok(!A.notifications, '…không hiện thông báo hệ thống (đã đang nhìn app)');
+
+  // — App chạy nền / đang mở app khác: thông báo hệ thống có chuông + rung
+  A.document.hidden = true;
+  A.alertStaff('Khách gọi nhân viên', 'Bàn 1 · Ghế 2');
+  t.eq(A.chimeCalls, c0 + 1, 'đang chạy nền → không phát tiếng Web Audio (đã bị hệ điều hành chặn), dùng thông báo hệ thống');
+  t.eq(A.notifications.length, 1, 'hiện đúng 1 thông báo hệ thống');
+  t.ok(A.notifications[0].vibrate === true && A.notifications[0].chime === 1 && /Bàn 1/.test(A.notifications[0].body), 'thông báo có rung, đúng kiểu chuông đã chọn và nội dung bàn/ghế');
+
+  // — Tắt rung (riêng máy này)
+  A.setDevicePref('vibrate', false);
+  A.alertStaff('x', 'y');
+  t.eq(A.notifications[1].vibrate, false, 'tắt rung → thông báo dùng kênh không rung');
+  A.document.hidden = false; const v0 = A.vibrations;
+  A.alertStaff('x', 'y');
+  t.eq(A.vibrations, v0, 'tắt rung → app đang mở cũng không rung');
+  A.setDevicePref('vibrate', true);
+  A.document.hidden = false;
+
+  // — Dịch vụ nền: bật khi đã đăng nhập, tắt khi người dùng tắt tuỳ chọn
+  A.ensureKeepAlive();
+  t.eq(A.keepAliveState, true, 'đã đăng nhập → bật dịch vụ nền để nhận thông báo khi chạy nền');
+  A.setDevicePref('background', false); A.ensureKeepAlive();
+  t.eq(A.keepAliveState, false, 'tắt "Nhận thông báo khi chạy nền" → dừng dịch vụ nền');
+
+  // — Màn cài đặt có các công tắc mới
+  A.route = { name: 'billing', params: {} };
+  const bh = A.VIEWS.billing();
+  t.ok(bh.includes('data-k="vibrate"') && bh.includes('data-k="background"') && bh.includes('data-act="tryNotify"'), 'màn cài đặt có công tắc rung, chạy nền và nút gửi thông báo thử');
+  A.handleAct({ dataset: { act: 'tryNotify' } });
+  await A.until(() => A.notifications.length >= 3);
+  t.ok(A.notifications[A.notifications.length - 1].test === true, 'nút "Gửi thông báo thử" gửi thông báo hệ thống thật');
 }
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {

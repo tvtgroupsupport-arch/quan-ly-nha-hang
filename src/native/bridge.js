@@ -15,6 +15,9 @@ import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 import { BarcodeScanner, BarcodeFormat } from '@capacitor-mlkit/barcode-scanning';
 import { ScreenBrightness } from '@capacitor-community/screen-brightness';
 import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Haptics } from '@capacitor/haptics';
+import { ForegroundService } from '@capawesome-team/capacitor-android-foreground-service';
 import * as supabase from '@supabase/supabase-js';
 // Đóng sẵn ExcelJS vào APK (không tải từ CDN) để xuất báo cáo Excel được cả khi mất mạng
 import ExcelJS from 'exceljs/dist/exceljs.min.js';
@@ -167,9 +170,72 @@ const browser = {
   }
 };
 
+/* ---------- Thông báo + rung + chạy nền (chỉ trên Android) ----------
+   • notify(): THÔNG BÁO HỆ THỐNG mức cao nhất (hiện đè lên app khác, có chuông riêng của kênh + rung). Chuông là tệp chime_N.wav
+     do scripts/make-sounds.mjs sinh vào res/raw lúc build. Kênh thông báo trên Android KHÔNG đổi được âm sau khi tạo, nên mỗi kiểu
+     chuông có kênh riêng, và mỗi kiểu có thêm bản "không rung" (tuỳ chọn rung là riêng từng máy).
+   • keepAlive(): dịch vụ nền (foreground service) kèm thông báo cố định nhỏ — giữ tiến trình app sống khi chuyển sang app khác
+     hoặc tắt màn hình, để đồng bộ vẫn chạy và phát được thông báo trên. */
+const CHIME_COUNT = 5;
+const chimeChannel = (k, vibrate) => `bao_${k}${vibrate ? '' : '_im'}`;
+let _alertsReady = null, _fgOn = false, _notifId = 1000;
+const alerts = isNative ? {
+  async init() {
+    if (_alertsReady !== null) return _alertsReady;
+    try {
+      let p = await LocalNotifications.checkPermissions();
+      if (p.display !== 'granted') p = await LocalNotifications.requestPermissions();
+      if (p.display !== 'granted') { _alertsReady = null; return false; }   // lần sau hỏi lại
+      for (let k = 1; k <= CHIME_COUNT; k++) {
+        for (const vib of [true, false]) {
+          await LocalNotifications.createChannel({
+            id: chimeChannel(k, vib), name: `Âm báo ${k}${vib ? ' (có rung)' : ' (không rung)'}`, description: 'Khách gọi nhân viên, món mới cho bếp',
+            importance: 5, visibility: 1, sound: `chime_${k}.wav`, vibration: vib, lights: true
+          });
+        }
+      }
+      try { await ForegroundService.createNotificationChannel({ id: 'nen', name: 'Đang chạy nền', description: 'Giữ app nhận thông báo khi ở chế độ nền', importance: 2 }); } catch (e) {}
+      _alertsReady = true; return true;
+    } catch (e) { _alertsReady = null; return false; }
+  },
+  /** Hiện thông báo hệ thống ngay. Trả về false nếu chưa được cấp quyền thông báo. */
+  async notify({ title, body, chime, vibrate }) {
+    if (!(await this.init())) return false;
+    try {
+      const k = Math.min(CHIME_COUNT, Math.max(1, Number(chime) || 1));
+      await LocalNotifications.schedule({ notifications: [{
+        id: (_notifId = _notifId >= 1999 ? 1000 : _notifId + 1), title: String(title || ''), body: String(body || ''),
+        channelId: chimeChannel(k, vibrate !== false), smallIcon: 'ic_stat_notify', autoCancel: true
+      }] });
+      return true;
+    } catch (e) { return false; }
+  },
+  async vibrate() {
+    try {
+      await Haptics.vibrate({ duration: 700 });
+      await new Promise(r => setTimeout(r, 950));
+      await Haptics.vibrate({ duration: 700 });
+    } catch (e) { try { navigator.vibrate && navigator.vibrate([700, 250, 700]); } catch (e2) {} }
+  },
+  /** Bật/tắt dịch vụ nền. Bật chỉ thành công khi app đang ở phía trước (luật của Android 12+) — gọi lại định kỳ cho tới khi được. */
+  async keepAlive(on) {
+    try {
+      if (on && !_fgOn) {
+        if (!(await this.init())) return;
+        await ForegroundService.startForegroundService({
+          id: 7001, title: 'Quản Lý Nhà Hàng', body: 'Đang nhận thông báo khách gọi và món mới',
+          smallIcon: 'ic_stat_notify', notificationChannelId: 'nen', silent: true, serviceType: 1   // 1 = dataSync
+        });
+        _fgOn = true;
+      } else if (!on && _fgOn) {
+        await ForegroundService.stopForegroundService(); _fgOn = false;
+      }
+    } catch (e) { /* app đang ở nền không được phép khởi động dịch vụ — thử lại lần kiểm tra sau */ }
+  },
+} : null;
 window.ExcelJS = ExcelJS;
 window.NativeBridge = {
   isNative, platform: Capacitor.getPlatform(),
   ready: async () => {},
-  sqlite, supabase, network, app, copy, readClipboard, scan, saveFile, brightness, billing, browser
+  sqlite, supabase, network, app, copy, readClipboard, scan, saveFile, brightness, billing, browser, alerts
 };

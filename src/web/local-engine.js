@@ -25,7 +25,7 @@ function emptyD() {
   return {
     restaurant: { name: 'Nhà Hàng' },
     settings: { autoLock: true, sound: true, sepay: true, confirmFirstOrder: false,
-                callSound: true, chime: 1, soundVolume: 70 },
+                callSound: true, chime: 1, soundVolume: 100 },
     license: null,
     areas: [], tables: [], seats: [], categories: [], kitchens: [], menu: [], recipes: [],
     ingredients: [], promos: [], staff: [], reservations: [],

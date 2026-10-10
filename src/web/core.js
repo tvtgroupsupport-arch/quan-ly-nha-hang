@@ -140,44 +140,82 @@ function audioCtx() {
   if (_actx.state === 'suspended') _actx.resume().catch(() => {});
   return _actx;
 }
-/** Một nốt đơn — khối dựng sẵn cho các kiểu chuông bên dưới */
 let _toneCalls = 0;   // chỉ để kiểm thử: đếm số NỐT thực sự được lên lịch (phân biệt kêu 1 lần hay lặp lại)
-function _tone(ctx, freq, t0, dur, peak) {
-  _toneCalls++;
-  const o = ctx.createOscillator(), g = ctx.createGain();
-  o.type = 'sine'; o.frequency.value = freq; o.connect(g); g.connect(ctx.destination);
-  g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0001), t0 + 0.02);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  o.start(t0); o.stop(t0 + dur + 0.02);
-}
-const CHIMES = {
-  // mỗi kiểu: danh sách [độ trễ bắt đầu, tần số, độ dài] tính bằng giây
-  1: [[0, 880, 0.35]],                                             // một tiếng "bíp" ngắn
-  2: [[0, 660, 0.14], [0.16, 880, 0.22]],                          // hai tiếng tăng dần
-  3: [[0, 1046, 0.16], [0.17, 784, 0.16], [0.34, 1318, 0.3]]        // chuông cửa ba nốt
-};
 let _chimeCalls = 0;   // chỉ để kiểm thử: đếm số lần đã GỌI phát chuông, không phụ thuộc có âm thanh thật hay không
-/** Phát một trong các kiểu chuông đã định nghĩa, theo đúng âm lượng cài đặt (0–100).
-    repeat=true: lặp lại khoảng 2 giây (dùng khi báo thật — khách gọi nhân viên / vé bếp mới — để
+const _chimeBuf = {};  // bộ nhớ đệm: mỗi kiểu chuông chỉ vẽ một lần
+function _chimeBuffer(ctx, kind) {
+  const k = CHIMES[kind] ? kind : 1;
+  const key = k + '@' + ctx.sampleRate;
+  if (!_chimeBuf[key]) {
+    const data = synthChime(k, ctx.sampleRate || 44100);
+    const buf = ctx.createBuffer(1, data.length, ctx.sampleRate || 44100);
+    buf.getChannelData(0).set(data);
+    _chimeBuf[key] = buf;
+  }
+  return _chimeBuf[key];
+}
+/** Phát một trong các kiểu âm báo, theo đúng âm lượng cài đặt (0–100, 100 = to nhất app có thể phát).
+    repeat=true: lặp lại khoảng 3 giây (dùng khi báo thật — khách gọi nhân viên / vé bếp mới — để
     chắc chắn nhân viên nghe thấy dù đang ồn). repeat=false: chỉ phát một lượt (nghe thử nhanh lúc
-    đang chọn kiểu chuông trong Cài đặt, không cần kêu dài). */
+    đang chọn kiểu chuông trong Cài đặt, không cần kêu dài). Âm lượng cuối cùng còn phụ thuộc âm lượng
+    "đa phương tiện" của điện thoại. */
 function playChime(kind, volume, repeat) {
   _chimeCalls++;
   try {
     const ctx = audioCtx(); if (!ctx) return;
-    const vol = Math.max(0, Math.min(100, volume == null ? 70 : volume)) / 100;
-    const notes = CHIMES[kind] || CHIMES[1];
-    const now = ctx.currentTime;
-    const rounds = repeat ? Math.max(1, Math.round(2 / 0.5)) : 1;   // lặp mỗi 0.5s, đủ khoảng 2 giây
+    const vol = Math.max(0, Math.min(100, volume == null ? 100 : volume)) / 100;
+    const k = CHIMES[kind] ? kind : 1;
+    const period = chimePhraseSeconds(k);
+    const rounds = repeat ? Math.max(2, Math.ceil(3 / period)) : 1;
+    const buf = _chimeBuffer(ctx, k);
+    const gain = ctx.createGain(); gain.gain.value = vol; gain.connect(ctx.destination);
     for (let r = 0; r < rounds; r++) {
-      const base = now + r * 0.5;
-      notes.forEach(([delay, freq, dur]) => _tone(ctx, freq, base + delay, dur, 0.22 * vol));
+      _toneCalls += CHIMES[k].length;
+      const src = ctx.createBufferSource(); src.buffer = buf; src.connect(gain);
+      src.start(ctx.currentTime + r * period);
     }
   } catch (e) {}
 }
+/** Rung điện thoại (nếu máy có motor rung). Mẫu rung dài, lặp — đủ để cảm nhận được khi để trong túi. */
+let _vibrateCalls = 0;
+function vibratePhone() {
+  _vibrateCalls++;
+  try {
+    if (typeof NativeBridge !== 'undefined' && NativeBridge.alerts) NativeBridge.alerts.vibrate();
+    else if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([600, 200, 600, 200, 600]);
+  } catch (e) {}
+}
+/** Mỗi máy tự chọn có rung / có nhận thông báo chạy nền hay không (không đồng bộ giữa các máy) */
+function devicePref(key, dflt) {
+  try { const v = localStorage.getItem('pref_' + key); return v == null ? dflt : v === '1'; } catch (e) { return dflt; }
+}
+function setDevicePref(key, on) { try { localStorage.setItem('pref_' + key, on ? '1' : '0'); } catch (e) {} }
+
+/** Báo cho nhân viên biết có việc mới: đang mở app → kêu chuông trong app + rung; app đang chạy nền / mở app khác
+    → hiện THÔNG BÁO HỆ THỐNG (có chuông và rung riêng của hệ điều hành, hiện đè lên app khác). */
+function alertStaff(title, body) {
+  const kind = (DB.settings && DB.settings.chime) || 1;
+  const vol = DB.settings && DB.settings.soundVolume != null ? DB.settings.soundVolume : 100;
+  const hidden = typeof document !== 'undefined' && document.hidden;
+  if (hidden && typeof NativeBridge !== 'undefined' && NativeBridge.alerts) {
+    NativeBridge.alerts.notify({ title, body, chime: kind, vibrate: devicePref('vibrate', true) });
+    return;
+  }
+  playChime(kind, vol, true);
+  if (devicePref('vibrate', true)) vibratePhone();
+}
+/** Tên bàn + ghế của ghế VỪA gọi nhân viên (cho nội dung thông báo) */
+function newStaffCallLabel(prevSeatsState, nextSeatsState) {
+  for (const k in nextSeatsState) {
+    if (nextSeatsState[k].calling && !(prevSeatsState[k] && prevSeatsState[k].calling)) {
+      const [tid, n] = k.split('#'); const t = tableById(tid);
+      return `${t ? t.name : 'Bàn'} · Ghế ${n}`;
+    }
+  }
+  return '';
+}
 /** Tương thích ngược — vài chỗ cũ còn gọi beep() trực tiếp */
-function beep() { playChime(1, 70); }
+function beep() { playChime(1, 100); }
 
 /** Có ghế nào VỪA chuyển sang trạng thái gọi nhân viên (trước đó chưa gọi) hay không?
     Tách riêng thành hàm thuần (không đụng DOM/Audio) để kiểm thử được dễ dàng. */

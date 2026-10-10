@@ -277,7 +277,7 @@ function handleAct(el, ev) {
       try { await api('/auth/logout', { method: 'POST' }); } catch (e) {}
       TOKEN = null; ME = null; try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
       try { WS?.close(); } catch (e) {}
-      DB = emptyDb(); go('login');
+      DB = emptyDb(); ensureKeepAlive(); go('login');
     })();
     return;
   }
@@ -951,7 +951,25 @@ function handleAct(el, ev) {
     run(() => api('/settings', { method: 'PATCH', body: { chime: Number(d.k) } }));
     return;
   }
-  case 'tryChime': { playChime(DB.settings.chime || 1, DB.settings.soundVolume, true); return; }
+  case 'tryChime': {
+    playChime(DB.settings.chime || 1, DB.settings.soundVolume, true);
+    if (devicePref('vibrate', true)) vibratePhone();
+    return;
+  }
+  case 'tryNotify': {
+    // Gửi thử một thông báo hệ thống (đúng như khi app chạy nền) — để kiểm tra quyền thông báo, chuông và rung của máy này
+    if (typeof NativeBridge === 'undefined' || !NativeBridge.alerts) { toast('Chỉ thử được trên app cài trên điện thoại'); return; }
+    NativeBridge.alerts.notify({ title: 'Thử thông báo', body: 'Nếu nghe chuông và thấy rung là máy đã sẵn sàng', chime: DB.settings.chime || 1, vibrate: devicePref('vibrate', true), test: true })
+      .then(ok => toast(ok ? 'Đã gửi thông báo thử — kéo thanh trạng thái xuống để xem' : 'Chưa cấp quyền thông báo — vào Cài đặt điện thoại > Ứng dụng > Quyền > Thông báo để bật'));
+    return;
+  }
+  case 'devPref': {
+    // Tuỳ chọn riêng từng máy (không đồng bộ): rung / nhận thông báo khi chạy nền
+    setDevicePref(d.k, !!el.checked);
+    if (d.k === 'background') ensureKeepAlive();
+    if (d.k === 'vibrate' && el.checked) vibratePhone();
+    render(); return;
+  }
   case 'gw': { toast('Cuộn lên mục VietQR/payOS phía trên để cấu hình'); el.checked = !el.checked; return; }
   case 'expSrv': { exportExcelLocal(d.k, d.from ? Number(d.from) : null, d.to ? Number(d.to) : null); return; }
   case 'noPerm': { toast('Bạn không có quyền vào mục này'); return; }
@@ -1472,8 +1490,18 @@ function safeToRender() {
   return !(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName));
 }
 
+/** Giữ app sống khi chạy nền (dịch vụ nền Android có thông báo cố định) để vẫn nhận đồng bộ và báo chuông/rung khi nhân viên
+    đang mở app khác hoặc tắt màn hình. Chỉ chạy khi đã đăng nhập và người dùng chưa tắt ở Cài đặt (tuỳ chọn riêng từng máy). */
+function ensureKeepAlive() {
+  try {
+    if (typeof NativeBridge === 'undefined' || !NativeBridge.alerts) return;
+    NativeBridge.alerts.keepAlive(!!ME && devicePref('background', true));
+  } catch (e) {}
+}
+
 function wireCloud() {
   let t = null;
+  setInterval(ensureKeepAlive, 60000);
   Sync.onChange = () => {
     clearTimeout(t);
     t = setTimeout(async () => {
@@ -1482,10 +1510,11 @@ function wireCloud() {
       // Chưa đăng nhập: vẫn cập nhật DB (tên quán...) để màn Đăng nhập hiện đúng, chỉ không gán lại ME
       if (!ME) { if (['restoring', 'login'].includes(route.name) && safeToRender()) render(); return; }
       if (prevSeats && DB.settings.callSound !== false && hasNewStaffCall(prevSeats, DB.seatsState)) {
-        playChime(DB.settings.chime || 1, DB.settings.soundVolume, true);
+        alertStaff('Khách gọi nhân viên', newStaffCallLabel(prevSeats, DB.seatsState));
       } else if (prevOrders && DB.settings.sound !== false && hasNewKitchenTicket(prevOrders, DB.orders)) {
-        playChime(DB.settings.chime || 1, DB.settings.soundVolume, true);
+        alertStaff('Có món mới cho bếp', 'Mở app để xem vé bếp');
       }
+      ensureKeepAlive();
       if (safeToRender()) render();
     }, 300);
   };
@@ -1498,6 +1527,7 @@ function wireCloud() {
   NativeBridge.network.get().then(on => Sync.setOnline(on));
   NativeBridge.app.onResume(() => {
     Sync.kick(0);
+    ensureKeepAlive();
     if (Cloud.role === 'owner') refreshLicenseWithPlay().then(() => { if (ME && License.locked()) render(); });
   });
   // Nút Back của Android: đóng hộp thoại → quay lại màn trước → thu nhỏ app

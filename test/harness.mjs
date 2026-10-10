@@ -32,7 +32,7 @@ const tail = `
   get DB() { return DB; },
   document, window, go,
   QR, VietQR, Persist, Records, Sync, Cloud, License, AuthLocal, apiLocal, refresh, render, createStore, emptyD, VIEWS, handleAct, tableChairsSvg, guestUrl,
-  hasNewStaffCall, hasNewKitchenTicket, playChime, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
+  hasNewStaffCall, hasNewKitchenTicket, playChime, alertStaff, vibratePhone, devicePref, setDevicePref, ensureKeepAlive, newStaffCallLabel, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
   openQrZoom, closeQrZoom, get qrZoomOpen() { return !!qrZoomEl; }, uploadMenuImage,
   playPurchase, playRestore, playSyncPurchases, refreshLicenseWithPlay, ownedPlayPurchases, vSubscriptionPlay, normalizePlayProducts, playProductId,
   AutoProv, autoProvCard, vSupabaseGuide, guideGallery, GUIDE_FIGS,
@@ -85,6 +85,11 @@ export async function newDevice(world, name, opts = {}) {
     saveFile: async (n, b) => { dev.saved.push({ name: n, size: b.size }); return true; },
     brightness: { boost: async () => { dev.brightnessBoosts = (dev.brightnessBoosts || 0) + 1; },
                   restore: async () => { dev.brightnessRestores = (dev.brightnessRestores || 0) + 1; } },
+    alerts: {
+      notify: async (o) => { (dev.notifications = dev.notifications || []).push(o); return dev.notifyOk !== false; },
+      vibrate: async () => { dev.vibrations = (dev.vibrations || 0) + 1; },
+      keepAlive: async (on) => { dev.keepAliveState = on; dev.keepAliveCalls = (dev.keepAliveCalls || 0) + 1; },
+    },
     browser: { open: async (url) => { (dev.browserOpened = dev.browserOpened || []).push(url); } },
     billing: {
       isSupported: async () => dev.billingSupported !== false,
@@ -110,9 +115,10 @@ export async function newDevice(world, name, opts = {}) {
   // AudioContext giả — đủ để playChime()/_tone() chạy thật sự (lên lịch đúng số nốt), không chỉ no-op
   // vì audioCtx() === null, để test đo được chuông có LẶP LẠI đúng hay không.
   class FakeAudioContext {
-    constructor() { this.currentTime = 0; this.state = 'running'; this.destination = {}; }
-    createOscillator() { return { type: '', frequency: { value: 0 }, connect() {}, start() {}, stop() {} }; }
-    createGain() { return { connect() {}, gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} } }; }
+    constructor() { this.currentTime = 0; this.state = 'running'; this.destination = {}; this.sampleRate = 22050; }
+    createBuffer(ch, len) { const d = new Float32Array(len); return { getChannelData: () => d }; }
+    createBufferSource() { return { buffer: null, connect() {}, start() {}, stop() {} }; }
+    createGain() { return { connect() {}, gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} } }; }
     resume() { return Promise.resolve(); }
   }
   const windowFake = { localStorage, addEventListener() {}, scrollTo() {}, AudioContext: FakeAudioContext };

@@ -189,7 +189,6 @@ function vCloud() {
                  <button class="btn sm ghost" data-act="c_deleteDeviceAsk" data-id="${esc(d.id)}" data-nm="${esc(d.device_name)}" style="width:auto">Xoá</button></div>`
             : `<button class="btn sm danger" data-act="c_revokeAsk" data-id="${esc(d.id)}" data-nm="${esc(d.device_name)}" style="width:auto">Thu hồi</button>`}
         </div>`).join('') || (window._devicesLoading ? '<div class="t-xs muted">Đang tải…</div>' : '<div class="t-xs muted">Chưa có thiết bị nhân viên nào.</div>')}` : ''}
-      ${isOwner ? `<button class="btn ghost" data-go="subscription">Gói cước</button>` : ''}
       <div class="sec">Nâng cao</div>
       <button class="btn danger" data-act="c_unlinkAsk">Ngắt liên kết &amp; xoá dữ liệu trên máy này</button>
       ${isOwner ? `<button class="btn danger" data-act="c_deleteAccountAsk" style="margin-top:8px">Xoá tài khoản lưu trữ dữ liệu</button>` : ''}
@@ -284,16 +283,30 @@ function vLocked() {
 }
 
 /* ---------- thẻ trạng thái trong màn Quản lý ---------- */
+/** Chỉ ĐIỆN THOẠI CỦA CHỦ QUÁN (máy gốc, đăng nhập bằng tài khoản Chủ quán) mới thấy và đổi được gói cước.
+    Máy nhân viên — kể cả đăng nhập tài khoản Chủ quán trên máy nhân viên — không thấy mục này; quyền còn bị chặn lại ở route (OWNER_ONLY_ROUTES). */
+const isOwnerDevice = () => Cloud.role === 'owner' && !!ME && ME.role === 'Chủ quán';
+
 function cloudCardHtml() {
-  const st = License.status(), linked = Cloud.linked, owner = Cloud.role === 'owner';
-  return `<div class="sec">Đồng bộ &amp; gói cước</div>
+  const linked = Cloud.linked, owner = Cloud.role === 'owner';
+  return `<div class="sec">Đồng bộ dữ liệu</div>
     <button class="card col" data-go="cloud" style="gap:8px;align-items:stretch;text-align:left">
       <div class="between"><span class="t-sm">Đồng bộ</span><span class="badge ${linked ? (Sync.state.status === 'ok' ? 'b-green' : Sync.state.status === 'offline' ? 'b-amber' : 'b-blue') : 'b-gray'}">${esc(syncStatusText())}</span></div>
-      <div class="between"><span class="t-sm">Gói cước</span><span class="t-xs" style="color:${st.state === 'expired' ? 'var(--red)' : st.state === 'expiring' ? 'var(--amber)' : 'inherit'}">${esc(License.describe())}</span></div>
-      <div class="t-xs muted">${owner ? 'Máy chủ quán — quản lý thiết bị nhân viên và gói cước' : 'Máy nhân viên'}</div>
+      <div class="t-xs muted">${owner ? 'Máy chủ quán — quản lý thiết bị nhân viên và đồng bộ dữ liệu' : 'Máy nhân viên'}</div>
     </button>`;
 }
 
+/** Mục Gói cước riêng trong màn Quản lý — chỉ hiện ở điện thoại chủ quán */
+function subscriptionCardHtml() {
+  if (!isOwnerDevice()) return '';
+  const st = License.status();
+  const tone = st.state === 'expired' ? 'var(--red)' : st.state === 'expiring' ? 'var(--amber)' : 'inherit';
+  return `<div class="sec">Gói cước</div>
+    <button class="card col" data-go="subscription" style="gap:8px;align-items:stretch;text-align:left">
+      <div class="between"><span class="t-md">Gói cước của quán</span><span class="t-xs" style="color:${tone}">${esc(License.describe())}</span></div>
+      <div class="t-xs muted">Xem hạn dùng, đăng ký và gia hạn gói</div>
+    </button>`;
+}
 /* ============================================================
    XỬ LÝ HÀNH ĐỘNG
    ============================================================ */
