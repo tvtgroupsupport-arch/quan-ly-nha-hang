@@ -18,11 +18,26 @@ const SEAT_PICK = {
   rotate:   { title: 'Đổi mã QR mới',     verb: 'Đổi mã & vô hiệu mã cũ', tone: 'danger', need: 'any' }
 };
 
+/** Tóm tắt các ghế đã chọn theo bàn: "Bàn 1: 2 ghế · Bàn 3: 1 ghế" — chọn được ghế ở NHIỀU bàn trước khi bấm thực hiện. */
+function seatSelSummary(sel) {
+  const per = new Map();
+  for (const k of sel) { const tid = k.split('#')[0]; per.set(tid, (per.get(tid) || 0) + 1); }
+  return [...per].map(([tid, n]) => `${esc((tableById(tid) || {}).name || 'Bàn')}: ${n} ghế`).join(' · ');
+}
+
 function vSeatPick() {
   const mode = route.params.mode || 'order';
   const cfg = SEAT_PICK[mode] || SEAT_PICK.order;
   const tid = route.params.t;
   const sel = window._seatSel || (window._seatSel = new Set());
+  const from = route.params.from || '';
+  const navKey = from === 'cashier' ? 'cashier' : 'tables';
+  const multi = mode !== 'order';   // gọi món chỉ một ghế; các thao tác còn lại chọn được nhiều bàn
+  const goBar = (t) => sel.size ? `<div class="footbar">
+      <button class="btn ${cfg.tone}" data-act="seatGo" data-mode="${mode}" data-t="${t || ''}" data-from="${from}">${cfg.verb} · ${sel.size} ghế</button>
+      <button class="btn ghost" data-act="seatClear">Bỏ chọn</button>
+    </div>` : '';
+  const picked = multi && sel.size ? `<div class="t-xs" style="color:var(--accent)">Đã chọn: ${seatSelSummary(sel)}</div>` : '';
 
   // Bước 1: chọn bàn
   if (!tid) {
@@ -31,21 +46,24 @@ function vSeatPick() {
     return `<div class="screen">
       ${hdr(cfg.title, 'Bước 1 — chọn bàn')}
       <div class="body" data-swipe="area" data-area="${esc(area)}">
-        <div class="scrollx">${DB.areas.map(a => `<button class="chip ${a === area ? 'on' : ''}" data-go="seatPick" data-mode="${mode}" data-area="${esc(a)}">${esc(a)}</button>`).join('')}</div>
-        <div class="t-xs">Vuốt sang trái/phải để đổi khu vực</div>
+        <div class="scrollx">${DB.areas.map(a => `<button class="chip ${a === area ? 'on' : ''}" data-go="seatPick" data-mode="${mode}" data-area="${esc(a)}" data-from="${from}">${esc(a)}</button>`).join('')}</div>
+        <div class="t-xs">${multi ? 'Chọn được ghế ở nhiều bàn, nhiều khu: bấm từng bàn để tick ghế, xong bấm nút ở dưới' : 'Vuốt sang trái/phải để đổi khu vực'}</div>
+        ${picked}
         <div class="grid2">
           ${tables.map(t => {
             const s = tableSummary(t);
             const cls = s.state === 'pay' ? 't-pay' : s.state === 'busy' ? 't-busy' : s.state === 'resv' ? 't-resv' : 't-free';
-            return `<button class="tbl ${cls}" data-go="seatPick" data-mode="${mode}" data-t="${t.id}" data-area="${esc(area)}">
-              <div class="nm">${esc(t.name)}</div>
+            const nSel = [...sel].filter(k => k.startsWith(t.id + '#')).length;
+            return `<button class="tbl ${cls}" data-go="seatPick" data-mode="${mode}" data-t="${t.id}" data-area="${esc(area)}" data-from="${from}">
+              <div class="nm">${esc(t.name)}${nSel ? ` · ☑ ${nSel}` : ''}</div>
               <div class="mt">${t.seats} ghế${s.busy ? ` · ${s.busy} đang dùng` : ' · Trống'}</div>
               ${s.calling ? '<div class="tag">🔔 đang gọi</div>' : ''}
             </button>`;
           }).join('') || '<div class="empty">Khu này chưa có bàn</div>'}
         </div>
       </div>
-      ${navBar('tables')}
+      ${multi ? goBar('') : ''}
+      ${navBar(navKey)}
     </div>`;
   }
 
@@ -59,9 +77,13 @@ function vSeatPick() {
   return `<div class="screen">
     ${hdr(cfg.title, `${esc(t.name)} — bước 2, chọn ghế`)}
     <div class="body">
+      ${multi ? `<div class="scrollx">${DB.tables.map(x => {
+        const nSel = [...sel].filter(k => k.startsWith(x.id + '#')).length;
+        return `<button class="chip ${x.id === t.id ? 'on' : ''}" data-go="seatPick" data-mode="${mode}" data-t="${x.id}" data-area="${esc(x.area)}" data-from="${from}">${esc(x.name)}${nSel ? ` ☑${nSel}` : ''}</button>`;
+      }).join('')}</div>` : ''}
       <div class="card row" style="background:var(--chip);border:none">
         <div style="flex:1"><div class="t-sm">${cfg.verb}</div>
-          <div class="t-xs">${sel.size ? sel.size + ' ghế đã chọn' : 'Chưa chọn ghế nào'}</div></div>
+          <div class="t-xs">${sel.size ? (multi ? seatSelSummary(sel) : sel.size + ' ghế đã chọn') : 'Chưa chọn ghế nào'}</div></div>
         <button class="btn sm ${allPicked ? '' : 'pri'}" data-act="seatAll" data-t="${t.id}" data-mode="${mode}">
           ${allPicked ? 'Bỏ chọn tất cả' : 'Chọn cả bàn'}</button>
       </div>
@@ -86,11 +108,8 @@ function vSeatPick() {
         </button>`;
       }).join('')}
     </div>
-    ${sel.size ? `<div class="footbar">
-      <button class="btn ${cfg.tone}" data-act="seatGo" data-mode="${mode}" data-t="${t.id}">${cfg.verb} · ${sel.size} ghế</button>
-      <button class="btn ghost" data-act="seatClear">Bỏ chọn</button>
-    </div>` : ''}
-    ${navBar('tables')}
+    ${goBar(t.id)}
+    ${navBar(navKey)}
   </div>`;
 }
 

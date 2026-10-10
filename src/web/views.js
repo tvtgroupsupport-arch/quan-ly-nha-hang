@@ -366,7 +366,7 @@ function vTable(){
       }).join('')}
       <div class="sec">Thao tác — chọn ghế riêng hoặc cả bàn</div>
       <button class="card row" data-act="seatPickAt" data-t="${t.id}" data-mode="merge" style="width:100%;text-align:left">${icon('merge')}<span class="t-md" style="flex:1">Ghép đơn — gộp các ghế vào một hoá đơn</span>${icon('back')}</button>
-      <button class="card row" data-act="seatPickAt" data-t="${t.id}" data-mode="transfer" style="width:100%;text-align:left">${icon('move')}<span class="t-md" style="flex:1">Chuyển sang bàn/ghế khác</span>${icon('back')}</button>
+      <button class="card row" data-act="seatPickAt" data-t="${t.id}" data-mode="transfer" style="width:100%;text-align:left">${icon('move')}<span class="t-md" style="flex:1">Chuyển nhiều ghế / cả bàn sang chỗ khác</span>${icon('back')}</button>
       <button class="card row" data-act="seatPickAt" data-t="${t.id}" data-mode="clean" style="width:100%;text-align:left">${icon('check')}<span class="t-md" style="flex:1">Dọn bàn</span>${icon('back')}</button>
     </div>
     ${navBar('tables')}
@@ -796,6 +796,11 @@ function vCashier(){
             <div class="mono" style="font-size:24px;font-weight:700;margin-top:2px">${fmt(rev)}</div></div>
           <div style="text-align:right;font-size:12px;opacity:.75">${todayPays.length} hoá đơn</div>
         </div>
+      </div>
+
+      <div class="row" style="gap:8px">
+        <button class="btn sm ghost" data-act="seatPickStart" data-mode="merge" data-from="cashier" style="flex:1">${icon('merge')} Ghép đơn</button>
+        <button class="btn sm ghost" data-act="seatPickStart" data-mode="transfer" data-from="cashier" style="flex:1">${icon('move')} Chuyển bàn/ghế</button>
       </div>
 
       ${areasWithGuests.length>1?`<div class="scrollx">${areasWithGuests.map(a=>{

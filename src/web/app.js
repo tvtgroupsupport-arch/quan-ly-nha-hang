@@ -29,28 +29,45 @@ const meIsOwner = () => ME && ME.role === 'Chủ quán' && Cloud.role !== 'staff
 
 /** Chọn chỗ đến sau khi đã chọn ghế nguồn ở bộ chọn ghế */
 function vTransferTo() {
-  const from = window._moveFrom;
-  if (!from) return vTables();
-  const ft = tableById(from.tableId);
-  const o = openOrderFor(from.tableId, from.seatNo);
+  const src = window._moveSrc || [];
+  if (!src.length) return vTables();
+  const dst = window._moveDst || (window._moveDst = []);
+  const navKey = route.params.from === 'cashier' ? 'cashier' : 'tables';
+  const nm = (tid, n) => `${esc((tableById(tid) || {}).name || 'Bàn')} · Ghế ${n}`;
   const area = route.params.area || DB.areas[0];
   const tables = DB.tables.filter(t => t.area === area);
+  const total = src.reduce((s, x) => { const o = openOrderFor(x.tableId, x.seatNo); return s + (o ? orderTotal(o).total : 0); }, 0);
+  const ready = dst.length === src.length;
   return `<div class="screen">
-    ${hdr('Chuyển tới', `Từ ${esc(ft ? ft.name : '')} · Ghế ${from.seatNo}${o ? ` · ${fmt(orderTotal(o).total)}` : ''}`)}
+    ${hdr('Chuyển tới', `${src.length} ghế · ${fmt(total)}`)}
     <div class="body" data-swipe="area" data-area="${esc(area)}">
-      <div class="scrollx">${DB.areas.map(a => `<button class="chip ${a === area ? 'on' : ''}" data-go="transferTo" data-area="${esc(a)}">${esc(a)}</button>`).join('')}</div>
-      <div class="t-xs">Chỉ hiện các ghế đang trống</div>
+      <div class="card">
+        <div class="t-xs" style="margin-bottom:6px">Ghế nguồn → chỗ mới (chọn ${src.length} ghế trống theo thứ tự)</div>
+        ${src.map((x, i) => {
+          const [dt, ds] = dst[i] ? dst[i].split('#') : [null, null];
+          return `<div class="between t-sm" style="padding:3px 0"><span>${nm(x.tableId, x.seatNo)}</span><span style="color:${dt ? 'var(--green)' : 'var(--faint)'}">→ ${dt ? nm(dt, ds) : 'chưa chọn'}</span></div>`;
+        }).join('')}
+      </div>
+      <div class="scrollx">${DB.areas.map(a => `<button class="chip ${a === area ? 'on' : ''}" data-go="transferTo" data-area="${esc(a)}" data-from="${route.params.from || ''}">${esc(a)}</button>`).join('')}</div>
+      <div class="t-xs">Chỉ hiện các ghế đang trống. Chọn được ghế ở nhiều bàn, nhiều khu.</div>
       ${tables.map(t => {
-        const free = Array.from({ length: t.seats }, (_, i) => i + 1)
-          .filter(n => !openOrderFor(t.id, n) && !(t.id === from.tableId && n === from.seatNo));
+        const free = Array.from({ length: t.seats }, (_, i) => i + 1).filter(n => !openOrderFor(t.id, n));
         if (!free.length) return '';
         return `<div class="card">
-          <div class="t-md" style="margin-bottom:10px">${esc(t.name)}</div>
-          <div class="grid3">${free.map(n => `<button class="chip" data-act="doMove" data-tt="${t.id}" data-ts="${n}" style="justify-content:center">Ghế ${n}</button>`).join('')}</div>
+          <div class="between" style="margin-bottom:10px">
+            <div class="t-md">${esc(t.name)}</div>
+            <button class="btn sm ghost" data-act="moveDstFill" data-t="${t.id}">Điền ${src.length} ghế trống</button>
+          </div>
+          <div class="grid3">${free.map(n => { const on = dst.includes(t.id + '#' + n);
+            return `<button class="chip ${on ? 'on' : ''}" data-act="moveDstToggle" data-k="${t.id}#${n}" style="justify-content:center">${on ? '☑' : '☐'} Ghế ${n}</button>`; }).join('')}</div>
         </div>`;
       }).join('') || '<div class="empty">Khu này không còn ghế trống</div>'}
     </div>
-    ${navBar('tables')}
+    ${dst.length ? `<div class="footbar">
+      <button class="btn pri" data-act="moveGo" ${ready ? '' : 'disabled'}>${ready ? `Chuyển ${src.length} ghế` : `Còn thiếu ${src.length - dst.length} ghế đích`}</button>
+      <button class="btn ghost" data-act="moveDstClear">Bỏ chọn</button>
+    </div>` : ''}
+    ${navBar(navKey)}
   </div>`;
 }
 
@@ -82,7 +99,7 @@ function render() {
   if (!ME && !FREE_ROUTES.includes(route.name)) route = { name: 'login', params: {} };
   if (ME) {
     // 3. Quyền theo màn hình. Màn đơn hàng mở được từ cả Phục vụ lẫn Thu ngân nên chấp nhận một trong hai quyền.
-    const shared = { order: ['tables', 'pos'], pay: ['pos'], paid: ['pos'] }[route.name];
+    const shared = { order: ['tables', 'pos'], pay: ['pos'], paid: ['pos'], seatPick: ['tables', 'pos'], transferTo: ['tables', 'pos'] }[route.name];
     const ok = shared ? shared.some(k => can(k))
       : (() => { const need = screenPerm(route.name); return !need || can(need); })();
     if (!ok || (OWNER_ONLY_ROUTES.includes(route.name) && !meIsOwner())) route = { name: homeScreen(), params: {} };
@@ -941,7 +958,7 @@ function handleAct(el, ev) {
 
   /* ---------- BỘ CHỌN GHẾ DÙNG CHUNG ---------- */
   case 'seatPickAt': { window._seatSel = new Set(); go('seatPick', { mode: d.mode, t: d.t }); return; }
-  case 'seatPickStart': { window._seatSel = new Set(); go('seatPick', { mode: d.mode }); return; }
+  case 'seatPickStart': { window._seatSel = new Set(); go('seatPick', { mode: d.mode, from: d.from || '' }); return; }
   case 'seatToggle': {
     const sel = window._seatSel || (window._seatSel = new Set());
     sel.has(d.k) ? sel.delete(d.k) : sel.add(d.k);
@@ -1028,20 +1045,25 @@ function handleAct(el, ev) {
       return;
     }
     if (mode === 'merge') {
-      const ids = seats.map(s => openOrderFor(s.tableId, s.seatNo)).filter(Boolean).map(o => o.id);
-      if (ids.length < 2) { toast('Cần chọn ít nhất 2 ghế có đơn'); return; }
+      // Nhiều ghế có thể cùng thuộc một hoá đơn gộp → khử trùng theo mã đơn; ghế/bàn có thể ở nhiều bàn, nhiều khu khác nhau.
+      const ids = [...new Set(seats.map(s => openOrderFor(s.tableId, s.seatNo)).filter(Boolean).map(o => o.id))];
+      if (ids.length < 2) { toast('Cần chọn ít nhất 2 ghế thuộc 2 hoá đơn khác nhau'); return; }
+      const fromCashier = d.from === 'cashier';
       run(async () => {
         const o = await api('/orders/merge', { method: 'POST', body: { orderIds: ids } });
         window._seatSel = new Set();
-        route = { name: 'order', params: { id: o.id } };
-      }, 'Đã gộp — các ghế này giờ dùng chung một hoá đơn');
+        histStack.length = 0;
+        route = { name: 'order', params: { id: o.id, ...(fromCashier ? { from: 'cashier' } : {}) } };
+      }, `Đã gộp ${ids.length} hoá đơn — các ghế này giờ dùng chung một hoá đơn`);
       return;
     }
     if (mode === 'transfer') {
-      if (seats.length !== 1) { toast('Chuyển chỗ chỉ chọn một ghế nguồn'); return; }
-      window._moveFrom = seats[0];
+      // Chuyển nhiều ghế / cả bàn cùng lúc: giữ thứ tự theo bàn rồi theo số ghế để khớp với thứ tự chọn chỗ mới
+      const order = new Map(DB.tables.map((t, i) => [t.id, i]));
+      window._moveSrc = seats.sort((a, b) => (order.get(a.tableId) - order.get(b.tableId)) || (a.seatNo - b.seatNo));
+      window._moveDst = [];
       window._seatSel = new Set();
-      go('transferTo', {});
+      go('transferTo', { from: d.from || '' });
       return;
     }
     if (mode === 'order') {
@@ -1126,15 +1148,38 @@ function handleAct(el, ev) {
     return;
   }
 
-  case 'doMove': {
-    const from = window._moveFrom;
-    const o = from && openOrderFor(from.tableId, from.seatNo);
-    if (!o) { toast('Ghế nguồn không còn đơn'); back(); return; }
+  case 'moveDstToggle': {
+    const dst = window._moveDst || (window._moveDst = []);
+    const i = dst.indexOf(d.k);
+    if (i >= 0) dst.splice(i, 1);
+    else if (dst.length >= (window._moveSrc || []).length) { toast('Đã chọn đủ ghế đích — bỏ bớt một ghế nếu muốn đổi'); return; }
+    else dst.push(d.k);
+    render(); return;
+  }
+  case 'moveDstFill': {
+    // Điền tự động: lấy các ghế trống đầu tiên của bàn này cho những ghế nguồn còn thiếu
+    const t = tableById(d.t), dst = window._moveDst || (window._moveDst = []);
+    const need = (window._moveSrc || []).length - dst.length;
+    const free = Array.from({ length: t.seats }, (_, i) => i + 1).filter(n => !openOrderFor(t.id, n) && !dst.includes(t.id + '#' + n));
+    if (need <= 0) { toast('Đã chọn đủ ghế đích'); return; }
+    free.slice(0, need).forEach(n => dst.push(t.id + '#' + n));
+    if (free.length < need) toast(`Bàn này chỉ còn ${free.length} ghế trống — chọn thêm ở bàn khác`);
+    render(); return;
+  }
+  case 'moveDstClear': { window._moveDst = []; render(); return; }
+  case 'moveGo': {
+    const src = window._moveSrc || [], dst = window._moveDst || [];
+    if (!src.length || dst.length !== src.length) { toast('Chọn đủ ghế đích trước'); return; }
+    const moves = src.map((x, i) => { const [tableId, seatNo] = dst[i].split('#'); return { from: { tableId: x.tableId, seatNo: x.seatNo }, to: { tableId, seatNo: Number(seatNo) } }; });
+    const fromCashier = route.params.from === 'cashier';
     run(async () => {
-      await api(`/orders/${o.id}/transfer`, { method: 'POST', body: { tableId: d.tt, seatNo: Number(d.ts) } });
-      window._moveFrom = null;
-      route = { name: 'order', params: { id: o.id } };
-    }, 'Đã chuyển chỗ');
+      const r = await api('/orders/move-seats', { method: 'POST', body: { moves } });
+      window._moveSrc = null; window._moveDst = null;
+      histStack.length = 0;
+      route = (r.orderIds && r.orderIds.length === 1 && !fromCashier)
+        ? { name: 'order', params: { id: r.orderIds[0] } }
+        : { name: fromCashier ? 'cashier' : 'tables', params: {} };
+    }, `Đã chuyển ${moves.length} ghế sang chỗ mới`);
     return;
   }
 

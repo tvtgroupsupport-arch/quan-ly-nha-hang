@@ -393,7 +393,8 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     saveD(); return orderFull(it.order_id);
   }
   if (M('POST', 'orders', 'merge')) {
-    const orders = (body?.orderIds || []).map(id => D.orders.find(o => o.id === id && o.status === 'open')).filter(Boolean);
+    // Khử trùng: nhiều ghế cùng thuộc một hoá đơn gộp sẽ cho cùng một id — không được tự gộp đơn vào chính nó.
+    const orders = [...new Set(body?.orderIds || [])].map(id => D.orders.find(o => o.id === id && o.status === 'open')).filter(Boolean);
     if (orders.length < 2) throw err(409, 'Cần ít nhất 2 đơn đang mở');
     orders.sort((a, b) => a.created_at - b.created_at);
     const main = orders[0];
@@ -457,6 +458,38 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     const s = D.seats.find(v => v.table_id === o.table_id && v.seat_no === o.seat_no);
     if (s) s.bound_order_id = o.id;
     addLog(who(), 'Chuyển bàn', o.code); saveD(); return orderFull(o.id);
+  }
+  /* Chuyển NHIỀU ghế (hoặc cả bàn) cùng lúc: moves = [{ from:{tableId,seatNo}, to:{tableId,seatNo} }].
+     Mỗi ghế nguồn phải đang có đơn; ghế đích phải trống (hoặc chính là ghế nguồn khác được chuyển đi trong lượt này). */
+  if (M('POST', 'orders', 'move-seats')) {
+    const moves = (body?.moves || []).map(m => ({ f: { t: m.from?.tableId, s: Number(m.from?.seatNo) }, to: { t: m.to?.tableId, s: Number(m.to?.seatNo) } }));
+    if (!moves.length) throw err(409, 'Chưa chọn ghế nào để chuyển');
+    const key = x => x.t + '#' + x.s;
+    if (new Set(moves.map(m => key(m.f))).size !== moves.length) throw err(409, 'Có ghế nguồn bị chọn trùng');
+    if (new Set(moves.map(m => key(m.to))).size !== moves.length) throw err(409, 'Có ghế đích bị chọn trùng');
+    const leaving = new Set(moves.map(m => key(m.f)));
+    moves.forEach(m => {
+      m.order = openOrderD(m.f.t, m.f.s);
+      if (!m.order) throw err(409, 'Ghế nguồn không còn đơn đang mở');
+      const tb = D.tables.find(x => x.id === m.to.t && x.active);
+      if (!tb || !(m.to.s >= 1 && m.to.s <= tb.seats)) throw err(409, 'Ghế đích không tồn tại');
+      if (!leaving.has(key(m.to)) && openOrderD(m.to.t, m.to.s)) throw err(409, 'Ghế đích đang có khách');
+      // chốt trước danh sách món cần đổi nơi gọi (tránh đổi hai lần khi chuyền dây chuyền A→B, B→C)
+      m.items = D.orderItems.filter(i => i.order_id === m.order.id && i.origin_table === m.f.t && i.origin_seat === m.f.s);
+      m.isMain = m.order.table_id === m.f.t && m.order.seat_no === m.f.s;
+    });
+    // Pha 1: gỡ liên kết ghế nguồn; pha 2: gắn ghế đích
+    moves.forEach(m => { const s = D.seats.find(v => v.table_id === m.f.t && v.seat_no === m.f.s); if (s) s.bound_order_id = null; });
+    moves.forEach(m => {
+      m.items.forEach(i => { i.origin_table = m.to.t; i.origin_seat = m.to.s; i.updated_at = nowMs(); });
+      if (m.isMain) { m.order.table_id = m.to.t; m.order.seat_no = m.to.s; }
+      m.order.updated_at = nowMs();
+      const s = D.seats.find(v => v.table_id === m.to.t && v.seat_no === m.to.s);
+      if (s) s.bound_order_id = m.order.id;
+    });
+    addLog(who(), 'Chuyển chỗ', `${moves.length} ghế`);
+    saveD();
+    return { ok: true, orderIds: [...new Set(moves.map(m => m.order.id))] };
   }
   if (M('POST', 'orders', '*', 'promo')) {
     const o = D.orders.find(x => x.id === seg[1] && x.status === 'open');

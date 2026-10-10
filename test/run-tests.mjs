@@ -898,6 +898,68 @@ t.group('29b. Gói Google Play — đăng ký lại ngoài app, hai gói cùng l
   t.ok(!A.lastPurchaseCall, 'mua lại đúng gói đang có → không mua trùng');
   t.eq(verified.map(v => v.purchaseToken), ['own'], 'thay vào đó đồng bộ giao dịch đang có lên máy chủ');
 }
+/* ============================================================ */
+t.group('29d. Ghép đơn nhiều bàn, chuyển nhiều ghế/cả bàn cùng lúc, ghép/chuyển ngay ở màn Thu ngân');
+{
+  const w = newWorld(); const A = await setupOwner(w, { link: false });
+  const tb = A.D.tables.filter(x => x.active && x.seats >= 3);
+  const [T1, T2, T3] = tb;
+  const open = (tid, s) => A.D.orders.find(o => o.status === 'open' && A.D.seats.find(v => v.table_id === tid && v.seat_no === s && v.bound_order_id === o.id) || (o.status === 'open' && o.table_id === tid && o.seat_no === s));
+  const ord = (t, s) => A.api('/orders/items', { method: 'POST', body: { tableId: t.id, seatNo: s, lines: [{ menuItemId: A.D.menu[0].id, qty: 1 }] } });
+  const a = await ord(T1, 1), b = await ord(T2, 1), c = await ord(T3, 1), d = await ord(T1, 2);
+
+  // 1) Ghép đơn ở 3 bàn khác nhau; id trùng không được tự gộp đơn vào chính nó
+  const m = await A.api('/orders/merge', { method: 'POST', body: { orderIds: [a.id, b.id, c.id, a.id, b.id] } });
+  t.eq(m.seats.length, 3, 'ghép đơn ở 3 bàn khác nhau → một hoá đơn 3 ghế');
+  t.eq(m.items.length, 3, 'đủ món của cả 3 đơn');
+  t.eq(A.D.orders.filter(o => o.status === 'open' && [a.id, b.id, c.id].includes(o.id)).length, 1, 'chỉ còn đúng một đơn đang mở');
+  await t.rejects(() => A.api('/orders/merge', { method: 'POST', body: { orderIds: [m.id, m.id] } }), /ít nhất 2 đơn/, 'hai ghế cùng một hoá đơn gộp → không tự gộp vào chính nó');
+
+  // 2) Chuyển NHIỀU ghế cùng lúc (cả đơn gộp 3 ghế lẫn đơn lẻ) sang chỗ mới
+  const T4 = tb[3], T5 = A.D.tables.find(x => x.active && !tb.slice(0, 4).includes(x)) || tb[3];
+  const res = await A.api('/orders/move-seats', { method: 'POST', body: { moves: [
+    { from: { tableId: T1.id, seatNo: 1 }, to: { tableId: T4.id, seatNo: 1 } },
+    { from: { tableId: T2.id, seatNo: 1 }, to: { tableId: T4.id, seatNo: 2 } },
+    { from: { tableId: T1.id, seatNo: 2 }, to: { tableId: T5.id, seatNo: 1 } },
+  ] } });
+  t.eq(res.orderIds.length, 2, 'chuyển 3 ghế thuộc 2 hoá đơn');
+  const mm = A.D.orders.find(o => o.id === m.id);
+  const seatsNow = (oid) => A.D.seats.filter(s => s.bound_order_id === oid).map(s => s.table_id + '#' + s.seat_no).sort();
+  t.eq(seatsNow(m.id), [T3.id + '#1', T4.id + '#1', T4.id + '#2'].sort(), 'hoá đơn gộp: hai ghế đã dời sang bàn mới, ghế bàn 3 giữ nguyên');
+  t.eq([mm.table_id, mm.seat_no], [T4.id, 1], 'ghế gốc của hoá đơn gộp dời theo');
+  t.eq(A.D.orderItems.filter(i => i.order_id === m.id && i.origin_table === T4.id).length, 2, 'món ghi nhớ đúng ghế gọi (đã đổi sang ghế mới)');
+  t.eq(seatsNow(d.id), [T5.id + '#1'], 'đơn lẻ chuyển sang bàn khác');
+  t.ok(!A.D.seats.some(s => s.table_id === T1.id && s.bound_order_id), 'ghế cũ không còn gắn đơn nào');
+
+  // 3) Từ chối: ghế đích đang có khách / chọn trùng / không tồn tại
+  const e = await ord(T1, 3);
+  await t.rejects(() => A.api('/orders/move-seats', { method: 'POST', body: { moves: [{ from: { tableId: T1.id, seatNo: 3 }, to: { tableId: T4.id, seatNo: 1 } }] } }), /đang có khách/, 'ghế đích có khách bị từ chối');
+  await t.rejects(() => A.api('/orders/move-seats', { method: 'POST', body: { moves: [] } }), /Chưa chọn/, 'không chọn gì bị từ chối');
+  await t.rejects(() => A.api('/orders/move-seats', { method: 'POST', body: { moves: [{ from: { tableId: T1.id, seatNo: 3 }, to: { tableId: T2.id, seatNo: 99 } }] } }), /không tồn tại/, 'ghế đích không tồn tại bị từ chối');
+  // Hoán đổi/dây chuyền trong cùng lượt: ghế đích là ghế đang được chuyển đi
+  const f = await ord(T2, 2);
+  await A.api('/orders/move-seats', { method: 'POST', body: { moves: [
+    { from: { tableId: T1.id, seatNo: 3 }, to: { tableId: T2.id, seatNo: 2 } },
+    { from: { tableId: T2.id, seatNo: 2 }, to: { tableId: T1.id, seatNo: 3 } },
+  ] } });
+  t.eq(seatsNow(e.id), [T2.id + '#2'], 'hoán đổi hai ghế trong cùng một lượt chuyển');
+  t.eq(seatsNow(f.id), [T1.id + '#3'], '…và ghế kia sang chỗ của nó');
+
+  // 4) Giao diện: bộ chọn ghế nhiều bàn + ghép ngay ở Thu ngân
+  await A.refresh?.();
+  A.route = { name: 'cashier', params: {} };
+  const html = A.VIEWS.cashier();
+  t.ok(html.includes('data-mode="merge" data-from="cashier"') && html.includes('data-mode="transfer" data-from="cashier"'), 'màn Thu ngân có nút Ghép đơn và Chuyển bàn/ghế');
+  A.window._seatSel = new Set([T4.id + '#1']);
+  A.route = { name: 'seatPick', params: { mode: 'merge', from: 'cashier' } };
+  const pick = A.VIEWS.seatPick();
+  t.ok(pick.includes('data-act="seatGo"') && pick.includes('Đã chọn:'), 'chọn ghế ở bàn này rồi sang bàn khác vẫn thấy nút thực hiện và tóm tắt đã chọn');
+  A.route = { name: 'seatPick', params: { mode: 'transfer', t: T4.id } };
+  t.ok(A.VIEWS.seatPick().includes(`data-t="${T3.id}"`), 'trong bước chọn ghế có thanh chuyển nhanh sang bàn khác (giữ nguyên ghế đã chọn)');
+  A.window._moveSrc = [{ tableId: T4.id, seatNo: 1 }, { tableId: T4.id, seatNo: 2 }]; A.window._moveDst = [];
+  A.route = { name: 'transferTo', params: {} };
+  t.ok(A.VIEWS.transferTo().includes('data-act="moveDstFill"'), 'màn chọn chỗ mới có nút điền tự động ghế trống');
+}
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {
   const src = fs.readFileSync(new URL('../src/cloud/views-cloud.js', import.meta.url), 'utf8');
