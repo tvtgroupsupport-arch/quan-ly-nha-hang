@@ -406,7 +406,7 @@ function vNewOrder(){
           </div>
           ${out?'<span class="badge b-red">Hết hàng</span>'
             : n>0?`<div class="step"><button class="minus" data-act="cart-" data-id="${m.id}" aria-label="Giảm">−</button><span class="n">${n}</span><button class="plus" data-act="cart+" data-id="${m.id}" aria-label="Tăng">+</button></div>`
-            : `<button class="addbtn" data-act="cart+" data-id="${m.id}" aria-label="Thêm ${esc(m.name)}">+</button>`}
+            : `<button class="addbtn" data-act="cart+" data-id="${m.id}" aria-label="Thêm: ${esc(m.name)}">+</button>`}
         </div>`;
       }).join('') : '<div class="empty">Không tìm thấy món nào</div>'}
     </div>
@@ -481,7 +481,7 @@ function vOrder(){
           <div class="col" style="align-items:flex-end;gap:8px">
             <span class="badge ${stCls[i.status]}">${stName[i.status]}</span>
             <span class="mono t-md">${fmt(i.price*i.qty)}</span>
-            <button data-act="delItem" data-o="${o.id}" data-l="${i.lid}" aria-label="Xoá ${esc(i.name)}" style="color:var(--red)">${icon('trash')}</button>
+            <button data-act="delItem" data-o="${o.id}" data-l="${i.lid}" aria-label="Xoá: ${esc(i.name)}" style="color:var(--red)">${icon('trash')}</button>
           </div>
         </div>`).join('');
 
@@ -1143,14 +1143,6 @@ function vBilling(){
           : `<div class="t-xs" style="margin-top:8px;color:var(--amber)">Chưa cấu hình — màn thanh toán sẽ không hiện được mã QR chuyển khoản</div>`}
       </div>
 
-      <div class="sec">payOS</div>
-      <div class="card row" style="background:var(--amber-soft);border-color:var(--amber)">
-        <span style="color:var(--amber)">${icon('warn')}</span>
-        <div class="t-xs" style="color:var(--amber);flex:1;line-height:1.6">payOS cần Client ID/API Key/Checksum Key — đây là thông tin bí mật, tuyệt đối không
-          được lưu trên trình duyệt hay điện thoại vì bất kỳ ai mở được máy đều đọc được. Bản này không có máy chủ riêng để giữ
-          bí mật an toàn nên không hỗ trợ payOS. Cần dùng payOS thì phải chạy bản có máy chủ thật.</div>
-      </div>
-
       <div class="sec">Cổng thanh toán</div>
       ${DB.gateways.filter(g=>g.id==='cash'||g.id==='vietqr').map(g=>{
         const [lb,cls]=stB[g.state];
@@ -1158,15 +1150,10 @@ function vBilling(){
           <div style="flex:1"><div class="t-md">${esc(g.name)}</div>
           <div class="t-xs">${g.state==='live'?'Đã sẵn sàng':'Chưa cấu hình xong'}</div></div>
           <span class="badge ${cls}" style="margin-right:10px">${lb}</span>
-          <input type="checkbox" class="switch" data-act="gw" data-id="${g.id}" ${g.on?'checked':''} aria-label="Bật ${esc(g.name)}">
+          <input type="checkbox" class="switch" data-act="gw" data-id="${g.id}" ${g.on?'checked':''} aria-label="Bật: ${esc(g.name)}">
         </label>`;
       }).join('')}
-      <div class="t-xs" style="margin-top:4px;line-height:1.6">MoMo, ZaloPay, VNPay, payOS chưa nối API thật nên tạm ẩn khỏi màn thanh toán. payOS cần máy chủ riêng để giữ khoá bí mật an toàn — xem giải thích ở trên.</div>
       <div class="sec">Tự động hoá</div>
-      <label class="card between">
-        <div style="flex:1"><div class="t-md">Đối soát tự động SePay</div><div class="t-xs">Tự khớp giao dịch VietQR, không cần bấm xác nhận</div></div>
-        <input type="checkbox" class="switch" data-act="setSetting" data-k="sepay" ${DB.settings.sepay!==false?'checked':''} aria-label="Đối soát SePay">
-      </label>
       <label class="card between">
         <div style="flex:1"><div class="t-md">Nhân viên xác nhận đơn đầu tiên</div>
         <div class="t-xs">Khách quét QR gọi lần đầu sẽ chờ nhân viên duyệt rồi mới xuống bếp. Các đợt gọi sau đi thẳng.</div></div>
@@ -1237,8 +1224,8 @@ function vCategoriesKitchens(){
     return `<div class="card between">
       <div><div class="t-md">${esc(name)}</div><div class="t-xs">${n} món</div></div>
       <div class="row" style="gap:4px">
-        <button class="iconbtn" data-act="${kind === 'cat' ? 'editCategory' : 'editKitchen'}" data-name="${esc(name)}" aria-label="Sửa ${esc(name)}">${icon('edit')}</button>
-        <button class="iconbtn" data-act="${kind === 'cat' ? 'delCategory' : 'delKitchen'}" data-name="${esc(name)}" aria-label="Xoá ${esc(name)}">${icon('trash')}</button>
+        <button class="iconbtn" data-act="${kind === 'cat' ? 'editCategory' : 'editKitchen'}" data-name="${esc(name)}" aria-label="Sửa: ${esc(name)}">${icon('edit')}</button>
+        <button class="iconbtn" data-act="${kind === 'cat' ? 'delCategory' : 'delKitchen'}" data-name="${esc(name)}" aria-label="Xoá: ${esc(name)}">${icon('trash')}</button>
       </div>
     </div>`;
   };

@@ -102,7 +102,7 @@ function setLang(l) {
 }
 
 /* ---------- Dịch trực tiếp trên DOM ---------- */
-const _SKIP = { SCRIPT: 1, STYLE: 1, TEXTAREA: 1, CODE: 1, PRE: 1, NOSCRIPT: 1, SVG: 1, svg: 1 };
+const _SKIP = { SCRIPT: 1, STYLE: 1, TEXTAREA: 1, CODE: 1, PRE: 1, NOSCRIPT: 1 };
 const _ATTRS = ['placeholder', 'title', 'aria-label', 'alt'];
 
 function _trTextNode(n) {

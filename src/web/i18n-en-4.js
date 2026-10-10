@@ -17,4 +17,14 @@ const I18N_EN_4 = [
   ['Máy nhân viên chỉ được ghi lượt dùng khuyến mãi', 'Staff devices can only record promotion usage'], ['Chỉ máy chủ quán được thay đổi mục này', 'Only the owner’s device can change this item'],
   ['Mã QR không hợp lệ hoặc đã bị đổi', 'The QR code is invalid or has been changed'], ['Bàn này đã khoá mã QR — vui lòng gọi nhân viên', 'This table’s QR code is locked — please call a staff member'],
   ['Chỉ chủ quán được dọn dữ liệu', 'Only the owner can clear data'],
+  // form thêm/sửa món, ảnh món
+  ['Chọn ảnh', 'Choose photo'], ['Xoá ảnh', 'Remove photo'], ['Ảnh sẽ tự thu nhỏ để không chiếm nhiều bộ nhớ máy. Không chọn ảnh thì vẫn dùng biểu tượng', 'The photo is shrunk automatically so it does not use much device storage. Without a photo, the icon is used:'],
+  ['Nút', 'The'], ['không mở được hộp thoại trên máy này? Dán liên kết ảnh vào đây thay thế:', 'button does not open a dialog on this device? Paste an image link here instead:'], ['Dùng ảnh này', 'Use this photo'],
+  ['Tên món', 'Dish name'], ['vd. Bún bò Huế', 'e.g. Hue beef noodle soup'], ['Giá bán (đ)', 'Selling price (VND)'], ['Mô tả', 'Description'], ['Danh mục', 'Category'], ['Công thức (', 'Recipe ('], ['nguyên liệu)', 'ingredients)'],
+  ['Xoá món khỏi thực đơn', 'Remove dish from the menu'], ['Cần link ảnh hợp lệ, kết thúc bằng .jpg .png .webp hoặc .gif', 'A valid image link ending in .jpg, .png, .webp or .gif is required'], ['Đã dùng ảnh từ liên kết', 'Using the photo from the link'],
+  // cầu nối native
+  ['Quét QR chỉ chạy trên ứng dụng Android — hãy dán mã vào ô bên dưới', 'QR scanning only works in the Android app — paste the code into the box below'], ['Cần cấp quyền camera để quét mã', 'Camera permission is needed to scan the code'],
+  ['Lưu hoặc gửi tệp', 'Save or share file'], ['Chỉ mở được địa chỉ https', 'Only https addresses can be opened'], ['Âm báo', 'Alert sound'], ['(có rung)', '(with vibration)'], ['(không rung)', '(no vibration)'],
+  ['Khách gọi nhân viên, món mới cho bếp', 'Guest calls, new dishes for the kitchen'], ['Đang chạy nền', 'Running in background'], ['Giữ app nhận thông báo khi ở chế độ nền', 'Keeps the app receiving notifications in the background'], ['Đang nhận thông báo khách gọi và món mới', 'Receiving guest calls and new dishes'],
+  ['Thêm:', 'Add:'], ['Xoá:', 'Delete:'], ['Bật:', 'Turn on:'], ['Sửa:', 'Edit:'],
 ];

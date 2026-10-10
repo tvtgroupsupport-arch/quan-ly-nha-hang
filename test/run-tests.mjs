@@ -1145,6 +1145,11 @@ t.group('31. Đa ngôn ngữ: màn chọn ngôn ngữ lần đầu, dịch tiế
   }
   t.ok(leftovers.length <= 25, `các màn chính khi dịch gần như không sót chữ Việt (${leftovers.length} đoạn còn lại, đa số là dữ liệu mẫu: ${leftovers.slice(0, 4).join(' | ')})`);
 
+  // 4b) Thanh toán & hoá đơn: đã ẩn mọi phần liên quan payOS / SePay (không còn dùng); các cài đặt khác giữ nguyên
+  A.route = { name: 'billing', params: {} };
+  const bill = A.VIEWS.billing();
+  t.ok(!/payOS|SePay|MoMo/i.test(bill) && !bill.includes('data-k="sepay"'), 'màn Thanh toán & hoá đơn không còn nhắc payOS / SePay');
+  t.ok(bill.includes('data-k="confirmFirstOrder"') && bill.includes('data-k="autoLock"') && bill.includes('saveVietQr'), '…nhưng các cài đặt đang dùng (VietQR, xác nhận đơn đầu, tự khoá QR) vẫn còn');
   // 5) Chuyển ngược về Tiếng Việt, và cài đặt có chip chọn ngôn ngữ
   A.route = { name: 'admin', params: {} };
   t.ok(A.VIEWS.admin().includes('data-act="pickLang"'), 'màn Quản lý có mục Ngôn ngữ hiển thị');

@@ -7,12 +7,12 @@ import path from 'node:path';
 import { ROOT, SOURCE_FILES } from './assemble.mjs';
 
 const VI = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
-export const EXTRA_FILES = [];   // tệp ngoài danh sách gộp, nếu cần
+export const EXTRA_FILES = ['src/native/bridge.js'];   // tệp ngoài danh sách gộp, nếu cần
 const ENT = { '&amp;': '&', '&nbsp;': ' ', '&middot;': '·', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&times;': '×', '&rarr;': '→', '&larr;': '←' };
 
 export function stripComments(src) {
   return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1')   // chỉ chú thích mở sau khoảng trắng: tránh nhầm chuỗi như accept="image/*"
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/(^|\s)\/\/.*$/gm, '$1');
 }
