@@ -354,6 +354,36 @@ t.group('11. Gói cước: hết hạn → khoá mềm; gia hạn → mở; ch�
   t.ok(!S.License.locked(), 'máy nhân viên mở khoá theo');
 }
 
+t.group('11b. Gói đã được gia hạn (Google Play tự trừ tiền) → app tự mở khoá, không kẹt ở màn "hết hạn" chờ bấm Kiểm tra lại');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  const owner = [...w.central.users.values()][0];
+  w.central.subs.forEach(s => { s.expires_at = Date.now() - 1000; });
+  w.central.now = () => Date.now();
+  await A.License.refresh();
+  A.route = { name: 'tables', params: {} }; A.render();
+  t.eq(A.route.name, 'locked', 'hết hạn → app khoá, hiện màn "Gói cước đã hết hạn"');
+
+  // Google gia hạn + RTDN cập nhật máy chủ — người dùng KHÔNG bấm gì
+  w.central.adminExtend(owner.id, 1);
+  await A.recheckLicense(false);
+  t.ok(!A.License.locked(), 'kiểm tra định kỳ thấy máy chủ đã gia hạn → hết khoá');
+  t.ok(A.route.name !== 'locked', 'và màn hình tự rời khỏi màn "hết hạn" (trước đây kẹt lại tới khi bấm Kiểm tra lại)');
+
+  // Bộ theo dõi 30 giây: gói đã quá hạn thì tự hỏi lại, gói còn dài thì không gọi máy chủ
+  let asked = 0; const orig = A.Cloud.central().rpc.bind(A.Cloud.central());
+  A.Cloud.central().rpc = (n, ...a) => { if (n === 'get_my_subscription') asked++; return orig(n, ...a); };
+  A.licenseWatch(); await new Promise(r => setImmediate(r));
+  t.eq(asked, 0, 'gói còn dài hạn → bộ theo dõi không gọi máy chủ');
+  w.central.subs.forEach(s => { s.expires_at = Date.now() - 5000; });
+  await A.License.refresh();
+  t.ok(A.License.locked(), 'gói quá hạn → khoá');
+  A.clockOffset = 40000;                       // 40 giây sau: đủ chu kỳ 30 giây của bộ theo dõi
+  asked = 0; A.licenseWatch();
+  for (let k = 0; k < 20 && !asked; k++) await new Promise(r => setTimeout(r, 5));
+  t.ok(asked >= 1, 'gói đã quá hạn → bộ theo dõi tự hỏi lại máy chủ (không đợi người dùng bấm)');
+  A.clockOffset = 0;
+}
 t.group('12. Chủ quán đổi máy: đăng nhập lại và khôi phục toàn bộ dữ liệu');
 {
   const w = newWorld(); const A = await setupOwner(w);

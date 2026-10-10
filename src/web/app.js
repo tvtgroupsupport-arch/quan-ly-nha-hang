@@ -1507,6 +1507,37 @@ function ensureKeepAlive() {
   } catch (e) {}
 }
 
+/** Hỏi lại gói cước rồi CẬP NHẬT MÀN HÌNH nếu trạng thái khoá đổi. Trước đây chỉ vẽ lại khi vẫn còn khoá nên đã gia hạn xong
+    (Google Play tự trừ tiền, RTDN cập nhật máy chủ) mà app vẫn kẹt ở màn "Gói cước đã hết hạn" tới khi bấm "Kiểm tra lại". */
+let _licBusy = false, _licLast = 0;
+async function recheckLicense(force) {
+  if (_licBusy) return;
+  _licBusy = true; _licLast = Date.now();
+  const before = License.locked();
+  try {
+    if (Cloud.role === 'owner') await refreshLicenseWithPlay(!!force);
+    else if (Cloud.role === 'staff') Sync.kick(0);      // máy nhân viên nhận gói cước qua đồng bộ từ máy chủ quán
+  } catch (e) { /* mất mạng: giữ kết quả cũ, lần sau thử lại */ }
+  _licBusy = false;
+  const after = License.locked();
+  if (ME && before !== after) {
+    if (!after && route.name === 'locked') route = { name: homeScreen(), params: {} };
+    if (safeToRender()) render();
+  } else if (ME && after && route.name === 'locked' && safeToRender()) render();
+}
+/** Chạy mỗi 30 giây: gói sắp hết (còn dưới 2 phút) hoặc đã hết hạn thì hỏi lại — dày 30 giây trong 10 phút đầu (đợi Google gia hạn và
+    thông báo RTDN về máy chủ), sau đó thưa dần 5 phút/lần. Gói còn dài hạn thì không làm gì. */
+function licenseWatch() {
+  try {
+    if (!ME) return;
+    const s = License.status();
+    if (s.state === 'unknown') return;
+    const left = s.expiresAt - License.now();
+    if (left > 120000) return;
+    const gap = left < -600000 ? 300000 : 30000;
+    if (Date.now() - _licLast >= gap) recheckLicense(true);
+  } catch (e) {}
+}
 function wireCloud() {
   let t = null;
   setInterval(ensureKeepAlive, 60000);
@@ -1536,7 +1567,7 @@ function wireCloud() {
   NativeBridge.app.onResume(() => {
     Sync.kick(0);
     ensureKeepAlive();
-    if (Cloud.role === 'owner') refreshLicenseWithPlay().then(() => { if (ME && License.locked()) render(); });
+    recheckLicense(License.status().state !== 'ok');   // sắp/đã quá hạn → hỏi lại ngay, không đợi chu kỳ 6 giờ
   });
   // Nút Back của Android: đóng hộp thoại → quay lại màn trước → thu nhỏ app
   NativeBridge.app.onBack(() => {
@@ -1545,7 +1576,8 @@ function wireCloud() {
     if (histStack.length && !['login', 'setup'].includes(route.name)) { back(); return true; }
     return false;
   });
-  setInterval(() => { if (Cloud.role === 'owner') refreshLicenseWithPlay().then(() => { if (ME && License.locked()) render(); }); }, 6 * 3600000);
+  setInterval(() => recheckLicense(false), 6 * 3600000);
+  setInterval(licenseWatch, 30000);
 }
 
 (async function boot() {
@@ -1572,7 +1604,7 @@ function wireCloud() {
       } catch (e) { TOKEN = null; try { localStorage.removeItem(TOKEN_KEY); } catch (e2) {} }
     }
     Sync.start();
-    if (Cloud.role === 'owner') refreshLicenseWithPlay().then(() => { if (ME && License.locked()) render(); });
+    recheckLicense(true);
   }
   initI18n();
   // Lần đầu mở app: hỏi ngôn ngữ trước, xong mới vào luồng thiết lập/đăng nhập bình thường
