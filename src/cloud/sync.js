@@ -14,6 +14,8 @@ const Sync = (() => {
   const S = { status: 'off', lastSyncAt: 0, lastError: '', pending: 0, conflicts: [], online: true,
               running: false, revoked: false };
   let timer = null, periodic = null, channel = null, again = false, fails = 0, lastTouch = 0, lastAccessCheck = 0;
+  let runStart = 0, timeoutMs = 60000;   // một lượt đồng bộ quá 60 giây (mạng yếu/máy chủ treo) bị coi là hỏng và thử lại — trước đây có thể treo mãi ở "Đang đồng bộ…"
+  const withTimeout = (p, ms) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(Object.assign(new Error('Hết thời gian chờ máy chủ — mạng yếu, sẽ tự thử lại'), { timeout: true })), ms); })]).finally(() => clearTimeout(t)); };
 
   const enabled = () => !!(typeof Cloud !== 'undefined' && Cloud.store && Cloud.role);
   const notify = () => { try { if (Sync.onStatus) Sync.onStatus(S); } catch (e) {} };
@@ -30,9 +32,13 @@ const Sync = (() => {
   async function cycle(opts) {
     if (!enabled() || S.revoked) return;
     if (!S.online) { S.status = 'offline'; notify(); return; }
-    if (S.running) { again = true; return; }
-    S.running = true; S.status = 'syncing'; notify();
+    if (S.running) {
+      if (Date.now() - runStart > timeoutMs * 1.5) S.running = false;   // lượt cũ đã treo quá lâu: bỏ qua, chạy lượt mới
+      else { again = true; return; }
+    }
+    S.running = true; runStart = Date.now(); S.status = 'syncing'; notify();
     try {
+     await withTimeout((async () => {
       // checkAccess() tốn một vòng round-trip mạng riêng (dò xem máy còn quyền hay đã bị thu hồi).
       // Với đồng bộ NỀN (quick: Realtime/định kỳ) — quyền hiếm khi đổi nên bớt hỏi lại nếu vừa kiểm
       // tra trong vòng 1 phút, giúp đỡ hẳn một vòng mạng cho đa số lần đồng bộ nền (nguyên nhân chính
@@ -42,6 +48,7 @@ const Sync = (() => {
       if (!opts?.quick || Date.now() - lastAccessCheck > 60000) { lastAccessCheck = Date.now(); await checkAccess(); }
       await pushAll();
       await pullAll();
+     })(), timeoutMs);
       S.status = 'ok'; S.lastSyncAt = Date.now(); S.lastError = ''; fails = 0;
     } catch (e) {
       await handleError(e);
@@ -190,6 +197,7 @@ const Sync = (() => {
       return Promise.resolve().then(() => Cloud.onRevoked()).catch(() => {});
     }
     if (e && e.fatal) { S.status = 'error'; S.lastError = msg; return; }
+    if (e && e.timeout) { S.status = 'error'; S.lastError = msg; fails++; kick(Math.min(60000, 4000 * Math.pow(2, Math.min(fails, 4)))); return; }
     if (/Failed to fetch|NetworkError|Load failed|network|fetch/i.test(msg) && !(e && e.code)) {
       S.status = 'offline'; S.lastError = ''; fails++;
     } else if (e && (e.code === 'PGRST202' || /Could not find the function/i.test(msg))) {
@@ -233,6 +241,6 @@ const Sync = (() => {
       để đảm bảo có dữ liệu THẬT trước khi bất cứ thứ gì có cơ hội đẩy bản rỗng đó lên đè mất dữ liệu gốc. */
   async function pullOnly() { await checkAccess(); await pullAll(); }
 
-  return { state: S, start, stop, kick, syncNow, setOnline, cycle, pullOnly,
+  return { state: S, start, stop, kick, syncNow, setOnline, cycle, pullOnly, setTimeoutMs: ms => { timeoutMs = ms; },
            onChange: null, onStatus: null };
 })();

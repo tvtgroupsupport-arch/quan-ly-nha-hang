@@ -66,5 +66,6 @@ const I18N_EN_4 = [
   ['Google Play Billing không khả dụng — hãy cài app từ Google Play (kênh thử nghiệm), không cài tệp APK trực tiếp.', 'Google Play Billing is unavailable — install the app from Google Play (testing track), not as an APK file.'],
   ['Google Play trả về', 'Google Play returned'], ['gói nhưng không khớp mã gói cước của app (kiểm tra gói đã được kích hoạt trên Play Console và tài khoản Google là người thử nghiệm).', 'plans but none match the app’s plan codes (check the plans are active in Play Console and the Google account is a tester).'],
   ['Chi tiết:', 'Details:'], ['Thử tải lại', 'Try loading again'],
+  ['Hết thời gian chờ máy chủ — mạng yếu, sẽ tự thử lại', 'Server timed out — weak connection, will retry automatically'],
   ['Thêm:', 'Add:'], ['Xoá:', 'Delete:'], ['Bật:', 'Turn on:'], ['Sửa:', 'Edit:'],
 ];

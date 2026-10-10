@@ -1499,6 +1499,25 @@ t.group('34b. Nâng cấp bằng tài khoản ĐÃ CÓ quán: cho chọn dùng q
   t.ok(L2.Cloud.localMode && L2.D.restaurant.name === 'Quán Thử', 'dữ liệu trên máy này vẫn nguyên, sẵn sàng liên kết kho mới');
 }
 
+t.group('35. Đồng bộ không treo mãi ở "Đang đồng bộ…" khi mạng yếu/máy chủ không trả lời');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  await A.sync();
+  const st = A.Cloud.store; const orig = st.rpc.bind(st);
+  A.Sync.setTimeoutMs(40);                                  // rút ngắn thời hạn để kiểm thử nhanh
+  st.rpc = (n, ...a) => new Promise(() => {});              // máy chủ nhận yêu cầu nhưng không bao giờ trả lời
+  await A.api('/settings', { method: 'PATCH', body: { sound: false } });
+  await A.save();
+  await A.Sync.syncNow();
+  t.ok(!A.Sync.state.running, 'quá thời hạn → lượt đồng bộ được giải phóng (không treo mãi)');
+  t.ok(A.Sync.state.status === 'error' && /Hết thời gian chờ/.test(A.Sync.state.lastError), 'báo rõ "Hết thời gian chờ máy chủ" thay vì kẹt "Đang đồng bộ"');
+  t.ok(A.Records.dirtyCount() > 0, 'thay đổi chưa gửi vẫn còn nguyên để gửi lại sau');
+  st.rpc = orig; A.Sync.setTimeoutMs(60000);
+  await A.Sync.syncNow();
+  t.eq(A.Sync.state.status, 'ok', 'mạng trở lại → đồng bộ lại bình thường');
+  t.eq(A.Records.dirtyCount(), 0, 'thay đổi đã được gửi lên');
+}
+
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {
   const src = fs.readFileSync(new URL('../src/cloud/views-cloud.js', import.meta.url), 'utf8');
