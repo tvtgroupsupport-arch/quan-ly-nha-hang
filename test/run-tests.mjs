@@ -1185,6 +1185,74 @@ t.group('31. Đa ngôn ngữ: màn chọn ngôn ngữ lần đầu, dịch tiế
   t.ok(A.VIEWS.admin().includes('data-act="pickLang"'), 'màn Quản lý có mục Ngôn ngữ hiển thị');
   F.setLang('vi'); t.eq(F.getLang(), 'vi', 'đổi lại Tiếng Việt được');
 }
+t.group('32. In tem QR → file PDF khổ A4 (tem 50×60mm, tên dài tự xuống dòng); báo cáo theo ngôn ngữ đang chọn');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  const P = A.QRPDF;
+  // đo chữ giả lập: rộng ≈ 0.5em mỗi ký tự — đủ để kiểm tra thuật toán xuống dòng/thu nhỏ
+  const meas = (text, pt) => text.length * pt * 0.3528 * 0.5;
+  const mk = (shop, where = 'Bàn 04 · Ghế 2', area = 'Tầng 1') => ({ shop, where, hint: 'Quét mã để xem thực đơn và gọi món tại bàn', area, matrix: [[1]] });
+  const W = P.TAG.w - P.TAG.pad * 2, limit = P.TAG.h - P.TAG.pad + 0.01;
+
+  // 1) Tên ngắn: giữ nguyên như tem cũ — 1 dòng 7pt
+  let lay = P.layoutTag(meas, mk('Quán Sen Vàng'));
+  const shop1 = lay.blocks.find(b => b.kind === 'shop');
+  t.ok(shop1.lines.length === 1 && shop1.pt === 7, 'tên quán ngắn: một dòng, cỡ 7pt như tem cũ');
+  t.ok(lay.blocks.find(b => b.kind === 'area') && lay.blocks.find(b => b.kind === 'hint'), 'đủ thông tin: tên quán, bàn · ghế, mã QR, chú thích, khu vực');
+  t.ok(lay.bottom <= limit, `tem vừa khổ 60mm (đáy ${lay.bottom.toFixed(1)}mm)`);
+
+  // 2) Tên dài: tự xuống dòng, KHÔNG bị cắt, mọi dòng vừa bề rộng, tem không tràn
+  const long = 'Nhà hàng Hải Sản Biển Đông chi nhánh Quận Một - Khu ẩm thực quốc tế Sài Gòn';
+  lay = P.layoutTag(meas, mk(long));
+  const shop2 = lay.blocks.find(b => b.kind === 'shop');
+  t.ok(shop2.lines.length >= 2, `tên dài xuống ${shop2.lines.length} dòng (cỡ ${shop2.pt}pt)`);
+  t.eq(shop2.lines.join(' '), long, 'không mất chữ nào của tên quán');
+  t.ok(shop2.lines.every(l => meas(l, shop2.pt) <= W + 0.01), 'mỗi dòng vừa bề rộng tem');
+  t.ok(lay.bottom <= limit, `tem vẫn vừa khổ 60mm khi tên dài (đáy ${lay.bottom.toFixed(1)}mm)`);
+
+  // 3) Tên rất dài / bàn rất dài: vẫn không tràn tem, dùng "…" khi bất khả kháng
+  lay = P.layoutTag(meas, mk('Công ty TNHH Dịch vụ Ẩm thực và Giải trí Quốc tế Sài Gòn Xanh '.repeat(4), 'Khu VIP tầng thượng phòng 12 bàn số 4 · Ghế 2'));
+  t.ok(lay.bottom <= limit, `tên cực dài vẫn không tràn tem (đáy ${lay.bottom.toFixed(1)}mm)`);
+  t.ok(lay.blocks.every(b => b.lines.every(l => meas(l, b.pt) <= W + 0.01)), 'mọi dòng đều nằm trong khung tem');
+  t.eq(P.layoutTag(meas, mk('A')).qrTop > 0, true, 'mã QR luôn có vị trí cố định');
+
+  // 4) Lưới A4: 3 cột × 4 hàng, đủ trong trang, không chồng nhau
+  const o0 = P.tagOrigin(0), o11 = P.tagOrigin(11);
+  t.eq(P.PER_PAGE, 12, '12 tem mỗi trang A4');
+  t.ok(o0.x >= 5 && o0.y >= 5 && o11.x + P.TAG.w <= P.A4.w - 5 && o11.y + P.TAG.h <= P.A4.h - 5, 'toàn bộ lưới nằm trong trang A4, chừa lề ≥ 5mm (máy in không cắt mất)');
+  t.ok(P.tagOrigin(1).x - o0.x === P.TAG.w + P.GRID.gap, 'các tem cách nhau 4mm như trước');
+
+  // 5) Tệp PDF hợp lệ
+  const fakeJpg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 0xFF, 0xD9]);
+  const pdf = P.pdfFromJpegs([{ w: 2480, h: 3508, bytes: fakeJpg }, { w: 2480, h: 3508, bytes: fakeJpg }]);
+  const txt = Buffer.from(pdf).toString('latin1');
+  t.ok(txt.startsWith('%PDF-1.4') && txt.trimEnd().endsWith('%%EOF'), 'PDF có đầu và đuôi đúng chuẩn');
+  t.ok(txt.includes('/Count 2') && txt.includes('/MediaBox [0 0 595.28 841.89]'), '2 trang khổ A4 (595×842pt)');
+  const sx = Number(/startxref\n(\d+)/.exec(txt)[1]);
+  t.ok(txt.slice(sx, sx + 4) === 'xref', 'startxref trỏ đúng bảng xref');
+  const offs = [...txt.slice(sx).matchAll(/^(\d{10}) 00000 n $/gm)].map(m => Number(m[1]));
+  t.ok(offs.length === 8 && offs.every((o, i) => txt.slice(o, o + 9).startsWith(`${i + 1} 0 obj`)), 'mọi đối tượng nằm đúng vị trí trong bảng xref (PDF mở được ở mọi trình đọc)');
+
+  // 6) Nút/nhãn đã đổi sang PDF
+  const html = (() => { A.window._qrSel = new Set(['x:1']); A.route = { name: 'qrPrint', params: {} }; return A.VIEWS.qrPrint(); })();
+  t.ok(!html.includes('hộp thoại in'), 'không còn hướng dẫn "chọn Lưu thành PDF trong hộp thoại in"');
+
+  // 7) Báo cáo theo ngôn ngữ: tiếng Anh khi app đang chọn English
+  A.setLang('en');
+  t.eq([A.repTr('Tiền mặt'), A.repTr('Thu ngân'), A.repTr(5)], ['Cash', 'Cashier', 5], 'ô chữ được dịch, ô số giữ nguyên');
+  const tb = A.D.tables[0];
+  await A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: A.D.menu[0].id, qty: 1 }] } });
+  const oid = A.D.orders[0].id;
+  for (const it of A.D.orderItems.filter(i => i.order_id === oid)) { await A.api(`/kds/items/${it.id}/start`, { method: 'POST' }); await A.api(`/kds/items/${it.id}/done`, { method: 'POST' }); }
+  await A.api(`/orders/${oid}/payments`, { method: 'POST', body: { method: 'cash' } });
+  await A.exportExcelLocal('payments', null, null);
+  const csvEn = Buffer.concat(A.saved[A.saved.length - 1].blob.parts.map(p => Buffer.from(p))).toString('utf8');
+  t.ok(/Bill code|Payment/i.test(csvEn.split('\n')[0]) && /,Cash,/.test(csvEn) && !/Mã hoá đơn|Tiền mặt|Thu ngân/.test(csvEn), 'báo cáo thanh toán xuất ra bằng tiếng Anh: ' + csvEn.split('\n')[0].trim());
+  A.setLang('vi');
+  await A.exportExcelLocal('payments', null, null);
+  const csvVi = Buffer.concat(A.saved[A.saved.length - 1].blob.parts.map(p => Buffer.from(p))).toString('utf8');
+  t.ok(/Mã hoá đơn/.test(csvVi) && /,cash,/.test(csvVi), 'chọn Tiếng Việt thì báo cáo vẫn bằng tiếng Việt');
+}
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {
   const src = fs.readFileSync(new URL('../src/cloud/views-cloud.js', import.meta.url), 'utf8');

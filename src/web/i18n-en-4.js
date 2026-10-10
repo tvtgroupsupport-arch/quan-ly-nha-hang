@@ -26,5 +26,9 @@ const I18N_EN_4 = [
   ['Quét QR chỉ chạy trên ứng dụng Android — hãy dán mã vào ô bên dưới', 'QR scanning only works in the Android app — paste the code into the box below'], ['Cần cấp quyền camera để quét mã', 'Camera permission is needed to scan the code'],
   ['Lưu hoặc gửi tệp', 'Save or share file'], ['Chỉ mở được địa chỉ https', 'Only https addresses can be opened'], ['Âm báo', 'Alert sound'], ['(có rung)', '(with vibration)'], ['(không rung)', '(no vibration)'],
   ['Khách gọi nhân viên, món mới cho bếp', 'Guest calls, new dishes for the kitchen'], ['Đang chạy nền', 'Running in background'], ['Giữ app nhận thông báo khi ở chế độ nền', 'Keeps the app receiving notifications in the background'], ['Đang nhận thông báo khách gọi và món mới', 'Receiving guest calls and new dishes'],
+  // tạo file PDF tem QR
+  ['Tạo file PDF', 'Create PDF file'], ['Chọn ghế cần in rồi bấm', 'Pick the seats to print, then tap'], ['— app lưu tem thành file PDF khổ', '— the app saves the labels as a PDF file on'], ['A4', 'A4'],
+  ['(mỗi tem 50×60mm), bạn mở file PDF và tự in.', '(each label 50×60 mm); open the PDF file and print it yourself.'], ['Tạo file PDF ·', 'Create PDF file ·'], ['tem — A4', 'labels — A4'],
+  ['Đang tạo file PDF…', 'Creating the PDF file…'], ['Đã tạo file PDF:', 'PDF file created:'], ['tem,', 'labels,'], ['trang A4 — mở file để in', 'A4 pages — open the file to print'], ['Không tạo được file PDF', 'Could not create the PDF file'],  ['Xuất lúc', 'Exported at'],
   ['Thêm:', 'Add:'], ['Xoá:', 'Delete:'], ['Bật:', 'Turn on:'], ['Sửa:', 'Edit:'],
 ];

@@ -32,7 +32,7 @@ const tail = `
   get DB() { return DB; },
   document, window, go,
   QR, VietQR, Persist, Records, Sync, Cloud, License, AuthLocal, apiLocal, refresh, render, createStore, emptyD, VIEWS, handleAct, tableChairsSvg, guestUrl,
-  hasNewStaffCall, hasNewKitchenTicket, playChime, alertStaff, recheckLicense, licenseWatch, trText, getLang, setLang, hasLangChoice, LANGS, vLang, vibratePhone, devicePref, setDevicePref, ensureKeepAlive, newStaffCallLabel, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
+  hasNewStaffCall, hasNewKitchenTicket, playChime, alertStaff, QRPDF, repTr, exportExcelLocal, openQrSheet, recheckLicense, licenseWatch, trText, getLang, setLang, hasLangChoice, LANGS, vLang, vibratePhone, devicePref, setDevicePref, ensureKeepAlive, newStaffCallLabel, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
   openQrZoom, closeQrZoom, get qrZoomOpen() { return !!qrZoomEl; }, uploadMenuImage,
   playPurchase, playRestore, playSyncPurchases, refreshLicenseWithPlay, ownedPlayPurchases, vSubscriptionPlay, normalizePlayProducts, playProductId,
   AutoProv, autoProvCard, vSupabaseGuide, guideGallery, GUIDE_FIGS,
@@ -82,7 +82,7 @@ export async function newDevice(world, name, opts = {}) {
     app: { onResume() {}, onBack() {} },
     copy: async t => { dev.clip = t; }, readClipboard: async () => dev.clip,
     scan: async () => dev.scanResult,
-    saveFile: async (n, b) => { dev.saved.push({ name: n, size: b.size }); return true; },
+    saveFile: async (n, b) => { dev.saved.push({ name: n, size: b.size, blob: b }); return true; },
     brightness: { boost: async () => { dev.brightnessBoosts = (dev.brightnessBoosts || 0) + 1; },
                   restore: async () => { dev.brightnessRestores = (dev.brightnessRestores || 0) + 1; } },
     alerts: {
@@ -139,7 +139,7 @@ export async function newDevice(world, name, opts = {}) {
     SCRIPT + tail);
   const api = factory(windowFake, documentFake, localStorage, nb, { userAgent: 'test', onLine: true }, { host: 'localhost', href: 'https://localhost/', origin: 'https://localhost', hash: '' },
     webcrypto, FakeDate, setTimeoutFake, clearTimeoutFake, () => 0, () => {}, queueMicrotask, TextEncoder, btoa, atob, consoleFake,
-    { createObjectURL: () => 'blob:x', revokeObjectURL() {} }, class { constructor(parts, o) { this.size = parts.reduce((s, p) => s + (p.length || p.byteLength || 0), 0); this.type = (o || {}).type; } },
+    { createObjectURL: () => 'blob:x', revokeObjectURL() {} }, class { constructor(parts, o) { this.parts = parts; this.size = parts.reduce((s, p) => s + (p.length || p.byteLength || 0), 0); this.type = (o || {}).type; } },
     class {}, fetchFake, fn => setImmediate(fn));
 
   Object.defineProperties(dev, Object.getOwnPropertyDescriptors(api));   // giữ nguyên getter/setter (D, route, ME...)

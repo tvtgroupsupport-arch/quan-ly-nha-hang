@@ -8,6 +8,14 @@ function csvCell(v) {
   const s = String(v == null ? '' : v);
   return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
+/** Báo cáo theo ngôn ngữ đang chọn: tiêu đề cột, nhãn, tên trạng thái... đi qua bộ dịch (trText); tiếng Việt thì giữ nguyên. */
+const repLocale = () => (getLang() === 'vi' ? 'vi-VN' : 'en-GB');
+const repCur = () => '#,##0" ' + (getLang() === 'vi' ? 'đ' : 'VND') + '"';
+/** Mã trạng thái/phương thức/nguồn lưu trong dữ liệu (cash, paid, qr...) → nhãn dễ đọc. Chỉ áp dụng khi KHÔNG phải tiếng Việt, để tệp tiếng Việt giữ nguyên như trước. */
+const REP_LABELS = { cash: 'Tiền mặt', vietqr: 'VietQR', open: 'Đang mở', paid: 'Đã thanh toán', void: 'Đã huỷ', merged: 'Đã ghép',
+  qr: 'Khách quét QR', staff: 'Nhân viên nhập', grab: 'Grab', shopee: 'ShopeeFood' };
+const repCode = v => (getLang() !== 'vi' && REP_LABELS[v] ? REP_LABELS[v] : v);
+const repTr = v => (typeof v === 'string' ? trText(v) : v);
 const REPORT_TITLES = { revenue:'Báo cáo doanh thu', payments:'Lịch sử thanh toán', orders:'Lịch sử đơn hàng',
   stock:'Lịch sử nhập/xuất kho', inventory:'Tồn kho hiện tại', logs:'Nhật ký hoạt động' };
 const REPORT_RANGED = { revenue:true, payments:true, orders:true, stock:true, inventory:false, logs:true };
@@ -22,13 +30,13 @@ const REPORT_SUM_IDX = { revenue:[2], payments:[6,7,8], orders:[9], stock:[], in
 function reportRowsLocal(kind, from, to) {
   const tName = id => (D.tables.find(t => t.id === id) || {}).name || '';
   const sName = id => (D.staff.find(s => s.id === id) || {}).name || '';
-  const dt = ts => new Date(ts).toLocaleString('vi-VN');
+  const dt = ts => new Date(ts).toLocaleString(repLocale());
   const inRange = ts => from == null || (ts >= from && ts < to);
 
   if (kind === 'revenue') {
     const by = {};
     D.payments.filter(p => p.state === 'paid' && inRange(p.paid_at || p.created_at)).forEach(p => {
-      const d = new Date(p.paid_at || p.created_at).toLocaleDateString('vi-VN');
+      const d = new Date(p.paid_at || p.created_at).toLocaleDateString(repLocale());
       by[d] = by[d] || { n: 0, v: 0 }; by[d].n++; by[d].v += p.total;
     });
     return [['Ngày', 'Số hoá đơn', 'Doanh thu'],
@@ -39,14 +47,14 @@ function reportRowsLocal(kind, from, to) {
       ...D.payments.filter(p => p.state === 'paid' && inRange(p.paid_at || p.created_at)).map(p => {
         const o = D.orders.find(x => x.id === p.order_id) || {};
         return [p.id, o.code || '', dt(p.paid_at || p.created_at), tName(o.table_id), o.seat_no || '',
-                p.method, p.subtotal, p.discount, p.total, sName(p.staff_id)];
+                repCode(p.method), p.subtotal, p.discount, p.total, sName(p.staff_id)];
       })];
   }
   if (kind === 'orders') {
     const rows = [['Mã đơn', 'Thời gian', 'Bàn', 'Ghế', 'Nguồn', 'Trạng thái', 'Món', 'Số lượng', 'Đơn giá', 'Thành tiền']];
     D.orders.filter(o => inRange(o.created_at)).forEach(o => {
       D.orderItems.filter(i => i.order_id === o.id).forEach(i => {
-        rows.push([o.code, dt(o.created_at), tName(o.table_id), o.seat_no || '', o.source, o.status,
+        rows.push([o.code, dt(o.created_at), tName(o.table_id), o.seat_no || '', repCode(o.source), repCode(o.status),
           i.name_snapshot, i.qty, i.price_snapshot, i.qty * i.price_snapshot]);
       });
     });
@@ -117,12 +125,13 @@ const BRAND_ARGB = 'FFD9581F';
     hàng tiêu đề tô màu thương hiệu, cột tiền canh phải có dấu phẩy nghìn, dòng Tổng cộng,
     độ rộng cột tự co theo nội dung, cố định hàng tiêu đề — cùng chuẩn với bản server thật. */
 function buildStyledWorkbook(kind, rows, range) {
-  const [headers, ...data] = rows;
+  const [headers0, ...data0] = rows;
+  const headers = headers0.map(repTr), data = data0.map(r => r.map(repTr));
   const currencyIdx = REPORT_CURRENCY_IDX[kind] || [];
   const wb = new ExcelJS.Workbook();
-  wb.creator = DB.restaurant.name || 'Quản Lý Nhà Hàng';
+  wb.creator = DB.restaurant.name || trText('Quản Lý Nhà Hàng');
   wb.created = new Date();
-  const ws = wb.addWorksheet(REPORT_TITLES[kind].slice(0, 31), { views: [{ state: 'frozen', ySplit: 5 }] });
+  const ws = wb.addWorksheet(trText(REPORT_TITLES[kind]).slice(0, 31), { views: [{ state: 'frozen', ySplit: 5 }] });
   ws.columns = headers.map(() => ({ width: 14 }));
 
   const titleCell = (row, text, font) => {
@@ -131,10 +140,10 @@ function buildStyledWorkbook(kind, rows, range) {
     c.value = text; c.font = font; c.alignment = { horizontal: 'center', vertical: 'middle' };
   };
   titleCell(1, DB.restaurant.name || 'Quản Lý Nhà Hàng', { size: 14, bold: true, color: { argb: BRAND_ARGB } });
-  titleCell(2, REPORT_TITLES[kind], { size: 12, bold: true });
+  titleCell(2, trText(REPORT_TITLES[kind]), { size: 12, bold: true });
   titleCell(3, REPORT_RANGED[kind]
-    ? `${range.label}  ·  Xuất lúc ${new Date().toLocaleString('vi-VN')}`
-    : `Số liệu hiện tại  ·  Xuất lúc ${new Date().toLocaleString('vi-VN')}`,
+    ? `${range.label}  ·  ${trText('Xuất lúc')} ${new Date().toLocaleString(repLocale())}`
+    : `${trText('Số liệu hiện tại · Xuất lúc')} ${new Date().toLocaleString(repLocale())}`,
     { size: 9, italic: true, color: { argb: 'FF666666' } });
   ws.getRow(4).height = 6;
 
@@ -152,9 +161,9 @@ function buildStyledWorkbook(kind, rows, range) {
 
   const setCell = (xr, i, v) => {
     const cell = xr.getCell(i + 1);
-    cell.value = v;
+    cell.value = repTr(v);
     cell.border = { top: thin, bottom: thin, left: thin, right: thin };
-    if (currencyIdx.includes(i)) { cell.numFmt = '#,##0" đ"'; cell.alignment = { horizontal: 'right' }; }
+    if (currencyIdx.includes(i)) { cell.numFmt = repCur(); cell.alignment = { horizontal: 'right' }; }
     else if (typeof v === 'number') { cell.numFmt = '#,##0'; cell.alignment = { horizontal: 'right' }; }
   };
   const shadeRow = (row, on) => { if (on) row.eachCell(c => { if (!c.fill) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFAF7F2' } }; }); };
@@ -187,12 +196,12 @@ function buildStyledWorkbook(kind, rows, range) {
       const tr = ws.getRow(r);
       ws.mergeCells(r, 1, r, headers.length - 1);
       const lbl = tr.getCell(1);
-      lbl.value = `Cộng đơn ${code} (${items.length} món)`;
+      lbl.value = trText(`Cộng đơn ${code} (${items.length} món)`);
       lbl.font = { bold: true, italic: true, size: 10 };
       lbl.alignment = { horizontal: 'right' };
       lbl.border = { top: { style: 'thin', color: { argb: 'FF999999' } } };
       const sumCell = tr.getCell(headers.length);
-      sumCell.value = subtotal; sumCell.numFmt = '#,##0" đ"'; sumCell.font = { bold: true };
+      sumCell.value = subtotal; sumCell.numFmt = repCur(); sumCell.font = { bold: true };
       sumCell.alignment = { horizontal: 'right' };
       sumCell.border = { top: { style: 'thin', color: { argb: 'FF999999' } } };
       shadeRow(tr, shaded);
@@ -213,12 +222,12 @@ function buildStyledWorkbook(kind, rows, range) {
     const tr = ws.getRow(r);
     if (kind === 'orders') ws.mergeCells(r, 1, r, headers.length - 1);
     const lbl = tr.getCell(1);
-    lbl.value = 'Tổng cộng'; lbl.font = { bold: true, size: 12 };
+    lbl.value = trText('Tổng cộng'); lbl.font = { bold: true, size: 12 };
     lbl.alignment = { horizontal: kind === 'orders' ? 'right' : 'left' };
     sumIdx.forEach(i => {
       const sum = data.reduce((s, row) => s + (Number(row[i]) || 0), 0);
       const cell = tr.getCell(i + 1);
-      cell.value = sum; cell.numFmt = '#,##0" đ"'; cell.font = { bold: true, size: 12 };
+      cell.value = sum; cell.numFmt = repCur(); cell.font = { bold: true, size: 12 };
       cell.alignment = { horizontal: 'right' }; cell.border = { top: { style: 'double' } };
     });
   }
@@ -235,11 +244,12 @@ function buildStyledWorkbook(kind, rows, range) {
     nếu vì lý do gì đó thư viện chưa sẵn sàng, rơi về CSV thuần để người dùng vẫn có dữ liệu. */
 async function exportExcelLocal(kind, from, to) {
   const rows = reportRowsLocal(kind, REPORT_RANGED[kind] ? from : null, REPORT_RANGED[kind] ? to : null);
+  const rowsOut = rows.map(r => r.map(repTr));   // CSV dự phòng cũng theo ngôn ngữ
   if (rows.length < 2) { toast('Chưa có dữ liệu để xuất trong khoảng đã chọn'); return; }
 
   const rangeLabel = from != null
-    ? `Từ ${new Date(from).toLocaleDateString('vi-VN')} đến ${new Date(to - 1).toLocaleDateString('vi-VN')}`
-    : 'Toàn bộ';
+    ? `${trText('Từ')} ${new Date(from).toLocaleDateString(repLocale())} ${trText('đến')} ${new Date(to - 1).toLocaleDateString(repLocale())}`
+    : trText('Toàn bộ');
 
   let blob, filename;
   if (typeof ExcelJS !== 'undefined') {
@@ -251,7 +261,7 @@ async function exportExcelLocal(kind, from, to) {
     } catch (e) { console.warn('Dựng Excel thất bại, dùng CSV thay thế:', e); }
   }
   if (!blob) {
-    const fb = exportCsvFallback(kind, rows);
+    const fb = exportCsvFallback(kind, rowsOut);
     blob = fb.blob; filename = fb.filename;
     toast('Chưa tải được bộ định dạng Excel — xuất tạm bằng CSV');
   }
@@ -287,11 +297,11 @@ function buildMenuPageHtml() {
   const fmt2 = n => (Math.round(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
 
   return `<!doctype html>
-<html lang="vi">
+<html lang="${getLang()}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc2(rest.name || 'Thực đơn')}</title>
+<title>${esc2(rest.name || trText('Thực đơn'))}</title>
 <style>
   *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#FBF8F3;color:#1A1613}
@@ -316,7 +326,7 @@ function buildMenuPageHtml() {
 </head>
 <body>
   <div class="hdr">
-    <h1>${esc2(rest.name || 'Thực đơn')}</h1>
+    <h1>${esc2(rest.name || trText('Thực đơn'))}</h1>
     <div class="sub">${rest.phone ? esc2(rest.phone) : ''}</div>
   </div>
   <div class="cats">
@@ -329,11 +339,11 @@ function buildMenuPageHtml() {
       <div class="body">
         <div class="name">${esc2(m.name)}</div>
         ${m.desc ? `<div class="desc">${esc2(m.desc)}</div>` : ''}
-        <div class="price">${fmt2(m.price)}${m.stock === 'low' ? '<span class="low">· sắp hết</span>' : ''}</div>
+        <div class="price">${fmt2(m.price)}${m.stock === 'low' ? `<span class="low">· ${trText('sắp hết')}</span>` : ''}</div>
       </div>
     </div>`).join('')}
   </div>`).join('')}
-  <div class="foot">Thực đơn có thể thay đổi — vui lòng hỏi nhân viên để biết giá và món mới nhất.</div>
+  <div class="foot">${trText('Thực đơn có thể thay đổi — vui lòng hỏi nhân viên để biết giá và món mới nhất.')}</div>
   <script>
     function showCat(i){
       document.querySelectorAll('.cat-block').forEach((el,j)=>el.style.display = j===i?'':'none');

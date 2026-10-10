@@ -1139,25 +1139,8 @@ function handleAct(el, ev) {
   case 'printMenuQr': {
     const url = DB.settings.menuPageUrl;
     if (!url) { toast('Chưa có link trang thực đơn — nhập link ở trên trước'); return; }
-    document.getElementById('printOverlay')?.remove();
-    const ov = document.createElement('div');
-    ov.id = 'printOverlay';
-    ov.innerHTML = `
-      <div class="pbar"><b>Mã QR thực đơn</b>
-        <span>Bấm In rồi chọn "Lưu thành PDF" trong hộp thoại in</span>
-        <button id="doPrintBtn">In / Lưu PDF</button>
-        <button id="closePrintBtn" style="margin-left:8px">Đóng</button></div>
-      <div class="pgrid">
-        <div class="ptag">
-          <div class="shop">${esc(DB.restaurant.name || '')}</div>
-          <div class="where">Quét mã xem thực đơn</div>
-          <div class="qr">${QR.svg(url, { label: 'Thực đơn' })}</div>
-          <div class="hint">Giá và món có thể thay đổi<br>vui lòng hỏi nhân viên để biết chi tiết</div>
-        </div>
-      </div>`;
-    document.body.appendChild(ov);
-    ov.querySelector('#doPrintBtn').addEventListener('click', () => window.print());
-    ov.querySelector('#closePrintBtn').addEventListener('click', () => ov.remove());
+    saveQrPdf([{ shop: DB.restaurant.name || '', where: trText('Quét mã xem thực đơn'), hint: trText('Giá và món có thể thay đổi') + ', ' + trText('vui lòng hỏi nhân viên để biết chi tiết'),
+                 area: '', matrix: QR.matrix(url) }], `tem-qr-thuc-don-${new Date().toISOString().slice(0, 10)}.pdf`);
     return;
   }
 
@@ -1304,36 +1287,29 @@ function closeQrZoom() {
 /** In tem QR — khổ cố định 50×60mm mỗi tem, giống tem in nhiệt/tem dán bàn thật.
     Không cho chọn số cột nữa: lưới tự xếp bao nhiêu tem vừa một hàng theo bề rộng
     giấy (CSS grid auto-fill), khổ mỗi tem luôn đúng 50×60mm khi in ra. */
-function openQrSheet(keys){
-  const cells = keys.map(k => {
+/** Tạo FILE PDF khổ A4 chứa các tem (3 cột × 4 hàng, mỗi tem 50×60mm) rồi mở hộp thoại Lưu/Chia sẻ — người dùng tự in từ file PDF.
+    Tên quán dài tự xuống dòng (xem src/web/pdf-qr.js). */
+async function openQrSheet(keys){
+  const tags = keys.map(k => {
     const [tid, sn] = k.split(':');
     const t = tableById(tid);
     const url = t && guestUrl(tid, Number(sn));
     if (!t || !url) return null;   // chưa lưu link trang gọi món, hoặc ghế này chưa có mã riêng
-    return { table: t.name, area: t.area, seat: sn, svg: QR.svg(url, { label: `${t.name} ghế ${sn}` }) };
+    return { shop: DB.restaurant.name || '', where: trText(`${t.name} · Ghế ${sn}`), hint: trText('Quét mã để xem thực đơn và gọi món tại bàn'),
+             area: t.area || '', matrix: QR.matrix(url) };
   }).filter(Boolean);
-  if (!cells.length) { toast('Không dựng được tem nào'); return; }
-
-  document.getElementById('printOverlay')?.remove();
-  const ov = document.createElement('div');
-  ov.id = 'printOverlay';
-  ov.innerHTML = `
-    <div class="pbar"><b>${cells.length} tem mã QR · khổ 50×60mm</b>
-      <span>Bấm In rồi chọn "Lưu thành PDF" trong hộp thoại in</span>
-      <button id="doPrintBtn">In / Lưu PDF</button>
-      <button id="closePrintBtn" style="margin-left:8px">Đóng</button></div>
-    <div class="pgrid">
-      ${cells.map(c => `<div class="ptag">
-        <div class="shop">${esc(DB.restaurant.name || '')}</div>
-        <div class="where">${esc(c.table)} · Ghế ${esc(c.seat)}</div>
-        <div class="qr">${c.svg}</div>
-        <div class="hint">Quét mã để xem thực đơn và gọi món tại bàn</div>
-        <div class="area">${esc(c.area || '')}</div>
-      </div>`).join('')}
-    </div>`;
-  document.body.appendChild(ov);
-  ov.querySelector('#doPrintBtn').addEventListener('click', () => window.print());
-  ov.querySelector('#closePrintBtn').addEventListener('click', () => ov.remove());
+  if (!tags.length) { toast('Không dựng được tem nào'); return; }
+  await saveQrPdf(tags, `tem-qr-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+async function saveQrPdf(tags, filename) {
+  toast('Đang tạo file PDF…');
+  try {
+    const blob = await QRPDF.build(tags);
+    const ok = await saveFile(filename, blob, 'application/pdf');
+    if (!ok) { toast('Thiết bị không hỗ trợ tải tệp'); return; }
+    const pages = Math.ceil(tags.length / QRPDF.PER_PAGE);
+    toast(`Đã tạo file PDF: ${tags.length} tem, ${pages} trang A4 — mở file để in`);
+  } catch (e) { console.warn('QR PDF error:', e); toast('Không tạo được file PDF'); }
 }
 
 function renderTablePreview() {

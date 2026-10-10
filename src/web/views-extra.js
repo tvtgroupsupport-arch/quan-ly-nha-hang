@@ -14,7 +14,7 @@ const SEAT_PICK = {
   transfer: { title: 'Chuyển chỗ',        verb: 'Chọn chỗ đến', tone: 'pri', need: 'order1' },
   call:     { title: 'Xử lý gọi nhân viên', verb: 'Đánh dấu đã xử lý', tone: 'ok', need: 'calling' },
   order:    { title: 'Gọi món',           verb: 'Mở màn gọi món', tone: 'pri', need: 'one' },
-  print:    { title: 'In mã QR',          verb: 'Tạo bản in', tone: 'pri', need: 'any' },
+  print:    { title: 'In mã QR',          verb: 'Tạo file PDF', tone: 'pri', need: 'any' },
   rotate:   { title: 'Đổi mã QR mới',     verb: 'Đổi mã & vô hiệu mã cũ', tone: 'danger', need: 'any' }
 };
 
@@ -139,7 +139,7 @@ function vQrPrint() {
     <div class="body" data-swipe="area" data-area="${esc(area)}" data-route="qrPrint">
       <div class="card row" style="background:var(--blue-soft);border-color:var(--blue)">
         <span style="color:var(--blue)">${icon('printer')}</span>
-        <div class="t-sm" style="color:var(--blue);flex:1">Chọn ghế cần in, bấm tạo bản in rồi chọn <b>Lưu thành PDF</b> trong hộp thoại in.</div>
+        <div class="t-sm" style="color:var(--blue);flex:1">Chọn ghế cần in rồi bấm <b>Tạo file PDF</b> — app lưu tem thành file PDF khổ <b>A4</b> (mỗi tem 50×60mm), bạn mở file PDF và tự in.</div>
       </div>
       <div class="scrollx">${DB.areas.map(a => `<button class="chip ${a === area ? 'on' : ''}" data-go="qrPrint" data-area="${esc(a)}">${esc(a)}</button>`).join('')}</div>
       <div class="row" style="gap:8px">
@@ -166,7 +166,7 @@ function vQrPrint() {
       }).join('')}
     </div>
     ${sel.size ? `<div class="footbar">
-      <button class="btn pri" data-act="qrPrintGo">Tạo bản in · ${sel.size} tem — khổ 50×60mm</button>
+      <button class="btn pri" data-act="qrPrintGo">Tạo file PDF · ${sel.size} tem — A4</button>
     </div>` : ''}
     ${navBar('admin')}
   </div>`;
