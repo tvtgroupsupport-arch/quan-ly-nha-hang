@@ -18,6 +18,7 @@ import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Haptics } from '@capacitor/haptics';
 import { ForegroundService } from '@capawesome-team/capacitor-android-foreground-service';
+import { CapacitorThermalPrinter } from 'capacitor-thermal-printer';
 import * as supabase from '@supabase/supabase-js';
 // Đóng sẵn ExcelJS vào APK (không tải từ CDN) để xuất báo cáo Excel được cả khi mất mạng
 import ExcelJS from 'exceljs/dist/exceljs.min.js';
@@ -233,9 +234,44 @@ const alerts = isNative ? {
     } catch (e) { /* app đang ở nền không được phép khởi động dịch vụ — thử lại lần kiểm tra sau */ }
   },
 } : null;
+/* ---------- Máy in hoá đơn nhiệt Bluetooth (chỉ trên Android) ----------
+   Gửi hoá đơn đã vẽ thành ẢNH (xem src/web/receipt.js) — không in chữ bằng lệnh ESC/POS vì máy in giá rẻ thường không có bảng mã tiếng Việt.
+   Người dùng cần ghép đôi (pair) máy in trong Cài đặt Bluetooth của điện thoại trước (mã thường 0000 hoặc 1234). */
+let _printerAddr = '';
+const printer = isNative ? {
+  /** Quét máy in Bluetooth gần đó; gọi onFound(danh sách) mỗi khi tìm thêm; xong khi quét hết hoặc sau tối đa 15 giây. */
+  async scan(onFound) {
+    const handles = [];
+    try {
+      handles.push(await CapacitorThermalPrinter.addListener('discoverDevices', d => { try { onFound((d && d.devices) || []); } catch (e) {} }));
+      const done = new Promise(res => CapacitorThermalPrinter.addListener('discoveryFinish', () => res()).then(h => handles.push(h)));
+      await CapacitorThermalPrinter.startScan();
+      await Promise.race([done, new Promise(r => setTimeout(r, 15000))]);
+    } finally {
+      try { await CapacitorThermalPrinter.stopScan(); } catch (e) {}
+      handles.forEach(h => { try { h.remove(); } catch (e) {} });
+    }
+  },
+  async connect(address) {
+    const dev = await CapacitorThermalPrinter.connect({ address });
+    if (dev) _printerAddr = address;
+    return dev;
+  },
+  async isConnected() { try { return !!(await CapacitorThermalPrinter.isConnected()); } catch (e) { return false; } },
+  async disconnect() { try { await CapacitorThermalPrinter.disconnect(); } catch (e) {} _printerAddr = ''; },
+  /** In một ảnh (data URL PNG) rộng widthMm milimét rồi đẩy giấy/cắt giấy. Tự nối lại máy in nếu đang mất kết nối. */
+  async printImage(dataUrl, widthMm, address) {
+    if (!(await this.isConnected()) || (address && _printerAddr !== address)) {
+      const dev = await this.connect(address);
+      if (!dev) throw new Error('Không kết nối được máy in');
+    }
+    await CapacitorThermalPrinter.begin().align('center').limitWidth(widthMm).image(dataUrl).feedCutPaper().write();
+  },
+} : null;
+
 window.ExcelJS = ExcelJS;
 window.NativeBridge = {
   isNative, platform: Capacitor.getPlatform(),
   ready: async () => {},
-  sqlite, supabase, network, app, copy, readClipboard, scan, saveFile, brightness, billing, browser, alerts
+  sqlite, supabase, network, app, copy, readClipboard, scan, saveFile, brightness, billing, browser, alerts, printer
 };

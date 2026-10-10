@@ -159,8 +159,10 @@ const QRPDF = (() => {
     obj(2, `<< /Type /Pages /Count ${pages.length} /Kids [${kids}] >>`);
     pages.forEach((p, i) => {
       const pg = 3 + i * 3, ct = pg + 1, im = pg + 2;
-      obj(pg, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${MW} ${MH}] /Resources << /XObject << /Im0 ${im} 0 R >> >> /Contents ${ct} 0 R >>`);
-      const content = enc.encode(`q ${MW} 0 0 ${MH} 0 0 cm /Im0 Do Q`);
+      // mặc định A4; trang có mmW/mmH (hoá đơn cuộn 58/80mm) dùng khổ riêng
+      const pw = p.mmW ? (p.mmW / 25.4 * 72).toFixed(2) : MW, ph = p.mmH ? (p.mmH / 25.4 * 72).toFixed(2) : MH;
+      obj(pg, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 ${im} 0 R >> >> /Contents ${ct} 0 R >>`);
+      const content = enc.encode(`q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`);
       obj(ct, `<< /Length ${content.length} >>`, content);
       obj(im, `<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.bytes.length} >>`, p.bytes);
     });

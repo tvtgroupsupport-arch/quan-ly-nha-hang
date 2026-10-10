@@ -154,6 +154,7 @@ function vPaid() {
     </div>
     <div class="col" style="width:100%;gap:10px;margin-top:24px">
       <button class="btn ghost" data-act="print">${icon('printer')} In hoá đơn</button>
+      <button class="btn ghost sm" data-act="billPdf">Lưu PDF / gửi khách</button>
       <button class="btn pri" data-go="cashier">Về trang Thu ngân</button>
     </div>
   </div></div>`;
@@ -552,11 +553,44 @@ function handleAct(el, ev) {
       const t = o.tableId ? tableById(o.tableId) : null;
       lastPaid = { total: p.total, method: (DB.gateways.find(g => g.id === d.g) || {}).name || d.g,
                    ts: now(), label: t ? `${t.name} · Ghế ${o.seatNo}` : 'Giao hàng' };
+      // Nội dung hoá đơn dựng NGAY lúc thanh toán (đơn đã đóng thì không còn trong danh sách đơn đang mở)
+      try { lastPaid.model = modelFromOrder(o, { kind: 'paid', method: lastPaid.method, total: p.total, given: d.g === 'cash' ? Number(window._cashGiven || Number(window._cashRaw || '0') || 0) : 0, change: window._lastChange || 0 }); } catch (e) {}
       route = { name: 'paid', params: {} };
+      if (devicePref('billAuto', false) && lastPaid.model) printBill(lastPaid.model);
     });
     return;
   }
-  case 'print': { toast('Chưa hỗ trợ in nhiệt trực tiếp — dùng chức năng In của điện thoại để lưu/in biên lai'); return; }
+  case 'printerScan': {
+    if (typeof NativeBridge === 'undefined' || !NativeBridge.printer) { toast('Chỉ quét được máy in trên app cài trên điện thoại'); return; }
+    window._pfound = []; window._pscanning = true; render();
+    NativeBridge.printer.scan(list => { window._pfound = list; if (route.name === 'billing' && safeToRender()) render(); })
+      .catch(() => toast('Không quét được máy in — kiểm tra đã bật Bluetooth và cấp quyền cho app'))
+      .finally(() => { window._pscanning = false; if (route.name === 'billing' && safeToRender()) render(); });
+    return;
+  }
+  case 'printerPick': { setPrinterCfg({ address: d.addr, name: d.nm || d.addr }); window._pfound = null; toast('Đã chọn máy in — bấm "In thử" để kiểm tra'); render(); return; }
+  case 'printerManual': {
+    const a = val('prAddr').trim().toUpperCase();
+    if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(a)) { toast('Địa chỉ máy in có dạng AA:BB:CC:DD:EE:FF'); return; }
+    setPrinterCfg({ address: a, name: a }); toast('Đã chọn máy in'); render(); return;
+  }
+  case 'printerWidth': { setPrinterCfg({ width: Number(d.w) === 80 ? 80 : 58 }); render(); return; }
+  case 'printerForget': {
+    setPrinterCfg({ address: '', name: '' });
+    try { if (typeof NativeBridge !== 'undefined' && NativeBridge.printer) NativeBridge.printer.disconnect(); } catch (e) {}
+    toast('Đã bỏ máy in'); render(); return;
+  }
+  case 'printerTest': {
+    printBill(receiptModel({ kind: 'paid', code: '#TEST', where: 'Bàn 01 · Ghế 1', ts: now(), cashier: ME ? ME.name : '',
+      items: [{ name: 'Phở bò tái', qty: 2, price: 65000 }, { name: 'Trà đá', qty: 2, price: 10000, note: 'ít đá' }],
+      subtotal: 150000, discount: 0, total: 150000, method: 'Tiền mặt', given: 200000, change: 50000 }));
+    return;
+  }
+  case 'saveBillFooter': { run(() => api('/settings', { method: 'PATCH', body: { billFooter: val('billFooter').trim() } }), 'Đã lưu'); return; }
+  case 'print': { if (!lastPaid || !lastPaid.model) { toast('Không có hoá đơn để in'); return; } printBill(lastPaid.model); return; }
+  case 'billPdf': { if (!lastPaid || !lastPaid.model) { toast('Không có hoá đơn để in'); return; } printBill(lastPaid.model, true); return; }
+  case 'printBill': { const o = orderById(d.o); if (!o) { toast('Không tìm thấy đơn'); return; } printBill(modelFromOrder(o)); return; }
+  case 'histPrint': { if (!window._histDetail) return; printBill(modelFromDetail(window._histDetail), d.pdf === '1'); return; }
 
   /* ---------- bếp ---------- */
   case 'kdsToggle': {
@@ -922,6 +956,8 @@ function handleAct(el, ev) {
         <input class="input" id="rname" value="${esc(DB.restaurant.name || '')}" placeholder="vd. Nhà Hàng Sen Vàng"></div>
       <div class="field"><label class="f">Số điện thoại</label>
         <input class="input" id="rphone" type="tel" value="${esc(DB.restaurant.phone || '')}" placeholder="vd. 028 1234 5678"></div>
+      <div class="field"><label class="f">Địa chỉ (in trên hoá đơn)</label>
+        <input class="input" id="raddr" value="${esc(DB.restaurant.address || '')}" placeholder="vd. 12 Nguyễn Huệ, Quận 1"></div>
       <div class="t-xs" style="margin-bottom:14px">Hiện ở màn đăng nhập, đầu app, và trang khách quét QR gọi món.</div>
       <button class="btn pri" data-act="saveRestaurant">Lưu</button>`);
     return;
@@ -929,7 +965,7 @@ function handleAct(el, ev) {
   case 'saveRestaurant': {
     const name = val('rname').trim();
     if (!name) { toast('Nhập tên nhà hàng'); return; }
-    run(() => api('/restaurant', { method: 'PATCH', body: { name, phone: val('rphone').trim() } }).then(closeSheet), 'Đã lưu thông tin nhà hàng');
+    run(() => api('/restaurant', { method: 'PATCH', body: { name, phone: val('rphone').trim(), address: val('raddr').trim() } }).then(closeSheet), 'Đã lưu thông tin nhà hàng');
     return;
   }
 

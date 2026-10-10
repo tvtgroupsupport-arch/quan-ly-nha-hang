@@ -518,8 +518,10 @@ function vOrder(){
         <div class="t-sm" style="color:var(--amber);flex:1">Chỉ thanh toán khi mọi món đã phục vụ xong</div></div>`:''}
     </div>
     ${route.params.from==='cashier' ? `<div class="footbar">
+      <button class="btn ghost" data-act="printBill" data-o="${o.id}">${icon('printer')} In tạm tính</button>
       <button class="btn pri" data-act="pay" data-o="${o.id}" ${allServed?'':'disabled style="opacity:.45"'}>Thanh toán ${fmt(total)}</button>
     </div>` : `<div class="footbar">
+      <button class="btn ghost sm" data-act="printBill" data-o="${o.id}">${icon('printer')} In tạm tính</button>
       <div class="between"><span class="t-sm muted">Tổng cộng</span><span class="mono" style="font-size:20px;font-weight:700">${fmt(total)}</span></div>
       <div class="t-xs" style="text-align:center">${allServed?'Bàn đã phục vụ xong — thu tiền ở màn Thu ngân.':'Còn món chưa phục vụ xong.'}</div>
     </div>`}
@@ -1107,6 +1109,37 @@ function vStaff(){
 }
 
 /* ============ THANH TOÁN & HOÁ ĐƠN ============ */
+/** Cài đặt máy in hoá đơn (riêng từng máy) + lời cảm ơn cuối hoá đơn (chung cả quán) */
+function printerCardHtml() {
+  const cfg = printerCfg(), found = window._pfound || [], scanning = !!window._pscanning;
+  return `<div class="sec">Máy in hoá đơn — riêng máy này</div>
+    <div class="card">
+      <div class="t-md">${cfg.address ? esc(cfg.name || cfg.address) : 'Chưa chọn máy in'}</div>
+      <div class="t-xs" style="margin-top:2px;line-height:1.6">${cfg.address ? esc(cfg.address) : 'Chưa có máy in: hoá đơn được lưu thành PDF để in hoặc gửi cho khách.'}</div>
+      <div class="t-sm" style="margin:12px 0 6px">Khổ giấy</div>
+      <div class="row" style="gap:8px">${[58, 80].map(w => `<button class="chip ${cfg.width === w ? 'on' : ''}" data-act="printerWidth" data-w="${w}" style="flex:1;justify-content:center">${w}mm</button>`).join('')}</div>
+      <button class="btn sm pri" data-act="printerScan" style="margin-top:12px" ${scanning ? 'disabled' : ''}>${scanning ? 'Đang tìm máy in…' : 'Tìm máy in Bluetooth'}</button>
+      ${found.map(d => `<button class="card between" data-act="printerPick" data-addr="${esc(d.address)}" data-nm="${esc(d.name || '')}" style="width:100%;text-align:left;margin-top:8px">
+        <div><div class="t-md">${esc(d.name || 'Máy in')}</div><div class="t-xs mono">${esc(d.address)}</div></div><span class="badge b-blue">Chọn</span></button>`).join('')}
+      <div class="t-sm" style="margin:12px 0 6px">Hoặc nhập địa chỉ máy in</div>
+      <div class="row" style="gap:8px"><input class="input" id="prAddr" placeholder="AA:BB:CC:DD:EE:FF" autocapitalize="characters" style="flex:1"><button class="btn sm ghost" data-act="printerManual" style="width:auto">Dùng</button></div>
+      <div class="row" style="gap:8px;margin-top:12px">
+        <button class="btn sm ghost" data-act="printerTest" style="flex:1">${icon('printer')} In thử</button>
+        ${cfg.address ? `<button class="btn sm danger" data-act="printerForget" style="flex:1">Bỏ máy in</button>` : ''}
+      </div>
+      <div class="t-xs" style="margin-top:12px;line-height:1.6">Bật máy in, vào <b>Cài đặt Bluetooth</b> của điện thoại để ghép đôi máy in trước (mã thường là 0000 hoặc 1234), rồi bấm "Tìm máy in Bluetooth". Hoá đơn được in dạng ảnh nên đúng dấu tiếng Việt với mọi máy in nhiệt 58/80mm.</div>
+    </div>
+    <label class="card between">
+      <div style="flex:1"><div class="t-md">Tự in hoá đơn sau khi thanh toán</div><div class="t-xs">In ngay khi thu tiền xong (hoặc lưu PDF nếu chưa có máy in)</div></div>
+      <input type="checkbox" class="switch" data-act="devPref" data-k="billAuto" ${devicePref('billAuto', false) ? 'checked' : ''} aria-label="Tự in hoá đơn">
+    </label>
+    <div class="card">
+      <div class="t-md" style="margin-bottom:8px">Lời cảm ơn cuối hoá đơn</div>
+      <div class="row" style="gap:8px"><input class="input" id="billFooter" value="${esc(DB.settings.billFooter != null ? DB.settings.billFooter : BILL_FOOTER_DEFAULT)}" style="flex:1"><button class="btn sm pri" data-act="saveBillFooter" style="width:auto">Lưu</button></div>
+      <div class="t-xs" style="margin-top:6px">Địa chỉ quán in ở đầu hoá đơn: nhập trong "Thông tin nhà hàng".</div>
+    </div>`;
+}
+
 function vBilling(){
   const stB={live:['Thật','b-green'],mock:['Giả lập','b-blue']};
   return `<div class="screen">
@@ -1121,6 +1154,7 @@ function vBilling(){
         </div>
         ${icon('edit')}
       </button>
+      ${printerCardHtml()}
       <div class="sec">Tài khoản nhận tiền — VietQR</div>
       ${(()=>{ loadVietQrBanksLive(); return ''; })()}
       <div class="card">

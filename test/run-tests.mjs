@@ -1253,6 +1253,124 @@ t.group('32. In tem QR → file PDF khổ A4 (tem 50×60mm, tên dài tự xuố
   const csvVi = Buffer.concat(A.saved[A.saved.length - 1].blob.parts.map(p => Buffer.from(p))).toString('utf8');
   t.ok(/Mã hoá đơn/.test(csvVi) && /,cash,/.test(csvVi), 'chọn Tiếng Việt thì báo cáo vẫn bằng tiếng Việt');
 }
+t.group('33. In hoá đơn: bố cục ảnh 58/80mm, máy in Bluetooth, PDF dự phòng, tự in sau thanh toán, in lại từ lịch sử');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  const R = A.RECEIPT;
+  const meas = (text, px) => text.length * px * 0.52;   // đo chữ giả lập
+  const mkModel = (shop, n = 3) => ({ shop, address: '12 Nguyễn Huệ, Quận 1', phone: 'SĐT: 028 1234 5678', title: 'HOÁ ĐƠN THANH TOÁN', labels: { code: 'Mã đơn', where: 'Bàn', time: 'Thời gian', cashier: 'Thu ngân' },
+    code: '#1001', where: 'Bàn 04 · Ghế 2', time: '10/10/2026 19:45', cashier: 'Chủ Quán',
+    items: Array.from({ length: n }, (_, i) => ({ name: i === 1 ? 'Gỏi cuốn tôm thịt đặc biệt có rau sống và nước chấm riêng' : 'Phở bò tái', qty: i + 1, unit: '65.000đ', amount: ((i + 1) * 65000).toLocaleString('vi-VN') + 'đ', note: i === 2 ? 'ít hành' : '' })),
+    rows: [{ label: 'Tạm tính', value: '390.000đ' }, { label: 'Giảm giá (Khai trương)', value: '−39.000đ' }, { label: 'TỔNG CỘNG', value: '351.000đ', big: true }, { label: 'Phương thức', value: 'Tiền mặt' }],
+    footer: 'Cảm ơn quý khách — hẹn gặp lại!' });
+
+  // 1) Bố cục: mọi dòng chữ nằm trong khổ giấy; khổ 80 rộng hơn 58; hoá đơn dài ra theo số món
+  for (const pk of [58, 80]) {
+    const lay = R.layoutReceipt(meas, mkModel('Nhà hàng Hải Sản Biển Đông chi nhánh Quận Một'), pk);
+    t.eq(lay.width, R.PAPER[pk].dots, pk + 'mm: ảnh rộng đúng ' + R.PAPER[pk].dots + ' điểm');
+    const texts = lay.ops.filter(o => o.t === 'text');
+    t.ok(texts.every(o => o.x == null ? meas(o.text, o.px) <= lay.width - 8 : o.x + meas(o.text, o.px) <= lay.width), pk + 'mm: không dòng nào tràn khổ giấy (tên quán dài tự xuống dòng)');
+    t.ok(texts.filter(o => o.align === 'center' && o.px >= R.PAPER[pk].font * 1.2).length >= 2, pk + 'mm: tên quán dài xuống ≥ 2 dòng, không bị cắt');
+    t.ok(lay.height > 200 && texts.every(o => o.y < lay.height), pk + 'mm: chiều cao ' + lay.height + ' điểm, đủ chứa mọi dòng');
+  }
+  const h3 = R.layoutReceipt(meas, mkModel('Phở 24', 3), 58).height, h8 = R.layoutReceipt(meas, mkModel('Phở 24', 8), 58).height;
+  t.ok(h8 > h3, 'nhiều món hơn → hoá đơn dài hơn');
+  const lay2 = R.layoutReceipt(meas, mkModel('Phở 24'), 58);
+  const tx = lay2.ops.filter(o => o.t === 'text').map(o => o.text).join('|');
+  t.ok(['HOÁ ĐƠN THANH TOÁN', '#1001', 'Bàn 04 · Ghế 2', 'Gỏi cuốn', 'TỔNG CỘNG', '351.000đ', 'Cảm ơn quý khách'].every(s => tx.includes(s)), 'đủ thông tin: tên quán, mã đơn, bàn, món, tổng cộng, lời cảm ơn');
+
+  // 2) Dựng nội dung từ đơn thật
+  const tb = A.D.tables[0];
+  const o1 = await A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: A.D.menu[0].id, qty: 2 }, { menuItemId: A.D.menu[1].id, qty: 1 }] } });
+  await A.refresh();
+  const ord = A.DB.orders.find(x => x.id === o1.id);
+  let m = A.modelFromOrder(ord);
+  t.eq(m.items.length, 2, 'hoá đơn tạm tính có đủ 2 dòng món');
+  t.ok(m.title === 'HOÁ ĐƠN TẠM TÍNH' && m.rows.some(r => /CHƯA THANH TOÁN/.test(r.label)), 'hoá đơn tạm tính ghi rõ "chưa thanh toán"');
+  const tot = ord.items.reduce((s, i) => s + i.price * i.qty, 0);
+  t.ok(m.rows.some(r => r.big && r.value.replace(/\D/g, '') === String(tot)), 'tổng cộng trên hoá đơn khớp tổng đơn (' + tot + ')');
+  m = A.modelFromOrder(ord, { kind: 'paid', method: 'Tiền mặt', given: tot + 50000, change: 50000 });
+  t.ok(m.title === 'HOÁ ĐƠN THANH TOÁN' && m.rows.some(r => r.label === 'Tiền thừa trả khách'), 'hoá đơn đã thanh toán có phương thức, tiền khách đưa và tiền thừa');
+  A.setLang('en'); const me = A.modelFromOrder(ord, { kind: 'paid', method: 'Tiền mặt' });
+  t.ok(/PAYMENT BILL/.test(me.title) && me.rows.some(r => r.label === 'TOTAL') && /VND/.test(me.rows[0].value), 'chọn English → hoá đơn bằng tiếng Anh (PAYMENT BILL, TOTAL, VND)');
+  A.setLang('vi');
+
+  // 3) Chưa có máy in → lưu PDF
+  A.RECEIPT.render = async () => ({ dataUrl: 'data:image/png;base64,AAAA', width: 384, height: 600, mmH: 75 });
+  A.RECEIPT.renderPdf = async () => new (A.Blob || Blob)(['%PDF'], { type: 'application/pdf' });
+  const before = A.saved.length;
+  t.eq(await A.printBill(A.modelFromOrder(ord)), 'pdf', 'chưa chọn máy in → hoá đơn lưu thành PDF');
+  t.ok(A.saved.length === before + 1 && /\.pdf$/.test(A.saved[A.saved.length - 1].name), 'tệp .pdf được đưa tới hộp thoại Lưu/Chia sẻ');
+
+  // 4) Có máy in → gửi ảnh tới máy in đúng khổ
+  A.setPrinterCfg({ address: 'AA:BB:CC:DD:EE:FF', name: 'Xprinter', width: 80 });
+  t.eq(await A.printBill(A.modelFromOrder(ord)), 'printer', 'đã chọn máy in → in thẳng');
+  const pr = A.printed[A.printed.length - 1];
+  t.ok(pr.addr === 'AA:BB:CC:DD:EE:FF' && pr.w === 72 && pr.img.startsWith('data:image/png'), 'gửi ảnh PNG, rộng 72mm (giấy 80mm) tới đúng máy in');
+  A.setPrinterCfg({ width: 58 }); await A.printBill(A.modelFromOrder(ord));
+  t.eq(A.printed[A.printed.length - 1].w, 48, 'giấy 58mm → ảnh rộng 48mm');
+  t.eq(A.saved.length, before + 1, 'in thẳng thành công thì không tạo PDF thừa');
+
+  // 5) Máy in lỗi (tắt máy / mất kết nối) → tự lưu PDF, không mất hoá đơn
+  A.printerFail = true; const b2 = A.saved.length;
+  t.eq(await A.printBill(A.modelFromOrder(ord)), 'pdf', 'máy in lỗi → tự động chuyển sang lưu PDF');
+  t.eq(A.saved.length, b2 + 1, 'có tệp PDF thay thế'); A.printerFail = false;
+  t.eq(await A.printBill(A.modelFromOrder(ord), true), 'pdf', 'nút "Lưu PDF" luôn lưu PDF kể cả khi có máy in');
+
+  // 6) Cài đặt máy in trên màn Thanh toán & hoá đơn
+  A.route = { name: 'billing', params: {} };
+  let html = A.VIEWS.billing();
+  t.ok(['printerScan', 'printerWidth', 'printerTest', 'printerManual', 'saveBillFooter', 'data-k="billAuto"'].every(s => html.includes(s)), 'có đủ: tìm máy in, khổ giấy, in thử, nhập địa chỉ, lời cảm ơn, tự in');
+  A.handleAct({ dataset: { act: 'printerWidth', w: '80' } });
+  t.eq(A.printerCfg().width, 80, 'chọn khổ 80mm được ghi nhớ');
+  A.setInput('prAddr', 'xyz'); A.handleAct({ dataset: { act: 'printerManual' } });
+  t.ok(A.printerCfg().address === 'AA:BB:CC:DD:EE:FF', 'địa chỉ nhập sai định dạng bị từ chối');
+  A.setInput('prAddr', '11:22:33:44:55:66'); A.handleAct({ dataset: { act: 'printerManual' } });
+  t.eq(A.printerCfg().address, '11:22:33:44:55:66', 'địa chỉ đúng dạng được nhận');
+  A.printersFound = [{ name: 'RPP02N', address: 'AA:11:22:33:44:55' }];
+  A.handleAct({ dataset: { act: 'printerScan' } });
+  for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r));
+  t.ok(A.VIEWS.billing().includes('RPP02N'), 'quét ra máy in thì liệt kê để chọn');
+  A.handleAct({ dataset: { act: 'printerPick', addr: 'AA:11:22:33:44:55', nm: 'RPP02N' } });
+  t.ok(A.printerCfg().name === 'RPP02N', 'chọn máy in từ danh sách quét');
+  A.handleAct({ dataset: { act: 'printerForget' } });
+  t.eq(A.printerCfg().address, '', 'bỏ máy in');
+  A.setPrinterCfg({ address: 'AA:BB:CC:DD:EE:FF', width: 58 });
+
+  // 7) Tự in sau khi thanh toán
+  const o2 = await A.api('/orders/items', { method: 'POST', body: { tableId: A.D.tables[1].id, seatNo: 1, lines: [{ menuItemId: A.D.menu[0].id, qty: 1 }] } });
+  for (const it of A.D.orderItems.filter(i => i.order_id === o2.id)) { await A.api(`/kds/items/${it.id}/start`, { method: 'POST' }); await A.api(`/kds/items/${it.id}/done`, { method: 'POST' }); }
+  await A.refresh();
+  const n0 = (A.printed || []).length;
+  A.handleAct({ dataset: { act: 'confirmPay', o: o2.id, g: 'cash' } });
+  for (let i = 0; i < 40; i++) await new Promise(r => setImmediate(r));
+  t.eq((A.printed || []).length, n0, 'tắt "Tự in" → thanh toán xong KHÔNG tự in');
+  A.setDevicePref ? 0 : 0;
+  const o3 = await A.api('/orders/items', { method: 'POST', body: { tableId: A.D.tables[2].id, seatNo: 1, lines: [{ menuItemId: A.D.menu[0].id, qty: 1 }] } });
+  for (const it of A.D.orderItems.filter(i => i.order_id === o3.id)) { await A.api(`/kds/items/${it.id}/start`, { method: 'POST' }); await A.api(`/kds/items/${it.id}/done`, { method: 'POST' }); }
+  await A.refresh(); A.setDevicePref('billAuto', true);
+  A.handleAct({ dataset: { act: 'confirmPay', o: o3.id, g: 'cash' } });
+  for (let i = 0; i < 40; i++) await new Promise(r => setImmediate(r));
+  t.eq((A.printed || []).length, n0 + 1, 'bật "Tự in" → thanh toán xong tự gửi hoá đơn tới máy in');
+  A.route = { name: 'paid', params: {} }; const paidHtml = A.VIEWS.paid();
+  t.ok(paidHtml.includes('data-act="print"') && paidHtml.includes('data-act="billPdf"'), 'màn "Thanh toán thành công" có nút In hoá đơn và Lưu PDF / gửi khách');
+  A.handleAct({ dataset: { act: 'print' } }); for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r));
+  t.eq((A.printed || []).length, n0 + 2, 'bấm "In hoá đơn" in lại hoá đơn vừa thu');
+
+  // 8) In lại từ lịch sử + in tạm tính ở màn đơn
+  const det = await A.api(`/orders/${o3.id}/detail`);
+  const md = A.modelFromDetail(det);
+  t.ok(md.title === 'HOÁ ĐƠN THANH TOÁN' && md.items.length === 1 && md.rows.some(r => r.big), 'in lại từ lịch sử: dựng đúng hoá đơn đã thanh toán');
+  A.route = { name: 'order', params: { id: o1.id } };
+  t.ok(A.VIEWS.order().includes('data-act="printBill"'), 'màn đơn có nút "In tạm tính"');
+  A.window._histDetail = det; A.route = { name: 'historyDetail', params: { id: o3.id } };
+  t.ok(A.VIEWS.historyDetail().includes('data-act="histPrint"'), 'chi tiết đơn trong lịch sử có nút "In lại hoá đơn"');
+
+  // 9) Địa chỉ quán
+  await A.api('/restaurant', { method: 'PATCH', body: { name: 'Quán A', address: '12 Nguyễn Huệ' } }); await A.refresh();
+  t.eq(A.modelFromOrder(ord).address, '12 Nguyễn Huệ', 'địa chỉ quán (nhập ở Thông tin nhà hàng) in ở đầu hoá đơn');
+}
+
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {
   const src = fs.readFileSync(new URL('../src/cloud/views-cloud.js', import.meta.url), 'utf8');

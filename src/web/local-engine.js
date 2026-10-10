@@ -778,7 +778,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('PATCH', 'settings')) { Object.assign(D.settings, body || {}); saveD(); return D.settings; }
   if (M('PATCH', 'restaurant')) {
     if (body?.name !== undefined && !String(body.name).trim()) throw err(400, 'Nhập tên nhà hàng');
-    Object.assign(D.restaurant, { name: body?.name?.trim() ?? D.restaurant.name, phone: body?.phone ?? D.restaurant.phone });
+    Object.assign(D.restaurant, { name: body?.name?.trim() ?? D.restaurant.name, phone: body?.phone ?? D.restaurant.phone, address: body?.address ?? D.restaurant.address });
     addLog(who(), 'Đổi thông tin nhà hàng');
     saveD(); return D.restaurant;
   }

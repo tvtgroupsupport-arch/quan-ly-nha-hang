@@ -302,6 +302,10 @@ function vHistoryDetail() {
         <div class="between" style="margin-top:8px"><span class="t-md">Tổng cộng</span><span class="mono" style="font-size:21px;font-weight:700">${fmt(o.total)}</span></div>
       </div>
 
+      <div class="row" style="gap:8px">
+        <button class="btn ghost" data-act="histPrint" style="flex:1">${icon('printer')} In lại hoá đơn</button>
+        <button class="btn ghost" data-act="histPrint" data-pdf="1" style="flex:1">Lưu PDF</button>
+      </div>
       ${o.payments.length ? `<div class="sec">Thanh toán</div>
         ${o.payments.map(p => `<div class="card between">
           <div><div class="t-md">${esc(p.method)}</div>

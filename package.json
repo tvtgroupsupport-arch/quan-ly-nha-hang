@@ -27,6 +27,7 @@
     "@capawesome-team/capacitor-android-foreground-service": "^7.0.1",
     "@capgo/native-purchases": "^7.19.3",
     "@supabase/supabase-js": "^2.45.0",
+    "capacitor-thermal-printer": "^0.2.5",
     "exceljs": "^4.4.0"
   },
   "devDependencies": {

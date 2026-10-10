@@ -31,6 +31,8 @@ export const SOURCE_FILES = [
   'src/cloud/auto-provision.js',
   'src/cloud/guide-supabase.js',
   'src/web/pdf-qr.js',
+  'src/web/receipt.js',
+  'src/web/bill-print.js',
   'src/web/reports.js',
   'src/web/app.js'
 ];

@@ -18,8 +18,18 @@ const perms = [
   'android.permission.WAKE_LOCK',
   'android.permission.POST_NOTIFICATIONS',
   'android.permission.FOREGROUND_SERVICE',
-  'android.permission.FOREGROUND_SERVICE_DATA_SYNC'
+  'android.permission.FOREGROUND_SERVICE_DATA_SYNC',
+  // Máy in hoá đơn Bluetooth (src/native/bridge.js, mục printer)
+  'android.permission.BLUETOOTH_CONNECT',
+  'android.permission.BLUETOOTH_SCAN'
 ];
+// Android 11 trở xuống cần BLUETOOTH/BLUETOOTH_ADMIN + vị trí để quét máy in (giới hạn maxSdkVersion để máy mới không bị hỏi thừa)
+const legacyBt = [
+  '<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />',
+  '<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />',
+  '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',   // plugin máy in yêu cầu quyền vị trí để quét Bluetooth ở mọi bản Android
+];
+for (const l of legacyBt) { const name = /android:name="([^"]+)"/.exec(l)[1]; if (!x.includes(`android:name="${name}"`)) x = x.replace('</manifest>', `    ${l}\n</manifest>`); }
 for (const p of perms) {
   if (!x.includes(`android:name="${p}"`)) x = x.replace('</manifest>', `    <uses-permission android:name="${p}" />\n</manifest>`);
 }
@@ -112,8 +122,8 @@ if (fs.existsSync(gradleForRelease)) {
   }
   if (fs.existsSync(proguardFile)) {
     let r = fs.readFileSync(proguardFile, 'utf8');
-    if (!r.includes('ee.forgr.nativepurchases')) {
-      r += `\n# Thêm bởi scripts/patch-android.mjs\n-keep class ee.forgr.nativepurchases.** { *; }\n-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }\n-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod\n-keepattributes SourceFile,LineNumberTable\n`;
+    if (!r.includes('com.rt.printerlibrary')) {
+      r += `\n# Thêm bởi scripts/patch-android.mjs\n-keep class ee.forgr.nativepurchases.** { *; }\n-keep class com.rt.printerlibrary.** { *; }\n-keep class com.clj.fastble.** { *; }\n-keep class android_serialport_api.** { *; }\n-keep class com.malik12tree.** { *; }\n-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }\n-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod\n-keepattributes SourceFile,LineNumberTable\n`;
       fs.writeFileSync(proguardFile, r);
       console.log('✓ Đã thêm quy tắc giữ lại cho R8');
     }
