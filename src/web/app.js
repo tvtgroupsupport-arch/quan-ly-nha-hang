@@ -21,7 +21,7 @@ const VIEWS = {
   // đám mây: thiết lập máy, liên kết Supabase, thiết bị, gói cước
   setup: vSetup, ownerAuth: vOwnerAuth, ownerInit: vOwnerInit, ownerLink: vOwnerLink, ownerRestore: vOwnerRestore,
   restoring: vRestoring, staffJoin: vStaffJoin, cloud: vCloud, pairQr: vPairQr, subscription: vSubscription, locked: vLocked,
-  supabaseGuide: vSupabaseGuide
+  supabaseGuide: vSupabaseGuide, lang: vLang
 };
 /** Chỉ tài khoản Chủ quán trên máy chủ quán mới vào được */
 const OWNER_ONLY_ROUTES = ['subscription', 'pairQr', 'ownerLink'];
@@ -91,6 +91,8 @@ function screenPerm(name) {
 }
 
 function render() {
+  // Màn chọn ngôn ngữ (lần đầu mở app): đứng riêng, không qua các bước kiểm tra đăng nhập/thiết lập bên dưới
+  if (route.name === 'lang') { document.getElementById('app').innerHTML = vLang(); return; }
   // 1. Máy chưa thiết lập / đang chờ tải dữ liệu lần đầu
   if (!Cloud.role && !FREE_ROUTES.includes(route.name)) route = { name: 'setup', params: {} };
   const SETUP_FLOW = ['restoring', 'setup', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'staffJoin', 'supabaseGuide'];
@@ -951,6 +953,12 @@ function handleAct(el, ev) {
     run(() => api('/settings', { method: 'PATCH', body: { chime: Number(d.k) } }));
     return;
   }
+  case 'pickLang': {
+    setLang(d.k);
+    if (window._routeAfterLang) { route = window._routeAfterLang; window._routeAfterLang = null; histStack.length = 0; }
+    else toast(LANGS[d.k].name);
+    render(); _applyAll(); return;
+  }
   case 'tryChime': {
     playChime(DB.settings.chime || 1, DB.settings.soundVolume, true);
     if (devicePref('vibrate', true)) vibratePhone();
@@ -959,7 +967,7 @@ function handleAct(el, ev) {
   case 'tryNotify': {
     // Gửi thử một thông báo hệ thống (đúng như khi app chạy nền) — để kiểm tra quyền thông báo, chuông và rung của máy này
     if (typeof NativeBridge === 'undefined' || !NativeBridge.alerts) { toast('Chỉ thử được trên app cài trên điện thoại'); return; }
-    NativeBridge.alerts.notify({ title: 'Thử thông báo', body: 'Nếu nghe chuông và thấy rung là máy đã sẵn sàng', chime: DB.settings.chime || 1, vibrate: devicePref('vibrate', true), test: true })
+    NativeBridge.alerts.notify({ title: trText('Thử thông báo'), body: trText('Nếu nghe chuông và thấy rung là máy đã sẵn sàng'), chime: DB.settings.chime || 1, vibrate: devicePref('vibrate', true), test: true })
       .then(ok => toast(ok ? 'Đã gửi thông báo thử — kéo thanh trạng thái xuống để xem' : 'Chưa cấp quyền thông báo — vào Cài đặt điện thoại > Ứng dụng > Quyền > Thông báo để bật'));
     return;
   }
@@ -1566,6 +1574,9 @@ function wireCloud() {
     Sync.start();
     if (Cloud.role === 'owner') refreshLicenseWithPlay().then(() => { if (ME && License.locked()) render(); });
   }
+  initI18n();
+  // Lần đầu mở app: hỏi ngôn ngữ trước, xong mới vào luồng thiết lập/đăng nhập bình thường
+  if (!hasLangChoice()) { window._routeAfterLang = route; route = { name: 'lang', params: {} }; }
   render();
 })();
 

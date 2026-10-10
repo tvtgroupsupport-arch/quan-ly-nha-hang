@@ -428,6 +428,15 @@ t.group('12b. Phân quyền ngắt liên kết / xoá dữ liệu / xoá tài kh
   for (let i = 0; i < 30; i++) await new Promise(r2 => setImmediate(r2));
   t.ok(A.Cloud.linked !== false && !!(await probe.Cloud.getStoreLink()), 'tài khoản Thu ngân không gỡ được liên kết kho khỏi tài khoản lưu trữ');
 
+  // Thêm thiết bị nhân viên: chỉ Chủ quán trên máy chủ quán
+  t.ok(!html.includes('c_inviteNew'), 'tài khoản Thu ngân trên máy chủ quán: KHÔNG thấy "Thêm thiết bị nhân viên"');
+  A.handleAct({ dataset: { act: 'c_inviteNew' } });
+  for (let i = 0; i < 30; i++) await new Promise(r2 => setImmediate(r2));
+  t.ok(A.route.name !== 'pairQr', 'gọi thẳng c_inviteNew bằng tài khoản Thu ngân → bị chặn, không ra mã mời');
+  const w0 = newWorld(); const O0 = await setupOwner(w0);
+  O0.route = { name: 'cloud', params: {} };
+  t.ok(O0.VIEWS.cloud().includes('c_inviteNew'), 'Chủ quán trên máy chủ quán: có nút "Thêm thiết bị nhân viên"');
+
   // Máy nhân viên: không có quyền ở lớp dữ liệu
   const w2 = newWorld(); const O = await setupOwner(w2); const S = await addStaffDevice(w2, O, 'thungan');
   await S.login('chuquan', 'chuquan123');
@@ -435,6 +444,8 @@ t.group('12b. Phân quyền ngắt liên kết / xoá dữ liệu / xoá tài kh
   html = S.VIEWS.cloud();
   t.ok(!html.includes('c_deleteAccountAsk'), 'máy nhân viên (kể cả đăng nhập tài khoản Chủ quán): không có nút Xoá tài khoản');
   t.ok(html.includes('c_unlinkAsk'), 'máy nhân viên có "Ngắt liên kết & xoá dữ liệu trên máy này"');
+  t.ok(!html.includes('c_inviteNew') && !html.includes('c_revokeAsk'), 'máy nhân viên (kể cả đăng nhập Chủ quán) không thấy Thêm/Thu hồi thiết bị nhân viên');
+  await t.rejects(() => S.Cloud.revokeDevice('x'), /Chỉ máy chủ quán/, 'máy nhân viên gọi thẳng revokeDevice() → bị từ chối ở lớp dữ liệu');
   await t.rejects(() => S.Cloud.deleteAccount(), /Chỉ máy chủ quán/, 'máy nhân viên gọi thẳng deleteAccount() → bị từ chối ở lớp dữ liệu');
   await t.rejects(() => S.Cloud.unlinkAndDetach(), /Chỉ máy chủ quán/, 'máy nhân viên không gỡ được liên kết kho của quán');
   await S.Cloud.unlinkAll();
@@ -1073,6 +1084,71 @@ t.group('29e. Âm báo to hơn + rung + thông báo hệ thống khi chạy nề
   A.handleAct({ dataset: { act: 'tryNotify' } });
   await A.until(() => A.notifications.length >= 3);
   t.ok(A.notifications[A.notifications.length - 1].test === true, 'nút "Gửi thông báo thử" gửi thông báo hệ thống thật');
+}
+/* ============================================================ */
+t.group('31. Đa ngôn ngữ: màn chọn ngôn ngữ lần đầu, dịch tiếng Anh toàn bộ chữ hiển thị, không ảnh hưởng dữ liệu/logic');
+{
+  // 1) Lần đầu mở app: hiện màn chọn ngôn ngữ trước mọi thứ khác
+  const w = newWorld(); const F = await newDevice(w, 'lan-dau', { firstRun: true });
+  t.eq(F.route.name, 'lang', 'cài mới, chưa chọn ngôn ngữ → màn đầu tiên là màn chọn ngôn ngữ');
+  t.ok(F.vLang().includes('data-k="vi"') && F.vLang().includes('data-k="en"'), 'màn chọn có Tiếng Việt và English');
+  F.handleAct({ dataset: { act: 'pickLang', k: 'en' } });
+  for (let i = 0; i < 10; i++) await new Promise(r => setImmediate(r));
+  t.eq(F.getLang(), 'en', 'chọn English → ngôn ngữ đổi ngay');
+  t.ok(F.route.name !== 'lang', 'chọn xong thì đi tiếp vào luồng thiết lập/đăng nhập bình thường');
+  t.ok(F.hasLangChoice(), 'lựa chọn được nhớ (lần sau không hỏi lại)');
+
+  const G = await newDevice(w, 'da-chon');
+  t.ok(G.route.name !== 'lang', 'máy đã chọn ngôn ngữ thì không hỏi lại');
+
+  // 2) Dịch: khớp cụm dài nhất, giữ chữ hoa/thường, giữ số và dữ liệu người dùng
+  const tr = s => F.trText(s, 'en');
+  t.eq(tr('Thu ngân'), 'Cashier', 'dịch đúng cụm từ');
+  t.eq(tr('Ghế 3 · Bàn 04'), 'Seat 3 · Table 04', 'trộn chữ + số: số giữ nguyên');
+  t.eq(tr('3 ghế đã chọn'), '3 seats selected', 'câu có số đứng trước');
+  t.eq(tr('ghế'), 'seats', 'giữ chữ thường của bản gốc');
+  t.eq(tr('Chị Hương'), 'Chị Hương', 'dữ liệu người dùng (tên khách) không bị đụng tới');
+  t.eq(tr('1 ghế đã chọn'), '1 seat selected', 'số ít: 1 seat, không phải 1 seats');
+  t.eq(tr('  Đăng nhập  '), '  Log in  ', 'giữ khoảng trắng hai đầu');
+  t.eq(F.trText('Đăng nhập', 'vi'), 'Đăng nhập', 'tiếng Việt: trả nguyên văn');
+  t.eq(tr('Hello world'), 'Hello world', 'chữ không có trong bảng dịch giữ nguyên');
+  t.ok(!/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(tr('Gói cước đã hết hạn — chủ quán cần gia hạn để tiếp tục thao tác')), 'câu dài dịch hết, không sót chữ Việt');
+
+  // 3) Phủ bản dịch: MỌI đoạn chữ tiếng Việt trong mã nguồn phải có bản dịch (thêm chữ mới mà quên dịch → test này đỏ)
+  const ex = await import('../scripts/extract-vi.mjs');
+  const keys = new Set(F.LANGS.en.table().map(([k]) => k.normalize('NFC').trim().toLowerCase()));
+  const IGNORE = new Set(['.replace(/đ/g,', ').replace(/Đ/g,', '|| /bị thu hồi|chưa được liên kết/.test(msg)))', 'if (/Không kết nối được mạng/.test(e.message))',
+    'const net = /Không kết nối được mạng|Failed to fetch|NetworkError|Load failed/i.test(String((err && err.message) || err));']);
+  const missing = [...ex.allFragments()].filter(([s]) => !keys.has(s.toLowerCase()) && !IGNORE.has(s)).map(([s, f]) => `${f}: ${s}`);
+  t.eq(missing, [], `mọi đoạn tiếng Việt đều có bản dịch tiếng Anh (${keys.size} mục)`);
+
+  // 3b) Trang gọi món của khách + thông báo lỗi từ máy chủ (SQL) cũng phải có bản dịch
+  const guestSrc = fs.readFileSync(new URL('../src/cloud/guest-page.js', import.meta.url), 'utf8');
+  const sqlSrc = fs.readFileSync(new URL('../supabase/store-setup.sql', import.meta.url), 'utf8');
+  const sqlMsgs = [...sqlSrc.matchAll(/raise exception '([^']*[^\x00-\x7F][^']*)'/g)].map(m => m[1].replace(/%/g, '').replace(/\s+/g, ' ').trim());
+  const extra = [...ex.extractFragments(guestSrc)].concat(sqlMsgs.flatMap(s => [...ex.extractFragments(`'${s}'`)]));
+  const missGuest = extra.filter(s => !keys.has(s.toLowerCase()));
+  t.eq(missGuest, [], 'trang gọi món của khách và lỗi từ máy chủ đều có bản dịch tiếng Anh');
+  const { execFileSync } = await import('node:child_process');   // docs/ không nằm trong git — dựng lại trang khách rồi đọc
+  execFileSync(process.execPath, [new URL('../scripts/build-guest-page.mjs', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')], { stdio: 'ignore' });
+  const guestHtml = fs.readFileSync(new URL('../docs/index.html', import.meta.url), 'utf8');
+  t.ok(guestHtml.includes('I18N_EN_4') && guestHtml.includes('id="langBtn"') && !guestHtml.includes('/*__I18N__*/'), 'trang khách đã nhúng bộ dịch và nút đổi ngôn ngữ (docs/index.html được dựng lại bằng scripts/build-guest-page.mjs)');
+  // 4) Dịch cả bản dịch cho từng màn hình thật: không còn chữ Việt có dấu trong HTML đã dịch (trừ dữ liệu mẫu người dùng nhập)
+  const A = await setupOwner(newWorld(), { link: false });
+  const VI = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
+  const leftovers = [];
+  for (const name of ['admin', 'tables', 'cashier', 'kds', 'menu', 'billing', 'staff', 'reports', 'cloud', 'stock', 'promos', 'reservations', 'logs', 'subscription']) {
+    A.route = { name, params: {} };
+    const html = A.VIEWS[name]();
+    const text = html.replace(/<[^>]*>/g, '\n').split('\n').map(s => s.replace(/&amp;/g, '&').replace(/\$\{[^}]*\}/g, '').trim()).filter(Boolean);
+    for (const s of text) { const out = F.trText(s, 'en'); if (VI.test(out) && !/Tiếng Việt/.test(out)) leftovers.push(`${name}: ${out}`); }
+  }
+  t.ok(leftovers.length <= 25, `các màn chính khi dịch gần như không sót chữ Việt (${leftovers.length} đoạn còn lại, đa số là dữ liệu mẫu: ${leftovers.slice(0, 4).join(' | ')})`);
+
+  // 5) Chuyển ngược về Tiếng Việt, và cài đặt có chip chọn ngôn ngữ
+  A.route = { name: 'admin', params: {} };
+  t.ok(A.VIEWS.admin().includes('data-act="pickLang"'), 'màn Quản lý có mục Ngôn ngữ hiển thị');
+  F.setLang('vi'); t.eq(F.getLang(), 'vi', 'đổi lại Tiếng Việt được');
 }
 t.group('30. Hai biến thể app tách biệt đúng — màn Gói cước chuyển hướng theo billingMode, không trộn lẫn');
 {

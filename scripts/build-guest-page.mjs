@@ -9,7 +9,24 @@ import { ROOT } from './assemble.mjs';
 // nên nạp bằng cách bọc trong Function thay vì import — tránh phải tách lại thành module riêng.
 const src = fs.readFileSync(path.join(ROOT, 'src/cloud/guest-page.js'), 'utf8');
 const build = new Function(src + '; return buildGuestPageHtml;')();
-const html = build();
+let html = build();
+
+// Đa ngôn ngữ cho khách nước ngoài: nhúng bộ dịch dùng chung với app (cùng bảng dịch) vào trang. Mặc định theo ngôn ngữ của
+// trình duyệt (tiếng Việt → giữ nguyên, ngôn ngữ khác → tiếng Anh); nút 🌐 góc phải trên để đổi tay.
+const i18nParts = ['src/web/i18n-en-1.js', 'src/web/i18n-en-2.js', 'src/web/i18n-en-3.js', 'src/web/i18n-en-4.js', 'src/web/i18n.js']
+  .map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+const i18nBoot = `
+(function () {
+  try {
+    initI18n();
+    if (!hasLangChoice()) setLang(suggestedLang());
+    var b = document.getElementById('langBtn');
+    function label() { b.textContent = '🌐 ' + (getLang() === 'vi' ? 'EN' : 'VI'); }
+    b.addEventListener('click', function () { setLang(getLang() === 'vi' ? 'en' : 'vi'); label(); document.title = trText('Gọi món'); });
+    label(); document.title = trText('Gọi món');
+  } catch (e) { /* lỗi dịch không được làm hỏng trang gọi món */ }
+})();`;
+html = html.replace('/*__I18N__*/', () => (i18nParts + '\n' + i18nBoot).replace(/<\/script/gi, '<\\/script'));
 
 const outDir = path.join(ROOT, 'docs');
 fs.mkdirSync(outDir, { recursive: true });

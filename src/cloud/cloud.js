@@ -214,11 +214,13 @@ const Cloud = (() => {
     return data || [];
   }
   async function revokeDevice(id) {
+    if (C.role === 'staff') throw new Error('Chỉ máy chủ quán mới thu hồi được thiết bị');
     const { error } = await C.store.rpc('revoke_device', { p_id: id });
     if (error) throw new Error(friendly(error));
   }
   /** Xoá hẳn khỏi danh sách — chỉ xoá được thiết bị đã thu hồi trước đó */
   async function deleteDevice(id) {
+    if (C.role === 'staff') throw new Error('Chỉ máy chủ quán mới xoá được thiết bị');
     const { error } = await C.store.rpc('delete_device', { p_id: id });
     if (error) throw new Error(friendly(error));
   }

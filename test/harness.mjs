@@ -32,7 +32,7 @@ const tail = `
   get DB() { return DB; },
   document, window, go,
   QR, VietQR, Persist, Records, Sync, Cloud, License, AuthLocal, apiLocal, refresh, render, createStore, emptyD, VIEWS, handleAct, tableChairsSvg, guestUrl,
-  hasNewStaffCall, hasNewKitchenTicket, playChime, alertStaff, vibratePhone, devicePref, setDevicePref, ensureKeepAlive, newStaffCallLabel, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
+  hasNewStaffCall, hasNewKitchenTicket, playChime, alertStaff, trText, getLang, setLang, hasLangChoice, LANGS, vLang, vibratePhone, devicePref, setDevicePref, ensureKeepAlive, newStaffCallLabel, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
   openQrZoom, closeQrZoom, get qrZoomOpen() { return !!qrZoomEl; }, uploadMenuImage,
   playPurchase, playRestore, playSyncPurchases, refreshLicenseWithPlay, ownedPlayPurchases, vSubscriptionPlay, normalizePlayProducts, playProductId,
   AutoProv, autoProvCard, vSupabaseGuide, guideGallery, GUIDE_FIGS,
@@ -111,7 +111,8 @@ export async function newDevice(world, name, opts = {}) {
     createElement: () => el(), addEventListener() {}, body: { style: { setProperty(k, v) { this[k] = v; } }, appendChild() {} }, head: { appendChild() {} },
     querySelector: () => null, querySelectorAll: () => [], activeElement: null, hidden: false
   };
-  const storage = {}; const localStorage = { getItem: k => storage[k] ?? null, setItem: (k, v) => { storage[k] = String(v); }, removeItem: k => { delete storage[k]; } };
+  const storage = opts.firstRun ? {} : { lang: 'vi' };   // máy mới đã chọn ngôn ngữ; opts.firstRun = chưa chọn (kiểm thử màn chọn ngôn ngữ)
+  const localStorage = { getItem: k => storage[k] ?? null, setItem: (k, v) => { storage[k] = String(v); }, removeItem: k => { delete storage[k]; } };
   // AudioContext giả — đủ để playChime()/_tone() chạy thật sự (lên lịch đúng số nốt), không chỉ no-op
   // vì audioCtx() === null, để test đo được chuông có LẶP LẠI đúng hay không.
   class FakeAudioContext {

@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - 'src/cloud/guest-page.js'
+      - 'src/web/i18n*.js'
       - 'scripts/build-guest-page.mjs'
       - 'play-listing/chinh-sach-bao-mat.html'
       - 'play-listing/xoa-tai-khoan.html'

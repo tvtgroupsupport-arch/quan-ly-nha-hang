@@ -162,7 +162,7 @@ function syncStatusText() {
 }
 function vCloud() {
   const isOwner = Cloud.role === 'owner', s = Sync.state, linked = Cloud.linked;
-  if (isOwner && linked && !window._devices && !window._devicesLoading) loadDevices();
+  if (isOwnerDevice() && linked && !window._devices && !window._devicesLoading) loadDevices();
   const devs = window._devices || [];
   return `<div class="screen">
     ${hdr('Đồng bộ & thiết bị', isOwner ? 'Máy chủ quán (máy gốc)' : `Máy nhân viên · ${esc(Cloud.cfg.deviceName || '')}`)}
@@ -178,7 +178,7 @@ function vCloud() {
       ${s.conflicts.length ? `<div class="sec">Cần kiểm tra</div><div class="card">${s.conflicts.slice(0, 5).map(c =>
         `<div class="t-xs" style="margin-bottom:6px;color:var(--red)">⚠ ${esc(c.reason || 'Xung đột dữ liệu')} <span class="muted">(${esc(fmtTime(c.at))})</span></div>`).join('')}</div>` : ''}
       ${isOwner && !linked ? `<button class="btn pri" data-go="ownerLink">Liên kết Supabase của quán</button>` : ''}
-      ${isOwner && linked ? `
+      ${isOwnerDevice() && linked ? `
         <div class="sec">Thiết bị nhân viên</div>
         <button class="btn pri" data-act="c_inviteNew">Thêm thiết bị nhân viên (mã QR)</button>
         ${devs.map(d => `<div class="card between">
@@ -291,6 +291,9 @@ const isOwnerDevice = () => Cloud.role === 'owner' && !!ME && ME.role === 'Chủ
     • Gỡ liên kết kho khỏi tài khoản lưu trữ và XOÁ TÀI KHOẢN lưu trữ (ảnh hưởng cả quán, gói cước) chỉ dành cho tài khoản Chủ quán
       trên máy chủ quán. Riêng gỡ liên kết còn cho phép lúc chưa đăng nhập vào app (màn "Đang tải dữ liệu quán" khi khôi phục). */
 const canDeleteAccount = () => isOwnerDevice();
+/** Thêm / thu hồi / xoá thiết bị nhân viên: chỉ tài khoản Chủ quán trên máy chủ quán (cùng điều kiện với Gói cước) */
+const canManageDevices = () => isOwnerDevice();
+const DEVICES_OWNER_ONLY = 'Chỉ tài khoản Chủ quán trên máy chủ quán mới quản lý được thiết bị nhân viên';
 const canDetachStore = () => Cloud.role === 'owner' && !!Cloud.linked && (!ME || ME.role === 'Chủ quán');
 
 function cloudCardHtml() {
@@ -419,6 +422,7 @@ function cloudAct(el) {
     }); return true;
 
     case 'c_inviteNew': busy(async () => {
+      if (!canManageDevices()) throw new Error(DEVICES_OWNER_ONLY);
       window._invite = await Cloud.createInvite();
       go('pairQr');
     }); return true;
@@ -428,22 +432,26 @@ function cloudAct(el) {
     }); return true;
 
     case 'c_revokeAsk': {
+      if (!canManageDevices()) { toast(DEVICES_OWNER_ONLY); return true; }
       sheet('Thu hồi thiết bị?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">Máy <b>${esc(d.nm)}</b> sẽ mất quyền truy cập ngay khi có mạng và dữ liệu trên máy đó bị xoá. Các máy khác không bị ảnh hưởng.</div>
         <button class="btn danger" data-act="c_revokeGo" data-id="${esc(d.id)}">Thu hồi</button>
         <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Huỷ</button>`);
       return true;
     }
     case 'c_revokeGo': busy(async () => {
+      if (!canManageDevices()) throw new Error(DEVICES_OWNER_ONLY);
       await Cloud.revokeDevice(d.id); closeSheet(); window._devices = null; toast('Đã thu hồi thiết bị'); render();
     }); return true;
 
     case 'c_deleteDeviceAsk': {
+      if (!canManageDevices()) { toast(DEVICES_OWNER_ONLY); return true; }
       sheet('Xoá khỏi danh sách?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">Chỉ xoá dòng <b>${esc(d.nm)}</b> khỏi danh sách cho gọn — máy này đã bị thu hồi từ trước nên không mất thêm quyền gì. Không thể hoàn tác.</div>
         <button class="btn danger" data-act="c_deleteDeviceGo" data-id="${esc(d.id)}">Xoá</button>
         <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Huỷ</button>`);
       return true;
     }
     case 'c_deleteDeviceGo': busy(async () => {
+      if (!canManageDevices()) throw new Error(DEVICES_OWNER_ONLY);
       await Cloud.deleteDevice(d.id); closeSheet(); window._devices = null; toast('Đã xoá khỏi danh sách'); render();
     }); return true;
 

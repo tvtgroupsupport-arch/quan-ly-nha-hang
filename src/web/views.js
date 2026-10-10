@@ -759,6 +759,13 @@ function vAdmin(){
       ${cloudCardHtml()}
       <div class="sec">Hiển thị trên máy này</div>
       <div class="card">
+        <div class="t-md" style="margin-bottom:10px">Ngôn ngữ hiển thị</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          ${Object.keys(LANGS).map(k=>`<button class="chip ${getLang()===k?'on':''}" data-act="pickLang" data-k="${k}" data-notr style="flex:1 1 100px;justify-content:center">${LANGS[k].flag} ${LANGS[k].name}</button>`).join('')}
+        </div>
+        <div class="t-xs" style="margin:8px 0 14px">Chỉ áp dụng cho máy này. Dữ liệu bạn nhập (tên món, tên khách…) giữ nguyên.</div>
+      </div>
+      <div class="card">
         <div class="t-md" style="margin-bottom:10px">Cỡ chữ</div>
         <div class="row" style="gap:8px;flex-wrap:wrap">
           ${[[1,'Nhỏ · 100%'],[1.2,'Vừa · 120%'],[1.5,'Lớn · 150%']].map(([k,lb])=>

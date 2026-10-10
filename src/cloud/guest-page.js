@@ -64,14 +64,19 @@ function buildGuestPageHtml() {
   .oitem{display:flex;justify-content:space-between;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line);gap:10px}
   .oitem .nm{font-weight:700;font-size:14.5px} .oitem .nt{font-size:12px;color:var(--muted);margin-top:2px}
   .back{background:none;border:none;color:inherit;font:700 15px inherit;padding:4px 0;margin-bottom:4px}
+  .langbtn{position:fixed;top:10px;right:10px;z-index:9;background:rgba(255,255,255,.95);color:#333;border:1px solid var(--line);border-radius:999px;padding:5px 11px;font:600 12px inherit;box-shadow:0 1px 4px rgba(0,0,0,.15)}
 </style>
 </head>
 <body>
 <div id="app"><div class="msg">Đang tải thực đơn…</div></div>
 <div id="toast" class="toast"></div>
 <button class="callbtn" id="callBtn" style="display:none">🔔 Gọi nhân viên</button>
+<button class="langbtn" id="langBtn" data-notr>🌐</button>
 <div class="sheet" id="cartSheet"><div class="box" id="cartBox"></div></div>
 
+<script>
+/*__I18N__*/
+</script>
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 

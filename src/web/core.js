@@ -198,7 +198,7 @@ function alertStaff(title, body) {
   const vol = DB.settings && DB.settings.soundVolume != null ? DB.settings.soundVolume : 100;
   const hidden = typeof document !== 'undefined' && document.hidden;
   if (hidden && typeof NativeBridge !== 'undefined' && NativeBridge.alerts) {
-    NativeBridge.alerts.notify({ title, body, chime: kind, vibrate: devicePref('vibrate', true) });
+    NativeBridge.alerts.notify({ title: trText(title), body: trText(body), chime: kind, vibrate: devicePref('vibrate', true) });
     return;
   }
   playChime(kind, vol, true);
