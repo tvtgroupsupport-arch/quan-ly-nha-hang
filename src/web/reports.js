@@ -85,10 +85,10 @@ function reportRowsLocal(kind, from, to) {
     lệnh tải kiểu cũ chạy im re, không báo lỗi mà cũng không ra tệp. Phải xin qua capability
     "downloads" của nền tảng. Trang chạy trên máy chủ thật (ngoài claude.ai) không có
     window.claude nên vẫn dùng cách anchor tải tệp thông thường. */
-async function saveFile(filename, blob, mime){
+async function saveFile(filename, blob, mime, mode){
   // Android (Capacitor): webview không tải tệp bằng thẻ <a download> được → ghi vào bộ nhớ rồi mở hộp thoại chia sẻ
   if (typeof NativeBridge !== 'undefined' && NativeBridge.isNative) {
-    try { return await NativeBridge.saveFile(filename, blob); } catch (e) { console.warn('Lưu tệp lỗi:', e); return false; }
+    try { return await NativeBridge.saveFile(filename, blob, mode); } catch (e) { console.warn('Lưu tệp lỗi:', e); return false; }
   }
   if (window.claude && typeof window.claude.use === 'function') {
     try {
@@ -242,7 +242,7 @@ function buildStyledWorkbook(kind, rows, range) {
 
 /** Xuất báo cáo. Ưu tiên Excel có trình bày (cần thư viện ExcelJS tải từ CDN xong);
     nếu vì lý do gì đó thư viện chưa sẵn sàng, rơi về CSV thuần để người dùng vẫn có dữ liệu. */
-async function exportExcelLocal(kind, from, to) {
+async function exportExcelLocal(kind, from, to, mode) {
   const rows = reportRowsLocal(kind, REPORT_RANGED[kind] ? from : null, REPORT_RANGED[kind] ? to : null);
   const rowsOut = rows.map(r => r.map(repTr));   // CSV dự phòng cũng theo ngôn ngữ
   if (rows.length < 2) { toast('Chưa có dữ liệu để xuất trong khoảng đã chọn'); return; }
@@ -266,11 +266,11 @@ async function exportExcelLocal(kind, from, to) {
     toast('Chưa tải được bộ định dạng Excel — xuất tạm bằng CSV');
   }
 
-  const ok = await saveFile(filename, blob);
+  const ok = await saveFile(filename, blob, undefined, mode);
   if (!ok) { toast('Thiết bị không hỗ trợ tải tệp'); return; }
-  addLog(ME ? ME.name : 'Hệ thống', 'Xuất báo cáo', `${kind} · ${rows.length - 1} dòng`);
+  addLog(ME ? ME.name : 'Hệ thống', 'Xuất báo cáo', `${kind} · ${rows.length - 1} dòng · ${filename} · ${mode === 'save' ? 'lưu vào máy' : 'chia sẻ/tải về'}`);
   saveD();
-  toast(`Đã xuất ${rows.length - 1} dòng`);
+  toast(mode === 'save' && NativeBridge.isNative ? `Đã lưu ${rows.length - 1} dòng vào thư mục báo cáo của app` : `Đã xuất ${rows.length - 1} dòng`);
 }
 
 /* ---------- CHẾ ĐỘ KHÁCH (quét QR) ----------

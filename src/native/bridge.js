@@ -99,7 +99,14 @@ function blobToBase64(blob) {
     r.readAsDataURL(blob);
   });
 }
-async function saveFile(filename, blob) {
+/** mode 'save': ghi vào thư mục báo cáo của app (BaoCao, trong bộ nhớ riêng của app, không cần cấp quyền); còn lại: mở hộp thoại chia sẻ như trước. */
+const REPORT_DIR = 'BaoCao';
+async function saveFile(filename, blob, mode) {
+  if (isNative && mode === 'save') {
+    const data = await blobToBase64(blob);
+    await Filesystem.writeFile({ path: REPORT_DIR + '/' + filename, data, directory: Directory.External, recursive: true });
+    return true;
+  }
   if (isNative) {
     const data = await blobToBase64(blob);
     await Filesystem.writeFile({ path: filename, data, directory: Directory.Cache });
@@ -113,6 +120,23 @@ async function saveFile(filename, blob) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   return true;
 }
+
+/** Báo cáo đã lưu trong thư mục báo cáo của app: xem danh sách, chia sẻ lại, xoá */
+const savedReports = {
+  async list() {
+    if (!isNative) return [];
+    try {
+      const r = await Filesystem.readdir({ path: REPORT_DIR, directory: Directory.External });
+      return (r.files || []).map(f => ({ name: f.name, size: f.size, mtime: f.mtime })).sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+    } catch (e) { return []; }
+  },
+  async share(name) {
+    const { uri } = await Filesystem.getUri({ path: REPORT_DIR + '/' + name, directory: Directory.External });
+    await Share.share({ title: name, url: uri, dialogTitle: 'Gửi báo cáo' });
+  },
+  async remove(name) { await Filesystem.deleteFile({ path: REPORT_DIR + '/' + name, directory: Directory.External }); },
+  where: 'Android/data/vn.quanly.nhahang.play/files/BaoCao'
+};
 
 /* ---------- độ sáng màn hình (phóng to mã QR thanh toán cho dễ quét) ---------- */
 let _origBrightness = null;
@@ -273,5 +297,5 @@ window.ExcelJS = ExcelJS;
 window.NativeBridge = {
   isNative, platform: Capacitor.getPlatform(),
   ready: async () => {},
-  sqlite, supabase, network, app, copy, readClipboard, scan, saveFile, brightness, billing, browser, alerts, printer
+  sqlite, supabase, network, app, copy, readClipboard, scan, saveFile, savedReports, brightness, billing, browser, alerts, printer
 };

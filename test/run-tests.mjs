@@ -1584,6 +1584,16 @@ t.group('38. Trạng thái "đã làm xong" của bếp, nhật ký ghi giá tr�
   await A.api(`/orders/${ord2.id}/payments`, { method: 'POST', body: { method: 'cash' } });
   const pl = A.D.logs.find(l => l.action === 'Thu tiền');
   t.ok(pl.detail.includes(ord2.code) && pl.detail.includes(tb2.name) && pl.detail.includes('tiền mặt'), 'thu tiền ghi mã đơn, bàn/ghế, số tiền, hình thức: ' + pl.detail);
+  // trang Đồng bộ hiện dự án Supabase đang kết nối
+  A.route = { name: 'cloud', params: {} };
+  const ch = A.VIEWS.cloud(), ref = String(A.Cloud.cfg.storeUrl).replace(/^https?:\/\//, '').split('.')[0];
+  t.ok(ref && ch.includes('Dự án Supabase đang kết nối') && ch.includes('>' + ref + '<') && ch.includes('dashboard/project/' + ref) && ch.includes('c_copyRef'), 'trang Đồng bộ hiện ID dự án Supabase + nút mở dashboard + sao chép: ' + ref);
+  // xuất báo cáo: chọn lưu vào máy hay chia sẻ
+  const sv = A.saved.length;
+  await A.exportExcelLocal('payments', null, null, 'save');
+  t.ok(A.saved.length >= sv, 'xuất báo cáo với chế độ "lưu vào máy" chạy được');
+  t.ok(fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8').includes('data-act="expGo" data-m="save"'), 'bấm xuất báo cáo hiện lựa chọn Lưu vào máy / Chia sẻ');
+  await new Promise(r => setTimeout(r, 50));   // đợi lượt tải danh sách thiết bị nền (do VIEWS.cloud() kích hoạt) xong
   // danh sách thiết bị: lỗi không bị nuốt
   A.route = { name: 'cloud', params: {} };
   const orig = A.Cloud.listDevices; A.Cloud.listDevices = async () => { throw new Error('permission denied for table staff_devices'); };

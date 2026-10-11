@@ -1057,7 +1057,26 @@ function handleAct(el, ev) {
     render(); return;
   }
   case 'gw': { toast('Cuộn lên mục VietQR/payOS phía trên để cấu hình'); el.checked = !el.checked; return; }
-  case 'expSrv': { exportExcelLocal(d.k, d.from ? Number(d.from) : null, d.to ? Number(d.to) : null); return; }
+  case 'expSrv': {
+    sheet('Xuất báo cáo', `<div class="t-sm muted" style="margin-bottom:14px;line-height:1.6">Chọn cách nhận báo cáo:</div>
+      <button class="btn pri" data-act="expGo" data-m="save" data-k="${esc(d.k)}" data-from="${d.from || ''}" data-to="${d.to || ''}">Lưu vào máy (thư mục báo cáo của app)</button>
+      <button class="btn ghost" data-act="expGo" data-m="share" data-k="${esc(d.k)}" data-from="${d.from || ''}" data-to="${d.to || ''}" style="margin-top:8px">Chia sẻ / gửi cho người khác</button>
+      <button class="btn ghost" data-act="expSaved" style="margin-top:8px">Xem báo cáo đã lưu</button>`);
+    return;
+  }
+  case 'expGo': { closeSheet(); exportExcelLocal(d.k, d.from ? Number(d.from) : null, d.to ? Number(d.to) : null, d.m); return; }
+  case 'expSaved': {
+    (async () => {
+      const files = await NativeBridge.savedReports.list();
+      sheet('Báo cáo đã lưu', files.length
+        ? `<div class="t-xs muted" style="margin-bottom:10px;line-height:1.6">Thư mục: ${esc(NativeBridge.savedReports.where)}</div>` + files.map(f => `<div class="card between" style="margin-bottom:8px"><div style="flex:1;min-width:0;word-break:break-all" class="t-sm">${esc(f.name)}</div>
+            <div class="row" style="gap:6px"><button class="btn sm ghost" data-act="expShare" data-f="${esc(f.name)}" style="width:auto">Gửi</button><button class="btn sm danger" data-act="expDel" data-f="${esc(f.name)}" style="width:auto">Xoá</button></div></div>`).join('')
+        : '<div class="t-sm muted">Chưa có báo cáo nào được lưu trong máy.</div>');
+    })();
+    return;
+  }
+  case 'expShare': { NativeBridge.savedReports.share(d.f).catch(e => toast(e.message || 'Không gửi được')); return; }
+  case 'expDel': { NativeBridge.savedReports.remove(d.f).then(() => { toast('Đã xoá báo cáo'); }).catch(e => toast(e.message || 'Không xoá được')); closeSheet(); return; }
   case 'noPerm': { toast('Bạn không có quyền vào mục này'); return; }
 
   /* ---------- BỘ CHỌN GHẾ DÙNG CHUNG ---------- */

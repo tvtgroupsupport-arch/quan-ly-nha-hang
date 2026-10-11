@@ -185,6 +185,22 @@ function syncStatusText() {
   const s = Sync.state;
   return ({ ok: 'Đã đồng bộ', syncing: 'Đang đồng bộ…', offline: 'Offline', error: 'Lỗi', auth: 'Cần đăng nhập lại', off: 'Chưa liên kết', revoked: 'Đã bị thu hồi' })[s.status] || s.status;
 }
+/** Dự án Supabase đang kết nối: Supabase không đưa TÊN dự án cho app, nhưng ID dự án (phần đầu của địa chỉ) khớp với địa chỉ trang quản trị
+    và mục Project Settings → General → Reference ID — đủ để nhận ra đúng dự án khi cần xoá/sửa trên Supabase. */
+function storeProjectRef() { return String(Cloud.cfg.storeUrl || '').replace(/^https?:\/\//, '').split('.')[0]; }
+function projectBlockHtml(isOwner) {
+  const ref = storeProjectRef();
+  if (!ref) return '';
+  return `<div style="margin-top:10px;padding:10px;border-radius:10px;background:var(--surface-2,rgba(127,127,127,.08))">
+    <div class="t-xs muted">Dự án Supabase đang kết nối</div>
+    <div class="mono" style="font-size:15px;font-weight:700;word-break:break-all;margin:2px 0">${esc(ref)}</div>
+    <div class="mono t-xs muted" style="word-break:break-all">${esc(Cloud.cfg.storeUrl || '')}</div>
+    <div class="t-xs" style="line-height:1.6;margin-top:6px">Trên supabase.com/dashboard, mở dự án có <b>Reference ID</b> (Project Settings → General) trùng với mã trên để xoá hoặc chỉnh sửa đúng dự án.</div>
+    <div class="row" style="gap:8px;margin-top:8px">
+      ${isOwner ? `<button class="btn sm ghost" data-act="c_guideOpen" data-url="https://supabase.com/dashboard/project/${esc(ref)}" style="flex:1">Mở dự án trên Supabase</button>` : ''}
+      <button class="btn sm ghost" data-act="c_copyRef" data-ref="${esc(ref)}" style="flex:1">Sao chép ID dự án</button></div>
+  </div>`;
+}
 function vCloud() {
   const isOwner = Cloud.role === 'owner', s = Sync.state, linked = Cloud.linked;
   if (isOwnerDevice() && linked && !window._devices && !window._devicesLoading && !(window._devicesErr && Date.now() - (window._devicesErrAt || 0) < 20000)) loadDevices();
@@ -196,7 +212,7 @@ function vCloud() {
         <div class="between" style="margin-bottom:10px"><span class="t-sm">Trạng thái</span>
           <span class="badge ${s.status === 'ok' ? 'b-green' : s.status === 'syncing' ? 'b-blue' : s.status === 'offline' ? 'b-amber' : linked ? 'b-red' : 'b-gray'}">${esc(syncStatusText())}</span></div>
         ${linked ? `<div class="t-xs" style="line-height:1.7">${s.status === 'syncing' && s.progress ? `Đang tải dữ liệu từ kho: ${s.progress} bản ghi…<br>` : ''}Đồng bộ gần nhất: ${esc(fmtTime(s.lastSyncAt))}<br>Chờ gửi lên: ${Records.dirtyCount()} thay đổi${s.lastError ? `<br><span style="color:var(--red)">${esc(s.lastError)}</span>` : ''}</div>
-          <div class="mono t-xs" style="margin-top:8px;word-break:break-all">${esc(Cloud.cfg.storeUrl || '')}</div>
+          ${projectBlockHtml(isOwner)}
           <div class="row" style="gap:8px;margin-top:10px"><button class="btn sm ghost" data-act="c_syncNow" style="flex:1">Đồng bộ ngay</button><button class="btn sm ghost" data-act="c_diag" style="flex:1">Chẩn đoán</button></div>`
           : `<div class="t-xs" style="line-height:1.6">Máy này đang dùng dữ liệu riêng, chưa chia sẻ với thiết bị nào.</div>`}
       </div>
@@ -586,6 +602,7 @@ function cloudAct(el) {
       await doStaffJoin(val('sj_code'), val('sj_name'));
     }); return true;
 
+    case 'c_copyRef': busy(async () => { await NativeBridge.copy(d.ref || storeProjectRef()); toast('Đã sao chép ID dự án'); }); return true;
     case 'c_devReload': window._devices = null; window._devicesErr = ''; render(); return true;
     case 'c_inviteNew': busy(async () => {
       if (!canManageDevices()) throw new Error(DEVICES_OWNER_ONLY);
