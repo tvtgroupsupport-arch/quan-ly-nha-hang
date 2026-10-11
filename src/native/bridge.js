@@ -252,22 +252,40 @@ const alerts = isNative ? {
       await Haptics.vibrate({ duration: 700 });
     } catch (e) { try { navigator.vibrate && navigator.vibrate([700, 250, 700]); } catch (e2) {} }
   },
+  async _startFg() {
+    if (!(await this.init())) return;
+    await ForegroundService.startForegroundService({
+      id: 7001, title: 'BEPO', body: 'Đang nhận thông báo khách gọi và món mới',
+      smallIcon: 'ic_stat_notify', notificationChannelId: 'nen', silent: true, serviceType: 1   // 1 = dataSync
+    });
+    _fgOn = true; _fgSince = Date.now();
+  },
   /** Người dùng mở lại app: được phép bật lại dịch vụ nền (đã dừng vì sắp chạm giới hạn 6 giờ của Android 15) */
   resumed() { _fgPaused = false; },
   /** Bật/tắt dịch vụ nền. Bật chỉ thành công khi app đang ở phía trước (luật của Android 12+) — gọi lại định kỳ cho tới khi được. */
   async keepAlive(on) {
     try {
       // Android 15+: dịch vụ nền loại dataSync bị hệ thống ngắt sau 6 giờ → tự dừng trước hạn (5,5 giờ), chỉ bật lại khi người dùng mở lại app
-      if (_fgOn && Date.now() - _fgSince > 5.5 * 3600000) { await ForegroundService.stopForegroundService(); _fgOn = false; _fgPaused = true; }
-      if (on && !_fgOn && !_fgPaused) {
-        if (!(await this.init())) return;
-        await ForegroundService.startForegroundService({
-          id: 7001, title: 'BEPO', body: 'Đang nhận thông báo khách gọi và món mới',
-          smallIcon: 'ic_stat_notify', notificationChannelId: 'nen', silent: true, serviceType: 1   // 1 = dataSync
-        });
-        _fgOn = true; _fgSince = Date.now();
-      } else if (!on && _fgOn) {
+      if (_fgOn && Date.now() - _fgSince > 5.5 * 3600000) {
         await ForegroundService.stopForegroundService(); _fgOn = false;
+        if (on) {
+          // App đang ở PHÍA TRƯỚC (tablet luôn mở trước mặt): Android chỉ cho khởi động dịch vụ nền khi app ở trước, và lúc này được bật lại ngay với hạn mới — không dừng, không làm phiền bằng thông báo.
+          if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+            try { await this._startFg(); } catch (e) { /* không bật lại được → rơi xuống nhánh báo bên dưới */ }
+          }
+          if (!_fgOn) {
+            // App ở nền: dịch vụ nền đã dừng nên không còn nhận thông báo nền cho tới khi mở lại app. Báo MỘT lần (chỉ chạy ở lúc chuyển từ "đang chạy" sang "dừng").
+            _fgPaused = true;
+            const tr = s => (typeof trText === 'function' ? trText(s) : s);
+            await this.notify({ title: 'BEPO', body: tr('Mở lại BEPO để tiếp tục nhận thông báo khách gọi và món mới'), chime: 1, vibrate: false });
+          }
+        }
+      }
+      if (on && !_fgOn && !_fgPaused) {
+        await this._startFg();
+      } else if (!on) {
+        if (_fgOn) { await ForegroundService.stopForegroundService(); _fgOn = false; }
+        _fgPaused = false;   // đăng xuất / tắt chạy nền: lần đăng nhập kế tiếp (app đang ở phía trước) được bật lại dịch vụ nền — trước đây cờ kẹt tới khi app bị đưa ra nền rồi mở lại
       }
     } catch (e) { /* app đang ở nền không được phép khởi động dịch vụ — thử lại lần kiểm tra sau */ }
   },

@@ -28,8 +28,11 @@ const REPORT_SUM_IDX = { revenue:[2], payments:[6,7,8], orders:[9], stock:[], in
 /** Dữ liệu báo cáo dạng bảng [tiêu đề, ...các dòng]. from/to (mili-giây) lọc theo khoảng
     thời gian cho các báo cáo có mốc thời gian; bỏ qua với tồn kho (số dư tức thời). */
 function reportRowsLocal(kind, from, to) {
-  const tName = id => (D.tables.find(t => t.id === id) || {}).name || '';
-  const sName = id => (D.staff.find(s => s.id === id) || {}).name || '';
+  // Bảng tra id → bản ghi dựng một lần: tra bằng .find() trong vòng lặp là O(n×m), hàng chục nghìn đơn thì treo máy
+  const tblMap = new Map(D.tables.map(t => [t.id, t.name]));
+  const staffMap = new Map(D.staff.map(s => [s.id, s.name]));
+  const tName = id => tblMap.get(id) || '';
+  const sName = id => staffMap.get(id) || '';
   const dt = ts => new Date(ts).toLocaleString(repLocale());
   const inRange = ts => from == null || (ts >= from && ts < to);
 
@@ -43,17 +46,24 @@ function reportRowsLocal(kind, from, to) {
       ...Object.entries(by).map(([d, x]) => [d, x.n, x.v])];
   }
   if (kind === 'payments') {
+    const ordMap = new Map(D.orders.map(o => [o.id, o]));
     return [['Mã hoá đơn', 'Mã đơn', 'Thời gian', 'Bàn', 'Ghế', 'Phương thức', 'Tạm tính', 'Giảm giá', 'Thành tiền', 'Thu ngân'],
       ...D.payments.filter(p => p.state === 'paid' && inRange(p.paid_at || p.created_at)).map(p => {
-        const o = D.orders.find(x => x.id === p.order_id) || {};
+        const o = ordMap.get(p.order_id) || {};
         return [p.id, o.code || '', dt(p.paid_at || p.created_at), tName(o.table_id), o.seat_no || '',
                 repCode(p.method), p.subtotal, p.discount, p.total, sName(p.staff_id)];
       })];
   }
   if (kind === 'orders') {
     const rows = [['Mã đơn', 'Thời gian', 'Bàn', 'Ghế', 'Nguồn', 'Trạng thái', 'Món', 'Số lượng', 'Đơn giá', 'Thành tiền']];
+    const itemsByOrder = new Map();
+    D.orderItems.forEach(i => {
+      if (i.status === 'cancelled') return;
+      const l = itemsByOrder.get(i.order_id);
+      if (l) l.push(i); else itemsByOrder.set(i.order_id, [i]);
+    });
     D.orders.filter(o => inRange(o.created_at)).forEach(o => {
-      D.orderItems.filter(i => i.order_id === o.id && i.status !== 'cancelled').forEach(i => {
+      (itemsByOrder.get(o.id) || []).forEach(i => {
         rows.push([o.code, dt(o.created_at), tName(o.table_id), o.seat_no || '', repCode(o.source), repCode(o.status),
           i.name_snapshot, i.qty, i.price_snapshot, i.qty * i.price_snapshot]);
       });
@@ -61,9 +71,10 @@ function reportRowsLocal(kind, from, to) {
     return rows;
   }
   if (kind === 'stock') {
+    const ingMap = new Map(D.ingredients.map(i => [i.id, i]));
     return [['Thời gian', 'Nguyên liệu', 'Loại', 'Số lượng', 'Đơn vị', 'Tồn sau', 'Lý do', 'Người thực hiện'],
       ...D.stockMoves.filter(m => inRange(m.created_at)).map(m => {
-        const ing = D.ingredients.find(i => i.id === m.ingredient_id) || {};
+        const ing = ingMap.get(m.ingredient_id) || {};
         return [dt(m.created_at), ing.name || '', { in: 'Nhập', out: 'Xuất', auto: 'Tự trừ' }[m.type] || m.type,
                 m.qty, ing.unit || '', m.qty_after, m.reason, sName(m.staff_id) || 'Hệ thống'];
       })];

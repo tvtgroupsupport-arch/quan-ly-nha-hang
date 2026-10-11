@@ -287,6 +287,40 @@ t.group('G12. Thanh toán xong → đơn đóng, "Đơn của tôi" của khách
   t.eq(after.data.order, null, 'đơn đã thanh toán (không còn "open") → guest_menu không còn trả về nữa');
 }
 
+t.group('G13. Máy chủ quán lệch giờ (đồng hồ nhanh): khách gọi nhân viên / gọi món vẫn ghi được — mốc ghi vượt CỘT updated_at của dòng, không phải updated_at trong JSON');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  const t2 = tableOf(A, 'Bàn 02');
+  const seat = A.D.seats.find(s => s.table_id === t2.id && s.seat_no === 1), token = seat.qr_token;
+  await A.sync();
+  const key = 'seats|' + t2.id + ':1', row = w.store.records.get(key);
+  t.ok(row && row.data.calling === 0, 'ghế có trên kho, chưa gọi');
+  const ahead = Date.now() + 600000;                       // đồng hồ máy quán nhanh 10 phút: CỘT updated_at lớn hơn giờ máy chủ
+  row.updated_at = ahead;                                  // (updated_at trong JSON vẫn là giờ cũ — đúng tình huống Records.stamp() đặt cột lớn hơn JSON)
+  const guest = guestBrowser(w);
+  const rc = await guest.rpc('guest_call', { p_seat_token: token });
+  t.ok(!rc.error && rc.data === true, 'khách bấm Gọi nhân viên');
+  const after = w.store.records.get(key);
+  t.eq(after.data.calling, 1, 'cờ calling ĐƯỢC GHI dù cột updated_at của ghế đang ở tương lai (bản sai so với JSON updated_at sẽ bị ON CONFLICT từ chối âm thầm)');
+  t.ok(after.updated_at > ahead, 'mốc ghi mới vượt cột cũ: ' + (after.updated_at - ahead));
+  await A.sync();
+  t.eq(A.D.seats.find(s => s.table_id === t2.id && s.seat_no === 1).calling, 1, 'máy chủ quán nhận được cờ gọi nhân viên');
+
+  // guest_order: đơn mới + ghế
+  const t3 = tableOf(A, 'Bàn 03'), tok3 = A.D.seats.find(s => s.table_id === t3.id && s.seat_no === 1).qr_token;
+  w.store.records.get('seats|' + t3.id + ':1').updated_at = ahead;
+  const ro = await guest.rpc('guest_order', { p_seat_token: tok3, p_lines: [{ menuItemId: menuId(A, 'Trà đá'), qty: 1 }] });
+  t.ok(!ro.error, 'khách gọi món khi cột updated_at của ghế ở tương lai');
+  t.eq(w.store.records.get('seats|' + t3.id + ':1').data.bound_order_id, ro.data.order_id, 'ghế được gắn vào đơn mới (bản ghi ghế được ghi đè)');
+  // guest_order lần hai: dòng đơn có mốc ở tương lai → không bị kéo lùi
+  const ordKey = 'orders|' + ro.data.order_id;
+  const ahead2 = Date.now() + 1200000;
+  w.store.records.get(ordKey).updated_at = ahead2;       // chỉ dòng ĐƠN ở xa hơn (mốc của ghế vẫn thấp hơn) → mốc ghi phải tự vượt cột của đơn
+  const ro2 = await guest.rpc('guest_order', { p_seat_token: tok3, p_lines: [{ menuItemId: menuId(A, 'Trà đá'), qty: 1 }] });
+  t.ok(!ro2.error, 'gọi thêm lần hai');
+  t.ok(w.store.records.get(ordKey).updated_at > ahead2, 'cập nhật đơn hiện có: cột updated_at KHÔNG bị kéo lùi (mốc mới vượt mốc cũ)');
+}
+
 /* ============================================================ */
 const { pass, fail, failures } = t.results;
 console.log(`\n${'='.repeat(60)}\n${pass} đạt · ${fail} lỗi · ${pass + fail} kiểm tra`);

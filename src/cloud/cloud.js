@@ -26,6 +26,7 @@ const Cloud = (() => {
     const old = C.store;
     if (old && old !== client) { try { old.auth.stopAutoRefresh(); } catch (e) {} try { old.removeAllChannels(); } catch (e) {} }
     C.store = client;
+    Sync.state.sqlVersion = 0;     // phiên bản script SQL của kho cũ không áp dụng cho kho mới
   }
 
   /** Đổi lỗi kỹ thuật của Supabase sang câu tiếng Việt dễ hiểu */
@@ -197,13 +198,21 @@ const Cloud = (() => {
   async function joinAsStaff(payload, deviceName) {
     const inv = parseInvite(payload);
     const client = mkClient(inv.u, inv.k, 'sb-store');
-    let r = await client.auth.getSession();
-    if (!r.data.session) {
-      const a = await client.auth.signInAnonymously();
-      if (a.error) throw new Error(friendly(a.error));
+    let r = await client.auth.getSession(), created = false, rd;
+    try {
+      if (!r.data.session) {
+        const a = await client.auth.signInAnonymously();
+        if (a.error) throw new Error(friendly(a.error));
+        created = true;
+      }
+      rd = await client.rpc('redeem_pairing_ticket', { p_token: inv.t, p_device_name: deviceName || 'Máy nhân viên' });
+      if (rd.error) throw new Error(friendly(rd.error));
+    } catch (e) {
+      // lỗi (mã sai/đã dùng/mạng): không để lại phiên ẩn danh lạ trong kho lưu trữ chung
+      try { client.auth.stopAutoRefresh(); } catch (e2) {}
+      if (created) { try { await client.auth.signOut({ scope: 'local' }); } catch (e2) {} }
+      throw e;
     }
-    const rd = await client.rpc('redeem_pairing_ticket', { p_token: inv.t, p_device_name: deviceName || 'Máy nhân viên' });
-    if (rd.error) throw new Error(friendly(rd.error));
     const uid = rd.data.device_id || '';
     setStore(client);
     await Persist.wipe();
@@ -216,6 +225,48 @@ const Cloud = (() => {
     await Sync.pullOnly();
     Sync.start();
     return { ok: true };
+  }
+  /** Máy nhân viên MẤT PHIÊN đăng nhập vào kho (trạng thái 'auth'): liên kết lại bằng mã mời mới của chủ quán mà KHÔNG xoá dữ liệu trên máy.
+      Các thay đổi chưa gửi vẫn được giữ và gửi lên bằng tư cách thiết bị mới — push_records chỉ kiểm quyền của phiên đang dùng, không đòi bản ghi
+      phải do đúng thiết bị cũ tạo ra. (joinAsStaff thì xoá sạch máy trước khi kéo dữ liệu về nên KHÔNG dùng được cho tình huống này.)
+      Giữ nguyên hậu tố mã đơn của máy (deviceTag) để mã đơn đã tạo ở máy này không lệch bộ đếm. */
+  async function rejoinAsStaff(payload, deviceName) {
+    if (C.role !== 'staff') throw new Error('Chỉ máy nhân viên mới liên kết lại bằng mã mời được');
+    const inv = parseInvite(payload);
+    if (inv.u !== C.cfg.storeUrl) throw new Error('Mã mời này của quán khác — không liên kết lại máy này được (sẽ lẫn dữ liệu hai quán)');
+    const nm = String(deviceName || '').trim() || C.cfg.deviceName || 'Máy nhân viên';
+    // Giữ đồng bộ suốt lúc liên kết lại: client tạm dùng CHUNG khoá lưu 'sb-store' với client đang dùng, nên phiên ẩn danh mới tạo ở đây sẽ bị client kia đọc thấy.
+    // Nếu lúc đó một lượt đồng bộ chen vào, store_status trả is_device=false → bị coi là "thu hồi" → xoá sạch máy (kể cả thay đổi chưa gửi).
+    Sync.hold(true);
+    let client = null, created = false, committed = false;
+    try {
+      client = mkClient(inv.u, inv.k, 'sb-store');
+      const r = await client.auth.getSession();
+      if (!r.data.session) {
+        const a = await client.auth.signInAnonymously();
+        if (a.error) throw new Error(friendly(a.error));
+        created = true;                                   // phiên ẩn danh này do CHÍNH hàm này tạo → lỗi ở bất cứ bước nào sau đây đều phải dọn nó
+      }
+      const rd = await client.rpc('redeem_pairing_ticket', { p_token: inv.t, p_device_name: nm });
+      if (rd.error) {
+        // 22023 = mã không hợp lệ / đã dùng / hết hạn (bấm "Liên kết lại" hai lần là gặp ngay): nói rõ thay vì câu chung chung
+        if (rd.error.code === '22023') throw new Error('Mã mời đã được dùng hoặc đã hết hạn (mỗi mã chỉ dùng một lần và sống 5 phút) — nhờ chủ quán tạo mã mới');
+        throw new Error(friendly(rd.error));
+      }
+      setStore(client); committed = true;
+      await saveCfg({ storeAnon: inv.k, deviceId: rd.data.device_id || '', deviceName: nm });
+      return { ok: true };
+    } catch (e) {
+      if (!committed && client) {
+        try { client.auth.stopAutoRefresh(); } catch (e2) {}          // client tạm không được tranh làm mới token của phiên đang dùng
+        // Phiên ẩn danh mới tạo mà chưa thành thiết bị KHÔNG được để lại trong kho lưu trữ chung: client đang dùng sẽ đọc thấy nó, store_status báo is_device=false và máy bị coi là bị thu hồi
+        if (created) { try { await client.auth.signOut({ scope: 'local' }); } catch (e2) {} }
+      }
+      throw e;
+    } finally {
+      Sync.hold(false);
+      Sync.start();       // thành công: đồng bộ tiếp bằng thiết bị mới · thất bại: trở lại đúng trạng thái trước đó (mất phiên → 'auth', dữ liệu chưa gửi còn nguyên)
+    }
   }
 
 /** Chủ quán đăng nhập lại vào kho khi phiên đã mất (Sync báo status 'auth'): dùng email của tài khoản lưu trữ + MẬT KHẨU LƯU TRỮ. Dữ liệu trên máy giữ nguyên. */
@@ -233,7 +284,17 @@ const Cloud = (() => {
     if (!st.data.is_owner) throw new Error('Tài khoản này không phải chủ của dự án Supabase đã liên kết');
     return { ok: true };
   }
-  async function hasStoreSession() { try { const { data } = await C.store.auth.getSession(); return !!(data && data.session); } catch (e) { return false; } }
+  /** Phiên đăng nhập vào kho: 'ok' (còn phiên) · 'none' (CHẮC CHẮN không còn phiên: không có session và không có lỗi) · 'unknown' (không xác định được).
+      supabase-js getSession() khi token hết hạn mà làm mới thất bại vì mạng chập chờn trả session=null KÈM error — đó là lỗi mạng tạm, không phải mất phiên;
+      coi nhầm là mất phiên sẽ bắt chủ quán nhập lại mật khẩu lưu trữ (hoặc nhân viên liên kết lại) oan mỗi lần mạng chập chờn. */
+  async function sessionState() {
+    try {
+      const { data, error } = await C.store.auth.getSession();
+      if (data && data.session) return 'ok';
+      return error ? 'unknown' : 'none';
+    } catch (e) { return 'unknown'; }
+  }
+  async function hasStoreSession() { return (await sessionState()) === 'ok'; }
 
   async function listDevices() {
     const { data, error } = await C.store.from('staff_devices').select('*').order('created_at', { ascending: false });
@@ -278,7 +339,9 @@ const Cloud = (() => {
   async function unlinkAll(opts) {
     Sync.stop();
     const scope = opts && opts.global ? 'global' : 'local';
-    for (const cl of [C.store, C.central]) {
+    const clients = [C.store, C.central];
+    C.store = null;      // ngắt NGAY: mọi lượt đồng bộ đang bay thấy enabled() = false và tự dừng, không ghi dữ liệu quán cũ vào máy vừa xoá
+    for (const cl of clients) {
       if (!cl) continue;
       try { cl.auth.stopAutoRefresh(); } catch (e) {}
       try { await cl.auth.signOut({ scope }); } catch (e) {}
@@ -305,6 +368,6 @@ const Cloud = (() => {
     init, saveCfg, central, friendly,
     ownerSignUp, ownerSignIn, centralEmail, getStoreLink, discardStoreLink,
     linkStoreAsOwner, restoreOwner, createInvite, parseInvite, joinAsStaff,
-    reloginStore, hasStoreSession, listDevices, revokeDevice, deleteDevice, unlinkAll, unlinkAndDetach, deleteAccount, onRevoked
+    reloginStore, hasStoreSession, sessionState, rejoinAsStaff, listDevices, revokeDevice, deleteDevice, unlinkAll, unlinkAndDetach, deleteAccount, onRevoked
   };
 })();

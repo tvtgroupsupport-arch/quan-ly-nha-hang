@@ -126,22 +126,40 @@ function adapt(s) {
 }
 
 async function refresh() {
+  if (typeof clearOrphanCalls === 'function') clearOrphanCalls();   // dọn cờ "gọi nhân viên" còn sót ở ghế của bàn đã xoá (dữ liệu cũ / máy khác đẩy về)
   const snap = await api('/snapshot');
   DB = adapt(snap);
+  window._repVer = (window._repVer || 0) + 1;  // dữ liệu vừa đổi (reportData() so số này để biết lượt tải đang bay đã cũ chưa)
   if (window._rep) window._rep.stale = true;   // số liệu báo cáo theo khoảng cần tính lại sau mỗi lần dữ liệu đổi
   // Phiên đăng nhập luôn theo tài khoản MỚI NHẤT: bị khoá/xoá → thoát ngay; đổi quyền/vai trò → áp dụng ngay
   if (ME && D && D.staff && D.staff.length) {
     const fresh = DB.staff.find(s => s.id === ME.id);
     if (!fresh || !fresh.active) { sessionRevoked(); return; }
+    // Mật khẩu bị đổi / cấp lại (muối mới) từ sau lúc phiên này đăng nhập → phiên cũ bị thu hồi (hộp thoại cấp lại mật khẩu nói "mọi phiên cũ đã bị thu hồi" — phải đúng thật)
+    const raw = D.staff.find(s => s.id === ME.id);
+    if (ME.pv && raw && raw.pw && raw.pw.s && raw.pw.s !== ME.pv) { sessionRevoked('Mật khẩu của tài khoản này vừa được đổi hoặc cấp lại — hãy đăng nhập lại'); return; }
     ME = Object.assign({}, ME, { name: fresh.name, role: fresh.role, perms: fresh.perms });
   }
   DB.session.user = ME ? ME.id : null;
 }
-function sessionRevoked() {
+/** Dựng lại người đang đăng nhập từ token đã lưu (lúc khởi động app). Trả về ME, hoặc null nếu phiên không còn hợp lệ: tài khoản bị khoá/xoá, đang bị buộc đổi mật khẩu,
+    hoặc mật khẩu đã bị đổi/cấp lại từ sau lúc đăng nhập (so MUỐI của bản băm lưu trong token với muối hiện tại). Token hỏng thì ném lỗi. Token cũ không có mốc → nhận mốc hiện tại. */
+function restoreSessionFrom(token) {
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  const found = DB.staff.find(s => s.id === payload.sub) || null;
+  if (!found) return null;
+  const rawS = D.staff.find(s => s.id === payload.sub);
+  const pvNow = rawS && rawS.pw && rawS.pw.s ? rawS.pw.s : '';
+  if (!found.active) return null;
+  if (rawS && rawS.must_change && Cloud.role !== 'staff') return null;
+  if (payload.pv && pvNow && payload.pv !== pvNow) return null;
+  return Object.assign({}, found, { pv: payload.pv || pvNow });
+}
+function sessionRevoked(msg) {
   TOKEN = null; ME = null; try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
   if (DB && DB.session) DB.session.user = null;
   route = { name: 'login', params: {} };
-  try { toast('Tài khoản đã bị khoá hoặc xoá — hãy đăng nhập lại'); } catch (e) {}
+  try { toast(msg || 'Tài khoản đã bị khoá hoặc xoá — hãy đăng nhập lại'); } catch (e) {}
   try { render(); } catch (e) {}
 }
 const payMethodLabel = m => ({ cash: 'Tiền mặt', vietqr: 'VietQR', transfer: 'Chuyển khoản' }[m] || String(m || ''));
@@ -284,6 +302,8 @@ const usr = s => '<span data-notr>' + esc(s) + '</span>';
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const menuById = id => DB.menu.find(m => m.id === id);
 const tableById = id => DB.tables.find(t => t.id === id);
+/** Khoá ('bàn#ghế') của các ghế ĐANG gọi nhân viên, chỉ tính ghế của bàn đang dùng (bàn đã xoá/ẩn không còn trong DB.tables) — dùng chung cho chấm báo và banner */
+const callingSeatKeys = () => Object.keys(DB.seatsState).filter(k => DB.seatsState[k].calling && tableById(k.split('#')[0]));
 const orderById = id => DB.orders.find(o => o.id === id);
 const me = () => ME;
 /** Máy nhân viên (liên kết bằng mã QR) không vào được các màn chỉ chủ quán được sửa — khớp với quyền thật trong Postgres */

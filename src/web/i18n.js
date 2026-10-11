@@ -17,7 +17,7 @@ let _lang = 'vi';
 const _i18n = {};   // { [lang]: { map: Map(khoá thường → bản dịch), re: RegExp|null, cache: Map } }
 
 function _norm(s) { return String(s).normalize('NFC'); }
-function _escRe(s) { return s.replace(/[.*+?^${}()|[\]\\\/-]/g, '\\$&'); }
+function _escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }   // KHÔNG escape '-' và '/': dưới cờ 'u', "\-" ngoài lớp ký tự là cú pháp lỗi → một khoá dịch có dấu '-' (vd. Wi-Fi) làm sập cả bộ dịch
 
 function _compile(lang) {
   if (_i18n[lang]) return _i18n[lang];

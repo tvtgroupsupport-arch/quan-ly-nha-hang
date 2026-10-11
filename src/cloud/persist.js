@@ -135,6 +135,7 @@ const Persist = (() => {
     await backend.wipe();
     meta = {};
     Records.reset();
+    if (typeof clearLoginLock === 'function') clearLoginLock();   // khoá đăng nhập của quán cũ không được dính sang quán mới (xoá dữ liệu / khôi phục / liên kết máy nhân viên)
   }
 
   return { init, getMeta, setMeta, saveSoon, flush, writeRows, idle, wipe,

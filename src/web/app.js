@@ -180,8 +180,8 @@ function sheet(title, html) {
 function closeSheet() { sheetEl?.remove(); sheetEl = null; }
 const val = id => (document.getElementById(id) || {}).value || '';
 
-/** Bọc mọi hành động gọi API: hiện lỗi rõ ràng thay vì im lặng */
-async function run(fn, okMsg) {
+/** Bọc mọi hành động gọi API: hiện lỗi rõ ràng thay vì im lặng. onFail (tuỳ chọn): chạy khi lỗi — dùng để đưa công tắc về đúng trạng thái. */
+async function run(fn, okMsg, onFail) {
   try {
     const r = await fn();
     await refresh(); render();
@@ -189,7 +189,11 @@ async function run(fn, okMsg) {
     return r;
   } catch (e) {
     toast(e.message || 'Có lỗi xảy ra');
-    throw e;
+    if (onFail) { try { onFail(e); } catch (e2) { /* hoàn tác giao diện lỗi thì thôi */ } }
+    // KHÔNG ném lại: mọi nơi gọi run(...) đều không await/catch, ném lại chỉ tạo "unhandled rejection".
+    // Vẽ lại để công tắc / ô chọn đã bị đổi trên giao diện quay về đúng trạng thái dữ liệu thật (bỏ qua nếu đang mở hộp thoại / đang gõ).
+    try { if (safeToRender()) render(); } catch (e2) { /* vẽ lại lỗi thì thôi */ }
+    return undefined;
   }
 }
 
@@ -233,6 +237,7 @@ document.addEventListener('input', e => {
     return;
   }
   if (e.target.id === 'rg') { renderResvSeats(); return; }
+  if (e.target.id === 'rj_code') { window._rjCode = e.target.value; return; }      // giữ mã đã dán qua các lần vẽ lại màn Đồng bộ (cập nhật trạng thái mỗi 60 giây)
   if (e.target.dataset.act === 'setVolume') {
     const v = Number(e.target.value);
     const lbl = e.target.parentElement?.querySelector('.t-xs'); if (lbl) lbl.textContent = `Âm lượng: ${v}%`;
@@ -932,7 +937,8 @@ function handleAct(el, ev) {
   case 'perm': {
     const s = DB.staff.find(x => x.id === d.id);
     const perms = { ...s.perms, [d.k]: el.checked };
-    run(() => api('/staff/' + d.id, { method: 'PATCH', body: { perms } }));
+    // Lỗi (403…): công tắc quay về trạng thái cũ NGAY. Chỉ dựa vào vẽ lại là không đủ — sau khi bấm, ô công tắc đang giữ focus nên safeToRender() trả false và màn không được vẽ lại.
+    run(() => api('/staff/' + d.id, { method: 'PATCH', body: { perms } }), undefined, () => { el.checked = !el.checked; });
     return;
   }
   case 'toggleStaff': {
@@ -978,9 +984,11 @@ function handleAct(el, ev) {
       try {
         const r = await api('/staff', { method: 'POST', body: { name: val('sn').trim(), role: val('sr2'), username: val('su').trim() } });
         await refresh(); render();
+        const lost = (r.trimmedPerms || []).map(k => (SCREENS.find(sc => sc.key === k) || {}).label || k);
         sheet('Đã tạo tài khoản', `<div class="card col" style="align-items:center;gap:8px;padding:24px">
           <div class="t-xs">Mật khẩu tạm thời</div><div class="mono" style="font-size:26px;font-weight:700;letter-spacing:2px">${esc(r.tempPassword)}</div>
           <div class="t-xs" style="text-align:center">Nhân viên đổi mật khẩu ở lần đăng nhập đầu.</div></div>
+          ${lost.length ? `<div class="card" style="background:var(--amber-soft);border-color:var(--amber);margin-top:10px"><div class="t-xs" style="color:var(--amber);line-height:1.6">Tài khoản được tạo với quyền hạn chế vì bạn chưa có: ${esc(lost.join(', '))}</div></div>` : ''}
           <button class="btn pri" data-act="closeSheet" style="margin-top:12px">Xong</button>`);
       } catch (e) { toast(e.message); }
     })();
@@ -1028,7 +1036,7 @@ function handleAct(el, ev) {
     applyFontScale(); render();
     return;
   }
-  case 'setSetting': { run(() => api('/settings', { method: 'PATCH', body: { [d.k]: el.checked } })); return; }
+  case 'setSetting': { run(() => api('/settings', { method: 'PATCH', body: { [d.k]: el.checked } }), undefined, () => { el.checked = !el.checked; }); return; }
   case 'pickChime': {
     playChime(Number(d.k), DB.settings.soundVolume);   // nghe ngay khi chọn, cho biết đang chọn đúng chuông nào
     run(() => api('/settings', { method: 'PATCH', body: { chime: Number(d.k) } }));
@@ -1242,7 +1250,7 @@ function handleAct(el, ev) {
     const url = DB.settings.menuPageUrl;
     if (!url) { toast('Chưa có link trang thực đơn — nhập link ở trên trước'); return; }
     saveQrPdf([{ shop: DB.restaurant.name || '', where: trText('Quét mã xem thực đơn'), hint: trText('Giá và món có thể thay đổi') + ', ' + trText('vui lòng hỏi nhân viên để biết chi tiết'),
-                 area: '', matrix: QR.matrix(url) }], `tem-qr-thuc-don-${new Date().toISOString().slice(0, 10)}.pdf`);
+                 area: '', matrix: QR.matrix(url) }], `tem-qr-thuc-don-${localYmd()}.pdf`);
     return;
   }
 
@@ -1401,7 +1409,7 @@ async function openQrSheet(keys){
              area: t.area || '', matrix: QR.matrix(url) };
   }).filter(Boolean);
   if (!tags.length) { toast('Không dựng được tem nào'); return; }
-  await saveQrPdf(tags, `tem-qr-${new Date().toISOString().slice(0, 10)}.pdf`);
+  await saveQrPdf(tags, `tem-qr-${localYmd()}.pdf`);
 }
 async function saveQrPdf(tags, filename) {
   toast('Đang tạo file PDF…');
@@ -1660,7 +1668,7 @@ function wireCloud() {
   NativeBridge.network.get().then(on => Sync.setOnline(on));
   NativeBridge.app.onResume(() => {
     try { NativeBridge.alerts && NativeBridge.alerts.resumed && NativeBridge.alerts.resumed(); } catch (e) {}
-    Sync.kick(0);
+    Sync.kick(0, { deep: true });      // mở lại app: kéo lùi đủ để bắt mọi bản ghi sót trong lúc app ngủ
     ensureKeepAlive();
     recheckLicense(License.status().state !== 'ok');   // sắp/đã quá hạn → hỏi lại ngay, không đợi chu kỳ 6 giờ
   });
@@ -1672,8 +1680,7 @@ function wireCloud() {
     return false;
   });
   setInterval(() => recheckLicense(false), 6 * 3600000);
-  setInterval(ensureKeepAlive, 10 * 60000);   // kiểm tra định kỳ: dừng dịch vụ nền trước hạn 6 giờ của Android 15
-  setInterval(licenseWatch, 30000);
+  setInterval(licenseWatch, 30000);   // (ensureKeepAlive đã chạy mỗi 60 giây ở đầu hàm này — vòng 10 phút trước đây là thừa; nó cũng là thứ dừng dịch vụ nền trước hạn 6 giờ của Android 15)
 }
 
 (async function boot() {
@@ -1694,11 +1701,7 @@ function wireCloud() {
     if (TOKEN && D.staff.length) {
       try {
         // xác định người đang đăng nhập từ token đã lưu
-        const payload = JSON.parse(atob(TOKEN.split('.')[1]));
-        ME = DB.staff.find(s => s.id === payload.sub) || null;
-        const rawS = D.staff.find(s => s.id === payload.sub);
-        // tài khoản bị khoá/xoá, hoặc đang bị buộc đổi mật khẩu → bắt đăng nhập lại
-        if (ME && (!ME.active || (rawS && rawS.must_change && Cloud.role !== 'staff'))) ME = null;
+        ME = restoreSessionFrom(TOKEN);      // null nếu tài khoản bị khoá/xoá, đang bị buộc đổi mật khẩu, hoặc mật khẩu đã đổi/cấp lại → bắt đăng nhập lại
         if (ME) { DB.session.user = ME.id; connectWs(); route = { name: homeScreen(), params: {} }; }
       } catch (e) { TOKEN = null; try { localStorage.removeItem(TOKEN_KEY); } catch (e2) {} }
     }

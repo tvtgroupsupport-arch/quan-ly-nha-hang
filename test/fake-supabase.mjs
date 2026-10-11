@@ -64,17 +64,25 @@ export class FakeProject {
   colRows(collection) { return [...this.records.values()].filter(r => r.collection === collection && !r.deleted); }
   colOne(collection, id) { const r = this.records.get(collection + '|' + id); return r && !r.deleted ? r : null; }
   findSeatByToken(token) { return this.colRows('seats').find(r => r.data.qr_token === token) || null; }
-  putRecord(collection, id, data) {
+  putRecord(collection, id, data, at) {
     const now = ++this.seq;
-    this.records.set(collection + '|' + id, { collection, id, data, updated_at: this.now(), deleted: false, device_id: null, seq: now });
+    this.records.set(collection + '|' + id, { collection, id, data, updated_at: at == null ? this.now() : at, deleted: false, device_id: null, seq: now });
+  }
+  /** Mô phỏng "insert ... on conflict (collection, id) do update ... where records.updated_at <= excluded.updated_at" của guest_call/guest_order:
+      chỉ ghi đè khi CỘT updated_at hiện có không lớn hơn mốc ghi. Trả về true nếu đã ghi. */
+  upsertNewer(collection, id, data, at) {
+    const cur = this.records.get(collection + '|' + id);
+    if (cur && cur.updated_at > at) return false;
+    this.putRecord(collection, id, data, at);
+    return true;
   }
   /* --- store --- */
   rpc_cleanup_old_data(args, s) {
     if (!this.isOwner(s)) throw Object.assign(new Error('Chỉ chủ quán được dọn dữ liệu'), { code: '42501' });
     const monthsKeep = Math.max((args && args.p_months_keep) || 24, 6);
     const now = this.now(), day = 86400000, month = 30 * day;
-    const deletedCutoff = now - 30 * day, ordersCutoff = now - monthsKeep * month, logsCutoff = now - 6 * month, stockCutoff = now - 12 * month;
-    let purgedTombstones = 0, purgedOrders = 0, purgedLogs = 0, purgedStock = 0;
+    const deletedCutoff = now - 30 * day, ordersCutoff = now - monthsKeep * month, logsCutoff = now - 6 * month;
+    let purgedTombstones = 0, purgedOrders = 0, purgedLogs = 0;
 
     for (const [k, r] of [...this.records]) {
       if (r.deleted && r.updated_at < deletedCutoff) { this.records.delete(k); purgedTombstones++; }
@@ -92,12 +100,12 @@ export class FakeProject {
     for (const [k, r] of [...this.records]) {
       if (r.collection === 'logs' && r.updated_at < logsCutoff) { this.records.delete(k); purgedLogs++; }
     }
-    return { purged_tombstones: purgedTombstones, purged_orders_rows: purgedOrders, purged_logs: purgedLogs, purged_stock_moves: purgedStock, months_kept: monthsKeep };
+    return { purged_tombstones: purgedTombstones, purged_orders_rows: purgedOrders, purged_logs: purgedLogs, purged_stock_moves: 0, months_kept: monthsKeep };   // cố ý KHÔNG xoá phiếu kho (giống SQL)
   }
   rpc_store_status(_, s) {
     this.storeStatusCalls = (this.storeStatusCalls || 0) + 1;
     const d = this.devices.get(s.uid);
-    return { ready: true, version: 1, has_owner: !!this.owner, is_owner: this.isOwner(s), is_device: this.isDevice(s), device_revoked: !!(d && d.revoked_at) };
+    return { ready: true, version: this.sqlVersion == null ? 2 : this.sqlVersion, has_owner: !!this.owner, is_owner: this.isOwner(s), is_device: this.isDevice(s), device_revoked: !!(d && d.revoked_at) };
   }
   rpc_claim_owner(_, s) {
     if (s.anonymous) throw Object.assign(new Error('Tài khoản ẩn danh không thể làm chủ quán'), { code: '42501' });
@@ -166,13 +174,15 @@ export class FakeProject {
   }
   rpc_guest_call({ p_seat_token }) {
     const seat = this._guestSeat(p_seat_token, true);
-    this.putRecord('seats', seat.id, { ...seat.data, calling: 1, updated_at: this.now() });
+    // Giống SQL: mốc ghi = max(giờ máy chủ, CỘT updated_at của dòng ghế + 1) — máy chủ quán đồng hồ nhanh thì cột này lớn hơn giờ máy chủ
+    const at = Math.max(this.now(), (seat.updated_at || 0) + 1);
+    this.upsertNewer('seats', seat.id, { ...seat.data, calling: 1, updated_at: at }, at);
     return true;
   }
   rpc_guest_order({ p_seat_token, p_lines }) {
     if (!Array.isArray(p_lines) || !p_lines.length || p_lines.length > 40) throw Object.assign(new Error('Chưa chọn món'), { code: '22023' });
     const seat = this._guestSeat(p_seat_token, true);
-    const now = this.now();
+    let now = Math.max(this.now(), (seat.updated_at || 0) + 1);
     let orderId = seat.data.bound_order_id, order = orderId ? this.colOne('orders', orderId) : null;
     if (order && order.data.status !== 'open') order = null;
     let isNew = false;
@@ -182,11 +192,12 @@ export class FakeProject {
       const orderData = { id: orderId, code: '#G' + (++this._guestSeq || (this._guestSeq = 1)), table_id: seat.data.table_id,
         seat_no: Number(seat.data.seat_no), source: 'qr', status: 'open', merged_into: null,
         customer_name: '', customer_phone: '', promo_id: null, created_at: now, updated_at: now };
-      this.putRecord('orders', orderId, orderData);
-      this.putRecord('seats', seat.id, { ...seat.data, bound_order_id: orderId, updated_at: now });
+      this.putRecord('orders', orderId, orderData, now);
+      this.upsertNewer('seats', seat.id, { ...seat.data, bound_order_id: orderId, updated_at: now }, now);
       order = { data: orderData };
     } else {
-      this.putRecord('orders', orderId, { ...order.data, updated_at: now });
+      now = Math.max(now, (order.updated_at || 0) + 1);      // đơn hiện có mang mốc lớn hơn giờ máy chủ: mốc mới phải vượt nó (không kéo lùi cột updated_at)
+      this.putRecord('orders', orderId, { ...order.data, updated_at: now }, now);
     }
     const batch = Math.max(0, ...this.colRows('orderItems').filter(r => r.data.order_id === orderId).map(r => r.data.batch || 0)) + 1;
     const settings = this.colOne('settings', 'main');
@@ -203,7 +214,7 @@ export class FakeProject {
       this.putRecord('orderItems', itemId, { id: itemId, order_id: orderId, menu_item_id: ln.menuItemId,
         name_snapshot: m.data.name, price_snapshot: m.data.price, kitchen_id: m.data.kitchen_id, qty,
         note: String(ln.note || '').slice(0, 200), status, batch, origin_table: seat.data.table_id,
-        origin_seat: Number(seat.data.seat_no), created_at: now, updated_at: now });
+        origin_seat: Number(seat.data.seat_no), created_at: now, updated_at: now }, now);
       for (const r of this.colRows('recipes').filter(r => r.data.menu_item_id === ln.menuItemId)) {
         const used = Math.round((r.data.qty_per_serve || 0) * qty * 1000) / 1000;
         if (!used) continue;
@@ -212,7 +223,7 @@ export class FakeProject {
         const mvId = 'sm' + uuid().replace(/-/g, '');
         this.putRecord('stockMoves', mvId, { id: mvId, ingredient_id: r.data.ingredient_id, type: 'auto', qty: used,
           qty_after: qtyAfter, reason: `Theo công thức ${m.data.name} (khách gọi qua QR)`, ref_order_id: orderId,
-          staff_id: null, created_at: now });
+          staff_id: null, created_at: now }, now);
       }
     }
     return { order_id: orderId, order_code: order.data.code, items: count, status };

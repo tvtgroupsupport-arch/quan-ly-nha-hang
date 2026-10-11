@@ -37,7 +37,7 @@ const tail = `
   playPurchase, playRestore, playSyncPurchases, refreshLicenseWithPlay, ownedPlayPurchases, vSubscriptionPlay, normalizePlayProducts, playProductId,
   AutoProv, autoProvCard, vSupabaseGuide, guideGallery, GUIDE_FIGS,
   get playBusy() { return _playBusy; }, get playProducts() { return _playProducts; },
-  buildMenuPageHtml, exportMenuPage, addLog, engineGuard, can, INVITE_PREFIX
+  buildMenuPageHtml, exportMenuPage, addLog, engineGuard, can, INVITE_PREFIX, restoreSessionFrom, clearOrphanCalls, staffOutranks, canGrantPerm
 };`;
 
 export function newWorld() {
@@ -79,7 +79,7 @@ export async function newDevice(world, name, opts = {}) {
     isNative: true, platform: 'android', ready: async () => {},
     sqlite, supabase: supa,
     network: { get: async () => dev.online, onChange: cb => { dev.netCb = cb; } },
-    app: { onResume() {}, onBack() {} },
+    app: { onResume(cb) { dev.resumeCb = cb; }, onBack() {} },       // nhớ hàm xử lý resume để test gọi được hành vi thật
     copy: async t => { dev.clip = t; }, readClipboard: async () => dev.clip,
     scan: async () => dev.scanResult,
     saveFile: async (n, b) => { dev.saved.push({ name: n, size: b.size, blob: b }); return true; },
@@ -145,7 +145,7 @@ export async function newDevice(world, name, opts = {}) {
     'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask', 'TextEncoder', 'btoa', 'atob', 'console', 'URL', 'Blob', 'FileReader', 'fetch', 'requestAnimationFrame',
     SCRIPT + tail);
   const api = factory(windowFake, documentFake, localStorage, nb, { userAgent: 'test', onLine: true }, { host: 'localhost', href: 'https://localhost/', origin: 'https://localhost', hash: '' },
-    webcrypto, FakeDate, setTimeoutFake, clearTimeoutFake, () => 0, () => {}, queueMicrotask, TextEncoder, btoa, atob, consoleFake,
+    webcrypto, FakeDate, setTimeoutFake, clearTimeoutFake, (fn, ms) => { (dev.intervals = dev.intervals || []).push({ fn, ms }); return dev.intervals.length; }, () => {}, queueMicrotask, TextEncoder, btoa, atob, consoleFake,
     { createObjectURL: () => 'blob:x', revokeObjectURL() {} }, class { constructor(parts, o) { this.parts = parts; this.size = parts.reduce((s, p) => s + (p.length || p.byteLength || 0), 0); this.type = (o || {}).type; } },
     class {}, fetchFake, fn => setImmediate(fn));
 

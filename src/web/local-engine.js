@@ -16,14 +16,45 @@ function _loginFailMap() { try { return JSON.parse(localStorage.getItem(LOGIN_FA
 function _loginFailSave(m) { try { localStorage.setItem(LOGIN_FAIL_KEY, JSON.stringify(m)); } catch (e) {} }
 function loginLockLeft(u) { const r = _loginFailMap()[String(u).toLowerCase()]; return r && r.until > Date.now() ? r.until - Date.now() : 0; }
 function loginFail(u) {
-  const m = _loginFailMap(), k = String(u).toLowerCase(), r = m[k] || { n: 0, until: 0 };
-  r.n = (r.until && r.until <= Date.now() ? 0 : r.n) + 1;
-  if (r.n >= LOGIN_MAX_FAILS) { r.until = Date.now() + LOGIN_LOCK_MS; r.n = 0; }
+  const m = _loginFailMap(), k = String(u).toLowerCase(), t = Date.now();
+  let r = m[k] || { n: 0, until: 0 };
+  if (r.until && r.until <= t) r = { n: 0, until: 0 };     // hết hạn khoá → đếm lại TỪ ĐẦU (trước đây until cũ vẫn nằm đó nên lần đếm sau luôn bị đặt về 1: khoá một lần rồi không bao giờ khoá lại)
+  r.n++;
+  if (r.n >= LOGIN_MAX_FAILS) { r.until = t + LOGIN_LOCK_MS; r.n = 0; }
   m[k] = r; _loginFailSave(m);
 }
 function loginOk(u) { const m = _loginFailMap(); delete m[String(u).toLowerCase()]; _loginFailSave(m); }
+/** Xoá MỌI khoá đăng nhập — khi tạo lại quán / ngắt liên kết / khôi phục / liên kết máy nhân viên: khoá cũ (theo tên đăng nhập, lưu ở localStorage) không được dính sang quán mới */
+function clearLoginLock() { try { localStorage.removeItem(LOGIN_FAIL_KEY); } catch (e) {} }
 const who = () => (typeof ME !== 'undefined' && ME) ? ME.name + (ME.role ? ' (' + ME.role + ')' : '') : 'Hệ thống';
 const whoId = () => (typeof ME !== 'undefined' && ME) ? ME.id : null;
+/** Vai trò gán được khi tạo tài khoản: KHÔNG có 'Chủ quán' — tài khoản Chủ quán chỉ có lúc tạo quán, không ai (kể cả chủ quán) tạo thêm qua API */
+const STAFF_ASSIGNABLE_ROLES = ['Phục vụ', 'Thu ngân', 'Bếp', 'Quản lý'];
+const STAFF_PRESETS = {
+  'Quản lý':  { pos:1, tables:1, kds:1, reservations:1, tablesAdmin:1, menu:1, stock:1, promo:1, report:1, logs:1 },
+  'Thu ngân': { pos:1, tables:1, reservations:1, promo:1 },
+  'Bếp':      { kds:1, stock:1 },
+  'Phục vụ':  { tables:1, reservations:1 }
+};
+/** Người đang thao tác KHÔNG phải Chủ quán? (không có phiên đăng nhập = lệnh nội bộ của chính engine/test, giữ nguyên như trước: không giới hạn) */
+const actorIsNotOwner = () => typeof ME !== 'undefined' && !!ME && ME.role !== 'Chủ quán';
+/** Tài khoản `target` có "lớn hơn" người đang thao tác không: là Chủ quán, hoặc có quyền k mà người thao tác không có.
+    Chủ quán thì không bị giới hạn. Người không phải Chủ quán không được cấp lại mật khẩu / khoá / đổi tên / đổi quyền / xoá tài khoản như vậy. */
+function staffOutranks(target) {
+  if (!actorIsNotOwner()) return false;
+  if (target.role === 'Chủ quán') return true;
+  const mine = ME.perms || {}, tp = target.perms || {};
+  return Object.keys(tp).some(k => tp[k] && !mine[k]);
+}
+/** Người đang thao tác có BẬT được quyền k cho target không: Chủ quán luôn được; người khác chỉ được khi chính mình có k, hoặc target đã có sẵn k (không phải "cấp thêm"). Engine và màn Nhân viên dùng chung hàm này. */
+function canGrantPerm(target, k) {
+  if (!actorIsNotOwner()) return true;
+  return !!((ME.perms || {})[k]) || !!((target.perms || {})[k]);
+}
+const OUTRANK_MSG = 'Tài khoản này có quyền mà bạn không có (hoặc là Chủ quán) — nhờ chủ quán thao tác';
+/** Mảnh định danh mật khẩu hiện tại của tài khoản (chính là MUỐI ngẫu nhiên của bản băm — đổi/cấp lại mật khẩu là đổi muối; KHÔNG phải bản băm).
+    Lưu cùng phiên đăng nhập để biết phiên đã cũ khi mật khẩu bị đổi/cấp lại. */
+const pwVer = s => (s && s.pw && s.pw.s) || '';
 /** Mã ngẫu nhiên 12 ký tự từ bộ sinh số an toàn — nhiều máy cùng tạo bản ghi offline không được trùng id */
 const rid = () => {
   const a = new Uint32Array(3); crypto.getRandomValues(a);
@@ -115,11 +146,22 @@ async function createStore({ shopName, phone, ownerName, username, appPassword, 
     active: 1, pw: await AuthLocal.hash(appPassword), must_change: 0
   });
   D = db;
+  clearLoginLock();
   addLog('Hệ thống', 'Khởi tạo quán', db.restaurant.name);
   saveD();
   return D;
 }
 
+/** Xoá cờ "đang gọi nhân viên" của ghế thuộc bàn ĐÃ XOÁ (active=0): bàn đã ẩn thì không ai xử lý được lời gọi, banner/chấm báo sẽ hiện mãi. Chỉ đụng ghế có bàn tồn tại và đã bị xoá
+    (bàn chưa kịp đồng bộ về thì chưa coi là đã xoá). Gọi lúc nạp dữ liệu / làm mới. */
+function clearOrphanCalls() {
+  if (!D || !D.seats || !D.tables) return;
+  const dead = new Set(D.tables.filter(t => !t.active).map(t => t.id));
+  if (!dead.size) return;
+  let n = 0;
+  for (const s of D.seats) if (s.calling && dead.has(s.table_id)) { s.calling = 0; s.updated_at = nowMs(); n++; }
+  if (n) saveD();
+}
 function atToday(h, m) { const d = new Date(); d.setHours(h, m, 0, 0); return d.getTime(); }
 
 /* ---------- nghiệp vụ dùng chung ---------- */
@@ -248,6 +290,39 @@ function engineGuard(method, seg, body) {
   return null;
 }
 
+/** Số từ dữ liệu gửi lên: rỗng/không gửi → mặc định; không phải số hữu hạn → NaN (để checkPromo báo lỗi) */
+const numOr = (v, d) => (v === undefined || v === null || v === '' ? d : Number(v));
+/** Kiểm tra & chuẩn hoá các trường của khuyến mãi (dùng cho cả tạo mới lẫn sửa — truyền giá trị cuối cùng sau khi sửa).
+    only (tập tên trường: 'type' | 'value' | 'min_total' | 'use_limit' | 'expires_on'): chỉ kiểm các trường ĐANG ĐƯỢC SỬA. Khuyến mãi cũ có dữ liệu "lệch" ở trường khác
+    (% lớn hơn 100, thiếu giới hạn lượt, ngày sai dạng…) vẫn bật/tắt và đổi tên được — nếu kiểm cả bản ghi thì nút bật/tắt (chỉ gửi {active}) bị chặn oan. */
+function checkPromo(p, only) {
+  const chk = k => !only || only.has(k);
+  const out = { value: p.value, min_total: p.min_total, use_limit: p.use_limit, expires_on: p.expires_on || null };
+  if (chk('type') || chk('value')) {
+    if (!['pct', 'amt'].includes(p.type)) throw err(400, 'Loại giảm giá không hợp lệ');
+    const v = Number(p.value);
+    if (!Number.isFinite(v) || !(v > 0)) throw err(400, 'Giá trị giảm phải lớn hơn 0');
+    if (p.type === 'pct' && v > 100) throw err(400, 'Giảm theo phần trăm tối đa 100%');
+    out.value = Math.round(v);
+  }
+  if (chk('min_total')) {
+    const min = Number(p.min_total);
+    if (!Number.isFinite(min) || min < 0) throw err(400, 'Đơn tối thiểu không được âm');
+    out.min_total = min;
+  }
+  if (chk('use_limit')) {
+    const lim = Number(p.use_limit);
+    if (!Number.isInteger(lim) || lim < 0) throw err(400, 'Giới hạn lượt phải là số nguyên từ 0 trở lên');
+    out.use_limit = lim;
+  }
+  if (chk('expires_on') && out.expires_on !== null) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(out.expires_on));
+    const d = m && new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (!m || d.getFullYear() !== Number(m[1]) || d.getMonth() !== Number(m[2]) - 1 || d.getDate() !== Number(m[3])) throw err(400, 'Ngày hết hạn không hợp lệ');
+  }
+  return out;
+}
+
 async function apiLocal(path, { method = 'GET', body } = {}) {
   await new Promise(r => setTimeout(r, 40));   // trễ nhẹ cho giống mạng thật
   const [p, qs] = path.split('?');
@@ -272,8 +347,9 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     saveD();
     // Máy nhân viên (liên kết QR) không ghi được bản ghi tài khoản lên kho → không buộc đổi mật khẩu ở máy này (chủ quán cấp mật khẩu ở máy chủ quán)
     const mustChange = !!s.must_change && !(typeof Cloud !== 'undefined' && Cloud.role === 'staff');
-    return { token: 'local.' + btoa(JSON.stringify({ sub: s.id })) + '.x',
-             staff: { id: s.id, name: s.name, role: s.role, perms: s.perms, mustChange } };
+    const pv = pwVer(s);
+    return { token: 'local.' + btoa(JSON.stringify({ sub: s.id, pv })) + '.x',
+             staff: { id: s.id, name: s.name, role: s.role, perms: s.perms, mustChange, pv } };
   }
   if (M('POST', 'auth', 'logout')) { if (ME) addLog(who(), 'Đăng xuất'); saveD(); return { ok: true }; }
   if (M('POST', 'auth', 'password')) {
@@ -284,6 +360,9 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     const np = String(body?.newPassword || '');
     if (np.length < 6) throw err(400, 'Mật khẩu mới tối thiểu 6 ký tự');
     s.pw = await AuthLocal.hash(np); s.must_change = 0;
+    // Phiên hiện tại của chính người đổi nhận mật khẩu mới làm mốc: app sẽ tự đăng xuất ngay sau đó, không để refresh() kịp đá "oan" bằng thông báo thu hồi.
+    // Phiên ở MÁY KHÁC của cùng tài khoản vẫn giữ mốc cũ → bị thu hồi ở lần làm mới kế tiếp.
+    if (typeof ME !== 'undefined' && ME && ME.id === s.id) ME.pv = pwVer(s);
     addLog(s.name, 'Đổi mật khẩu'); saveD();
     return { ok: true };
   }
@@ -307,11 +386,15 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   /* --- số liệu báo cáo theo khoảng ngày (tính từ TOÀN BỘ dữ liệu, không phụ thuộc bản chụp bị cắt) --- */
   if (M('GET', 'report-range')) {
     const from = Number(q.from), to = Number(q.to);
+    // Dựng bảng tra (id → bản ghi) MỘT lần: tra bằng .find() cho từng hoá đơn là O(đơn × hoá đơn) — 30 ngày với hàng chục nghìn đơn mất cả phút
+    const ordMap = new Map(D.orders.map(o => [o.id, o]));
+    const tblMap = new Map(D.tables.map(t => [t.id, t]));
+    const staffMap = new Map(D.staff.map(s => [s.id, s.name]));
     const payments = D.payments.filter(p => p.state === 'paid' && (p.paid_at || p.created_at) >= from && (p.paid_at || p.created_at) < to).map(p => {
-      const o = D.orders.find(x => x.id === p.order_id);
-      const t = o && D.tables.find(x => x.id === o.table_id);
+      const o = ordMap.get(p.order_id);
+      const t = o && tblMap.get(o.table_id);
       return { id: p.id, orderId: o ? o.code : p.order_id, total: p.total, method: p.method, ts: p.paid_at || p.created_at,
-               by: (D.staff.find(x => x.id === p.staff_id) || {}).name || '—', label: t ? t.name + ' · Ghế ' + o.seat_no : 'Giao hàng' };
+               by: staffMap.get(p.staff_id) || '—', label: t ? t.name + ' · Ghế ' + o.seat_no : 'Giao hàng' };
     });
     const top = {};
     const inRange = new Set(D.orders.filter(o => o.created_at >= from && o.created_at < to).map(o => o.id));
@@ -365,7 +448,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     if (D.orders.some(o => o.table_id === seg[1] && o.status === 'open')) throw err(409, 'Bàn đang có khách');
     const t = D.tables.find(x => x.id === seg[1]); if (t) t.active = 0;
     // khoá + đổi mã QR mọi ghế: tem cũ dán ở bàn đã xoá không còn gọi món được nữa
-    D.seats.filter(s => s.table_id === seg[1]).forEach(s => { s.locked = 1; s.qr_token = tok(); s.bound_order_id = null; s.updated_at = nowMs(); });
+    D.seats.filter(s => s.table_id === seg[1]).forEach(s => { s.locked = 1; s.calling = 0; s.qr_token = tok(); s.bound_order_id = null; s.updated_at = nowMs(); });
     addLog(who(), 'Xoá bàn', t?.name); saveD(); return { ok: true };
   }
 
@@ -417,6 +500,8 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       const m = D.menu.find(x => x.id === ln.menuItemId && x.active);
       if (!m) throw err(400, 'Món không tồn tại');
       if (m.stock_state === 'out') throw err(409, `${m.name} đã hết hàng`);
+      const q0 = ln.qty == null ? 1 : Number(ln.qty);
+      if (!Number.isInteger(q0) || q0 < 1 || q0 > 999) throw err(400, 'Số lượng phải là số nguyên từ 1 đến 999');
     }
     let o = tableId ? openOrderD(tableId, seatNo) : null;
     const isNew = !o;
@@ -435,7 +520,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       const m = D.menu.find(x => x.id === ln.menuItemId && x.active);
       if (!m) throw err(400, 'Món không tồn tại');
       if (m.stock_state === 'out') throw err(409, `${m.name} đã hết hàng`);
-      const qty = Math.max(1, Number(ln.qty) || 1);
+      const qty = ln.qty == null ? 1 : Number(ln.qty);
       D.orderItems.push({ id: 'it' + rid(), order_id: o.id, menu_item_id: m.id, name_snapshot: m.name,
         price_snapshot: m.price, kitchen_id: m.kitchen_id, qty, note: ln.note || '',
         status: 'queued',
@@ -452,11 +537,16 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     const it = D.orderItems.find(i => i.id === seg[1]);
     if (!it) throw err(404, 'Không tìm thấy món');
     if (it.status === 'cancelled') throw err(409, 'Món này đã bị xoá khỏi đơn, không sửa được nữa');
+    const ordP = D.orders.find(x => x.id === it.order_id);
+    if (ordP && ordP.status !== 'open') throw err(409, 'Đơn đã đóng, không sửa món được nữa');
+    if (body?.status && !['pending', 'queued', 'cooking', 'ready', 'served'].includes(body.status)) throw err(400, 'Trạng thái món không hợp lệ');
     const itBefore = snapOf(it, ['qty', 'note', 'status']);
     if (body?.qty !== undefined) {
-      const n = Math.max(1, Number(body.qty));
+      const n = Number(body.qty);
+      if (!Number.isInteger(n) || n < 1 || n > 999) throw err(400, 'Số lượng phải là số nguyên từ 1 đến 999');
       if (n !== it.qty) {
-        if (it.status !== 'queued' && n < it.qty) throw err(409, 'Món đã vào bếp, không giảm được');
+        // Chỉ chặn giảm khi món ĐÃ VÀO BẾP; món chờ xác nhận (pending) hay chờ bếp (queued) vẫn giảm được
+        if (['cooking', 'ready', 'served'].includes(it.status) && n < it.qty) throw err(409, 'Món đã vào bếp, không giảm được');
         consume(it.menu_item_id, n - it.qty, it.order_id);
         it.qty = n;
       }
@@ -635,11 +725,16 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('GET', 'orders', '*', 'detail')) {
     const o = D.orders.find(x => x.id === seg[1]);
     if (!o) throw err(404, 'Không tìm thấy đơn');
+    const tt = totalD(o.id);
+    // Đơn ĐÃ THANH TOÁN: lấy tạm tính / giảm / thành tiền ĐÃ CHỐT trong bản thanh toán — không tính lại bằng khuyến mãi hiện hành
+    // (tắt/sửa khuyến mãi sau đó sẽ làm đổi số tiền đã thu và hoá đơn in lại). Đơn đang mở vẫn tính động.
+    const paid = o.status === 'paid' ? D.payments.find(p => p.order_id === o.id && p.state === 'paid') : null;
+    const money = paid ? { subtotal: paid.subtotal, discount: paid.discount || 0, total: paid.total } : { subtotal: tt.subtotal, discount: tt.discount, total: tt.total };
     return { ...o, table_name: (D.tables.find(t => t.id === o.table_id) || {}).name,
       items: D.orderItems.filter(i => i.order_id === o.id).sort((a, b) => a.batch - b.batch),
       payments: D.payments.filter(p => p.order_id === o.id),
       seats: seatsOfOrderD(o.id),
-      promo: o.promo_id ? D.promos.find(p => p.id === o.promo_id) : null, ...totalD(o.id) };
+      promo: o.promo_id ? D.promos.find(p => p.id === o.promo_id) : null, ...tt, ...money };
   }
 
   /* --- bếp --- */
@@ -696,7 +791,11 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   /* --- thực đơn, kho, khuyến mãi, nhân viên --- */
   if (M('POST', 'menu')) {
     if (!body?.name?.trim()) throw err(400, 'Nhập tên món');
-    if (!(Number(body.price) > 0)) throw err(400, 'Giá phải lớn hơn 0');
+    if (!(Number(body.price) > 0) || !Number.isFinite(Number(body.price))) throw err(400, 'Giá phải lớn hơn 0');
+    if (!body.categoryId) throw err(400, 'Chọn danh mục cho món');
+    if (!body.kitchenId) throw err(400, 'Chọn khu bếp cho món');
+    if (!D.categories.some(c => c.id === body.categoryId)) throw err(400, 'Danh mục không tồn tại');
+    if (!D.kitchens.some(k => k.id === body.kitchenId)) throw err(400, 'Khu bếp không tồn tại');
     D.menu.push({ id: 'm' + rid(), name: body.name.trim(), description: body.description || '',
       emoji: body.emoji || '🍽️', image: body.image || null, price: Math.round(body.price),
       category_id: body.categoryId, kitchen_id: body.kitchenId, stock_state: body.stockState || 'ok',
@@ -707,7 +806,9 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     const m = D.menu.find(x => x.id === seg[1]);
     if (!m) throw err(404, 'Không tìm thấy món');
     if (body.name !== undefined && !String(body.name).trim()) throw err(400, 'Nhập tên món');
-    if (body.price !== undefined && !(Number(body.price) > 0)) throw err(400, 'Giá phải lớn hơn 0');
+    if (body.price !== undefined && (!(Number(body.price) > 0) || !Number.isFinite(Number(body.price)))) throw err(400, 'Giá phải lớn hơn 0');
+    if (body.categoryId !== undefined && !D.categories.some(c => c.id === body.categoryId)) throw err(400, 'Danh mục không tồn tại');
+    if (body.kitchenId !== undefined && !D.kitchens.some(k => k.id === body.kitchenId)) throw err(400, 'Khu bếp không tồn tại');
     if (body.name !== undefined) body.name = String(body.name).trim();
     const mBefore = snapOf(m, ['name', 'description', 'emoji', 'image', 'price', 'category_id', 'kitchen_id', 'stock_state']);
     Object.assign(m, { name: body.name ?? m.name, description: body.description ?? m.description,
@@ -764,23 +865,29 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   }
   if (M('POST', 'promos')) {
     if (!body?.name?.trim()) throw err(400, 'Nhập tên chương trình');
-    if (!(Number(body.value) > 0)) throw err(400, 'Giá trị giảm phải lớn hơn 0');
-    D.promos.push({ id: 'p' + rid(), name: body.name.trim(), type: body.type, value: Math.round(body.value),
-      min_total: Number(body.minTotal) || 0, use_limit: Number(body.useLimit) || 0, used_count: 0,
-      expires_on: body.expiresOn || null, active: 1, updated_at: nowMs() });
+    const pv = checkPromo({ type: body.type, value: body.value, min_total: numOr(body.minTotal, 0), use_limit: numOr(body.useLimit, 0), expires_on: body.expiresOn || null });
+    D.promos.push({ id: 'p' + rid(), name: body.name.trim(), type: body.type, value: pv.value,
+      min_total: pv.min_total, use_limit: pv.use_limit, used_count: 0,
+      expires_on: pv.expires_on, active: 1, updated_at: nowMs() });
     addLog(who(), 'Tạo khuyến mãi', body.name); saveD(); return { ok: true };
   }
   if (M('PATCH', 'promos', '*')) {
     const p = D.promos.find(x => x.id === seg[1]);
     if (!p) throw err(404, 'Không tìm thấy chương trình');
     if (body.name !== undefined && !String(body.name).trim()) throw err(400, 'Nhập tên chương trình');
-    if (body.value !== undefined && !(Number(body.value) > 0)) throw err(400, 'Giá trị giảm phải lớn hơn 0');
+    // Kiểm tra trên giá trị SAU KHI sửa (đổi loại sang % mà giữ nguyên số tiền 50.000 cũng phải bị chặn)
+    const only = new Set();
+    if (body.type !== undefined || body.value !== undefined) { only.add('type'); only.add('value'); }
+    if (body.minTotal !== undefined) only.add('min_total');
+    if (body.useLimit !== undefined) only.add('use_limit');
+    if (body.expiresOn !== undefined) only.add('expires_on');
+    const pv = checkPromo({ type: body.type ?? p.type, value: body.value !== undefined ? body.value : p.value,
+      min_total: body.minTotal !== undefined ? numOr(body.minTotal, 0) : p.min_total,
+      use_limit: body.useLimit !== undefined ? numOr(body.useLimit, 0) : p.use_limit,
+      expires_on: body.expiresOn !== undefined ? (body.expiresOn || null) : p.expires_on }, only);
     const pBefore = snapOf(p, ['name', 'type', 'value', 'min_total', 'use_limit', 'expires_on', 'active']);
     Object.assign(p, { name: body.name ?? p.name, type: body.type ?? p.type,
-      value: body.value !== undefined ? Math.round(body.value) : p.value,
-      min_total: body.minTotal !== undefined ? Number(body.minTotal) : p.min_total,
-      use_limit: body.useLimit !== undefined ? Number(body.useLimit) : p.use_limit,
-      expires_on: body.expiresOn !== undefined ? (body.expiresOn || null) : p.expires_on,
+      value: pv.value, min_total: pv.min_total, use_limit: pv.use_limit, expires_on: pv.expires_on,
       active: body.active !== undefined ? (body.active ? 1 : 0) : p.active, updated_at: nowMs() });
     diffLog('Sửa khuyến mãi', pBefore.name, pBefore, snapOf(p, ['name', 'type', 'value', 'min_total', 'use_limit', 'expires_on', 'active']),
       { name: ['Tên'], type: ['Loại', v => ({ pct: 'giảm %', amt: 'giảm tiền' }[v] || v)], value: ['Giá trị giảm'], min_total: ['Đơn tối thiểu'], use_limit: ['Giới hạn lượt dùng'], expires_on: ['Hết hạn'], active: ['Đang áp dụng', v => !!v] });
@@ -788,17 +895,22 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   }
   if (M('POST', 'staff')) {
     if (!body?.name?.trim() || !body?.username?.trim()) throw err(400, 'Nhập tên và tên đăng nhập');
+    const role = body.role || 'Phục vụ';
+    if (role === 'Chủ quán') throw err(403, 'Không thể tạo thêm tài khoản Chủ quán');
+    if (!STAFF_ASSIGNABLE_ROLES.includes(role)) throw err(400, 'Vai trò không hợp lệ');
     if (D.staff.some(s => s.username === body.username.trim())) throw err(409, 'Tên đăng nhập đã tồn tại');
-    const preset = {
-      'Quản lý':  { pos:1, tables:1, kds:1, reservations:1, tablesAdmin:1, menu:1, stock:1, promo:1, report:1, logs:1 },
-      'Thu ngân': { pos:1, tables:1, reservations:1, promo:1 },
-      'Bếp':      { kds:1, stock:1 },
-      'Phục vụ':  { tables:1, reservations:1 } }[body.role] || {};
+    let preset = { ...STAFF_PRESETS[role] };
+    let trimmedPerms = [];
+    if (actorIsNotOwner()) {     // người không phải Chủ quán không tạo được tài khoản có quyền vượt quyền của chính mình: quyền mẫu chỉ giữ phần giao với quyền của người tạo
+      const mine = ME.perms || {};
+      trimmedPerms = Object.keys(preset).filter(k => !mine[k]);       // quyền mẫu bị bỏ — trả về để giao diện báo, không cắt âm thầm
+      preset = Object.fromEntries(Object.keys(preset).filter(k => mine[k]).map(k => [k, 1]));
+    }
     const temp = AuthLocal.tempPassword();
-    D.staff.push({ id: 's' + rid(), name: body.name.trim(), role: body.role || 'Phục vụ',
+    D.staff.push({ id: 's' + rid(), name: body.name.trim(), role,
       username: body.username.trim(), perms: preset, active: 1, pw: await AuthLocal.hash(temp), must_change: 1 });
     addLog(who(), 'Tạo tài khoản', body.name); saveD();
-    return { ok: true, tempPassword: temp };
+    return { ok: true, tempPassword: temp, trimmedPerms };
   }
   if (M('PATCH', 'staff', '*')) {
     const s = D.staff.find(x => x.id === seg[1]);
@@ -807,12 +919,14 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     // Không cho khoá tài khoản Chủ quán qua API này dưới bất kỳ hình thức nào — kể cả tự khoá chính mình —
     // vì đây là tài khoản duy nhất không ai khác mở lại được.
     if (s.role === 'Chủ quán' && body.active === false) throw err(403, 'Không thể tự khoá tài khoản chủ quán');
+    if (staffOutranks(s)) throw err(403, OUTRANK_MSG);
     const sBefore = { name: s.name, active: s.active, perms: Object.keys(s.perms || {}).filter(k => s.perms[k]).sort().join(', ') };
-    if (body.perms && typeof ME !== 'undefined' && ME && ME.role !== 'Chủ quán') {
-      // Người không phải Chủ quán không được tự nâng quyền: không sửa quyền của chính mình, không cấp quyền mà mình chưa có
+    if (body.perms && actorIsNotOwner()) {
+      // Người không phải Chủ quán không được tự nâng quyền: không sửa quyền của chính mình, không cấp thêm quyền mà mình chưa có.
+      // Chỉ xét quyền MỚI ĐƯỢC THÊM (bật trong body.perms mà tài khoản đang tắt): giao diện gửi cả bản đồ quyền {...quyền cũ, [k]: bật/tắt},
+      // nếu xét cả bản đồ thì sửa quyền người khác bị chặn oan chỉ vì họ đã có sẵn quyền mà mình không có.
       if (s.id === whoId()) throw err(403, 'Không tự đổi quyền của chính mình — nhờ chủ quán');
-      const mine = ME.perms || {};
-      const over = Object.keys(body.perms).filter(k => body.perms[k] && !mine[k]);
+      const over = Object.keys(body.perms).filter(k => body.perms[k] && !canGrantPerm(s, k));
       if (over.length) throw err(403, 'Không thể cấp quyền mà bạn chưa có');
     }
     if (body.perms) s.perms = body.perms;
@@ -826,14 +940,18 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     const st = D.staff.find(x => x.id === seg[1]);
     if (!st) throw err(404, 'Không tìm thấy nhân viên');
     if (st.role === 'Chủ quán' && whoId() !== st.id) throw err(403, 'Không thể cấp lại mật khẩu của tài khoản chủ quán');
+    if (staffOutranks(st)) throw err(403, OUTRANK_MSG);
     const temp = AuthLocal.tempPassword();
     st.pw = await AuthLocal.hash(temp); st.must_change = 1;
+    // Mật khẩu mới = muối mới → phiên đang mở của tài khoản này (ở máy khác) bị thu hồi ở lần làm mới kế tiếp (core.js refresh). Người tự cấp lại cho chính mình giữ phiên hiện tại.
+    if (typeof ME !== 'undefined' && ME && ME.id === st.id) ME.pv = pwVer(st);
     addLog(who(), 'Cấp lại mật khẩu', st.name); saveD(); return { tempPassword: temp };
   }
   if (M('DELETE', 'staff', '*')) {
     const s = D.staff.find(x => x.id === seg[1]);
     if (!s) throw err(404, 'Không tìm thấy nhân viên');
     if (s.role === 'Chủ quán') throw err(403, 'Không thể xoá tài khoản chủ quán');
+    if (staffOutranks(s)) throw err(403, OUTRANK_MSG);
     if (s.active) throw err(409, 'Chỉ xoá được tài khoản đang khoá — khoá tài khoản này trước');
     D.staff = D.staff.filter(x => x.id !== s.id);
     addLog(who(), 'Xoá tài khoản nhân viên', s.name); saveD();

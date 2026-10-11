@@ -248,7 +248,7 @@ function vHistory() {
         return `<button class="card between" data-act="histOpen" data-id="${o.id}" style="width:100%;text-align:left">
           <div style="flex:1;min-width:0">
             <div class="t-md">${esc(o.code)} · ${esc(o.table_name || 'Giao hàng')}${o.seat_no ? ` · Ghế ${o.seat_no}` : ''}</div>
-            <div class="t-xs mono">${dstr(o.created_at)} · ${o.item_count} món${o.paid_method ? ' · ' + esc(o.paid_method) : ''}</div>
+            <div class="t-xs mono">${dstr(o.created_at)} · ${o.item_count} món${o.paid_method ? ' · ' + esc(payMethodLabel(o.paid_method)) : ''}</div>
           </div>
           <div class="col" style="align-items:flex-end;gap:6px">
             <span class="badge ${cls}">${lb}</span>

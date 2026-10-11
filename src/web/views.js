@@ -111,7 +111,7 @@ const VIETQR_BANKS = [
 /* ============ NAV ============ */
 function navBar(active){
   const kdsPending = DB.orders.filter(o=>o.status==='open' && o.items.some(i=>i.status!=='served')).length;
-  const calls = Object.values(DB.seatsState).filter(s=>s.calling).length;
+  const calls = callingSeatKeys().length;   // bỏ qua ghế của bàn đã xoá/ẩn
   const item=(n,ic,lb,dot)=>`<a data-go="${n}" class="${active===n?'on':''}">${icon(ic)}<span${lb==='Quản lý'?' data-en="Manage"':''}>${lb}</span>${dot?'<i class="dot"></i>':''}</a>`;
   const pay = DB.orders.filter(o => o.status === 'open' && o.items.length
     && o.items.every(i => i.status === 'served')).length;
@@ -166,7 +166,7 @@ function vTables(){
           <div style="flex:1"><div class="t-md" style="color:var(--amber)">${w.length} đơn khách chờ bạn xác nhận</div>
           <div class="t-xs" style="color:var(--amber)">${w.map(o=>{const t=tableById(o.tableId);return esc((t?t.name:'Bàn')+' · Ghế '+o.seatNo)}).join(', ')}</div></div>
           <button class="btn sm" data-go="order" data-id="${w[0].id}">Xem</button></div></div>`:''})()}
-      ${(()=>{const calls=Object.entries(DB.seatsState).filter(([k,s])=>s.calling);
+      ${(()=>{const calls=callingSeatKeys().map(k=>[k]);
         return calls.length?`<div class="card" style="background:var(--amber-soft);border-color:var(--amber)">
         <div class="row"><span style="color:var(--amber)">${icon('bell')}</span>
         <div style="flex:1"><div class="t-md" style="color:var(--amber)">${calls.length} ghế đang gọi nhân viên</div>
@@ -679,7 +679,7 @@ function kdsByTicket(tickets, k){
     const late = mins(o.createdAt)>15 && items.some(i=>i.status!=='served');
     const done = items.every(i=>i.status==='served');
     const t = o.tableId==='delivery'?null:tableById(o.tableId);
-    const label = t?`${esc(t.name)} · Ghế ${o.seatNo}`:`Giao hàng · ${esc(o.customer.name||'App')}`;
+    const label = t?`${esc(t.name)} · Ghế ${o.seatNo}`:`Giao hàng · ${o.customer.name?usr(o.customer.name):'App'}`;
     return `<div class="ticket ${late?'late':''} ${done?'done':''}">
       <div class="th"><span style="font-size:14px;font-weight:700">${label}</span>
       <span class="mono" style="font-size:13px;font-weight:700;color:${done?'#6FBB92':late?'#E08276':'#D8B24C'}">${done?'✓ Xong':elapsed(o.createdAt)}</span></div>
@@ -1033,14 +1033,31 @@ function periodBar(routeName, params) {
 
 
 /** Số liệu báo cáo theo khoảng ngày lấy từ TOÀN BỘ dữ liệu (bản chụp màn hình chỉ giữ 200 hoá đơn gần nhất). Chưa tải xong thì trả null và vẽ tạm theo bản chụp. */
+const REPORT_MIN_GAP_MS = 5000, REPORT_ERR_BASE_MS = 3000, REPORT_ERR_MAX_TRIES = 6;
 function reportData(range){
-  const key = range.from + '-' + range.to, R = window._rep;
+  const key = range.from + '-' + range.to, R = window._rep, t = Date.now();
   if (R && R.key === key && !R.stale) return R;
-  if (window._repLoading !== key) {
+  // Chưa được tính (lại) ngay: (1) khoá này vừa lỗi → lùi nhịp 3s, 6s, 12s… tối đa 60s; (2) số liệu cũ chỉ vì dữ liệu vừa đổi → tính lại tối đa 5 giây/lần
+  let wait = 0, giveUp = false;
+  const E = window._repErr;
+  if (E && E.key === key) {
+    wait = Math.max(wait, E.at + Math.min(60000, REPORT_ERR_BASE_MS * Math.pow(2, Math.min(E.n - 1, 5))) - t);
+    giveUp = E.n >= REPORT_ERR_MAX_TRIES;     // lỗi mãi → thôi tự thử lại; chỉ thử lại khi người dùng thao tác (đổi khoảng ngày, vào lại màn…)
+  }
+  if (R && R.key === key && R.stale && R.at) wait = Math.max(wait, R.at + REPORT_MIN_GAP_MS - t);
+  if (wait > 0) {
+    if (!window._repTimer && !giveUp) {
+      window._repTimer = setTimeout(() => {
+        window._repTimer = null;
+        if (route.name === 'reports' && (typeof safeToRender !== 'function' || safeToRender())) render();
+      }, wait + 30);
+    }
+  } else if (window._repLoading !== key) {
     window._repLoading = key;
+    const ver = window._repVer || 0;           // dữ liệu có đổi trong lúc đang tải không → đánh dấu cũ ngay
     api('/report-range?from=' + range.from + '&to=' + range.to)
-      .then(r => { window._rep = { key, payments: r.payments, top: r.top, stale: false }; })
-      .catch(() => {})
+      .then(r => { window._rep = { key, payments: r.payments, top: r.top, stale: (window._repVer || 0) !== ver, at: Date.now() }; window._repErr = null; })
+      .catch(() => { const E2 = window._repErr; window._repErr = { key, at: Date.now(), n: E2 && E2.key === key ? E2.n + 1 : 1 }; })
       .finally(() => { if (window._repLoading === key) window._repLoading = null; if (route.name === 'reports' && (typeof safeToRender !== 'function' || safeToRender())) render(); });
   }
   return R && R.key === key ? R : null;
@@ -1102,6 +1119,8 @@ function vStaff(){
   const sel = route.params.id || DB.staff[0].id;
   const s = DB.staff.find(x=>x.id===sel) || DB.staff[0];
   const P = SCREENS.map(sc => [sc.key, sc.label, sc.desc]);
+  // Người không phải Chủ quán không được động tới tài khoản "lớn hơn" mình, và không tự đổi quyền của mình — dùng đúng hàm của engine (staffOutranks / canGrantPerm), không nhân bản luật
+  const noTouch = staffOutranks(s), selfLock = actorIsNotOwner() && s.id === ME.id;
   return `<div class="screen">
     ${hdr('Nhân viên', `${DB.staff.filter(x=>x.active).length} đang hoạt động`, {right:`<button class="iconbtn" data-act="newStaff" aria-label="Thêm nhân viên" style="background:var(--accent);color:#fff">${icon('plus')}</button>`})}
     <div class="body">
@@ -1113,16 +1132,17 @@ function vStaff(){
       <div class="sec">Được vào màn hình nào · ${esc(s.name)}</div>
       ${s.role==='Chủ quán'?`<div class="card row" style="background:var(--chip);border:none">
         <span class="t-sm" style="flex:1">Chủ quán luôn vào được mọi màn hình, không cần cấp quyền.</span></div>`:''}
-      ${P.map(([k,lb,desc])=>`<label class="card between" style="${s.role==='Chủ quán'?'opacity:.5':''}">
+      ${noTouch?`<div class="card row" style="background:var(--amber-soft);border-color:var(--amber)"><span class="t-sm" style="flex:1;color:var(--amber)">Tài khoản này có quyền mà bạn không có (hoặc là Chủ quán) — bạn chỉ xem được, nhờ chủ quán thay đổi.</span></div>`:''}
+      ${P.map(([k,lb,desc])=>{const off=s.role==='Chủ quán'||noTouch||selfLock||(!s.perms[k]&&!canGrantPerm(s,k));return `<label class="card between" style="${s.role==='Chủ quán'||noTouch||selfLock||off?'opacity:.5':''}">
         <div style="flex:1"><div class="t-sm">${esc(lb)}</div><div class="t-xs">${esc(desc)}</div></div>
         <input type="checkbox" class="switch" data-act="perm" data-id="${s.id}" data-k="${k}"
-          ${s.role==='Chủ quán'||s.perms[k]?'checked':''} ${s.role==='Chủ quán'?'disabled':''} aria-label="${esc(lb)}">
-      </label>`).join('')}
+          ${s.role==='Chủ quán'||s.perms[k]?'checked':''} ${off?'disabled':''} aria-label="${esc(lb)}">
+      </label>`}).join('')}
       <div class="row" style="gap:8px;margin-top:6px">
-        <button class="btn sm ${s.active?'danger':'ok'}" data-act="toggleStaff" data-id="${s.id}" style="flex:1">${s.active?'Khoá tài khoản':'Mở khoá'}</button>
-        <button class="btn sm ghost" data-act="resetPw" data-id="${s.id}" style="flex:1">Cấp lại mật khẩu</button>
+        <button class="btn sm ${s.active?'danger':'ok'}" data-act="toggleStaff" data-id="${s.id}" ${noTouch?'disabled':''} style="flex:1">${s.active?'Khoá tài khoản':'Mở khoá'}</button>
+        <button class="btn sm ghost" data-act="resetPw" data-id="${s.id}" ${noTouch?'disabled':''} style="flex:1">Cấp lại mật khẩu</button>
       </div>
-      ${(!s.active && s.role !== 'Chủ quán') ? `<button class="btn sm danger" data-act="delStaffAsk" data-id="${s.id}" style="width:100%;margin-top:8px">Xoá hẳn tài khoản</button>
+      ${(!s.active && s.role !== 'Chủ quán' && !noTouch) ? `<button class="btn sm danger" data-act="delStaffAsk" data-id="${s.id}" style="width:100%;margin-top:8px">Xoá hẳn tài khoản</button>
         <div class="t-xs" style="margin-top:4px;color:var(--muted)">Chỉ xoá được tài khoản đang khoá. Không thể hoàn tác.</div>` : ''}
     </div>
     ${navBar('admin')}

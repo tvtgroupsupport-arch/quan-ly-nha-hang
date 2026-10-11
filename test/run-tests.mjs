@@ -1658,6 +1658,1024 @@ t.group('38b. Sửa lỗi từ đợt rà soát: phân quyền, phiên đăng nh
   t.eq(S.Sync.state.status, 'auth', 'máy phụ mất phiên → trạng thái cần đăng nhập lại (không phải "bị thu hồi")');
   t.eq(S.D.orders.length, keep, 'dữ liệu trên máy phụ KHÔNG bị xoá khi chỉ mất phiên');
 }
+t.group('38c. Báo cáo nhiều đơn: tra bảng id→bản ghi (không O(n²)); lỗi tải báo cáo không gọi API lặp vô hạn; tính lại có giới hạn tần suất');
+{
+  const w = newWorld(); const A = await setupOwner(w, { link: false });
+  const ownerId = A.D.staff.find(s => s.role === 'Chủ quán').id, tid = A.D.tables[0].id;
+  const N = 60000, now0 = Date.now(), STEP = 43000;     // 60.000 đơn rải đều ~30 ngày
+  for (let i = 0; i < N; i++) {
+    const ts = now0 - i * STEP, oid = 'ob' + i;
+    A.D.orders.push({ id: oid, code: '#' + (5000 + i), table_id: tid, seat_no: 1, source: 'staff', status: 'paid', promo_id: null, created_at: ts, updated_at: ts });
+    A.D.orderItems.push({ id: 'ib' + i, order_id: oid, menu_item_id: A.D.menu[0].id, name_snapshot: 'Món thử', price_snapshot: 1000, qty: 1, status: 'served', batch: 1, created_at: ts, updated_at: ts });
+    A.D.payments.push({ id: 'pb' + i, order_id: oid, method: 'cash', subtotal: 1000, discount: 0, total: 1000, state: 'paid', staff_id: ownerId, created_at: ts, paid_at: ts });
+  }
+  const from = now0 - 31 * 86400000, to = now0 + 1000;
+  let t0 = performance.now();
+  const rr = await A.api(`/report-range?from=${from}&to=${to}`);
+  const msRange = performance.now() - t0;
+  t.ok(rr.payments.length === N && rr.top['Món thử'] === N, `báo cáo 30 ngày với ${N} đơn tính đủ số liệu`);
+  t.ok(msRange < 3000, `/report-range với ${N} đơn chạy nhanh (${Math.round(msRange)} ms < 3000 ms; bản cũ O(n×m) mất hàng chục giây)`);
+  t0 = performance.now();
+  const nSaved = A.saved.length;
+  await A.exportExcelLocal('payments', from, to, 'save');
+  await A.exportExcelLocal('orders', from, to, 'save');
+  const msExp = performance.now() - t0;
+  t.ok(A.saved.length === nSaved + 2 && msExp < 6000, `xuất báo cáo thanh toán + đơn hàng ${N} dòng không treo (${Math.round(msExp)} ms < 6000 ms)`);
+
+  // reportData(): lỗi tải → nhớ khoá đã lỗi + lùi nhịp, KHÔNG gọi lại API vô hạn
+  A.route = { name: 'reports', params: {} };
+  const realOrders = A.D.orders;
+  let reads = 0;
+  Object.defineProperty(A.D, 'orders', { configurable: true, enumerable: true, get() { reads++; throw new Error('boom'); }, set() {} });
+  A.VIEWS.reports();
+  await new Promise(r => setTimeout(r, 400));
+  t.eq(reads, 1, 'báo cáo lỗi → chỉ gọi API ĐÚNG 1 lần rồi lùi nhịp (bản cũ: vẽ lại → gọi lại → lỗi → … vô hạn, đo được hàng trăm lần)');
+  t.ok(A.window._repErr && A.window._repErr.n === 1, 'ghi nhớ khoá đã lỗi để lùi nhịp');
+  // dữ liệu bình thường: cứ dữ liệu đổi (stale) không được tính lại liên tục — tối thiểu 5 giây giữa hai lần
+  Object.defineProperty(A.D, 'orders', { configurable: true, enumerable: true, writable: true, value: realOrders });
+  A.window._repErr = null; A.window._rep = null;
+  reads = 0;
+  Object.defineProperty(A.D, 'orders', { configurable: true, enumerable: true, get() { reads++; return realOrders; }, set() {} });
+  A.VIEWS.reports();
+  await A.until(() => A.window._rep && !A.window._rep.stale);
+  t.eq(reads, 2, 'lần đầu: tải số liệu đúng 1 lần (mỗi lần gọi /report-range đọc D.orders 2 lần)');
+  await A.refresh(); const afterRefresh = reads;          // refresh() đánh dấu số liệu cũ (stale)
+  t.ok(A.window._rep.stale, 'dữ liệu đổi → số liệu báo cáo bị đánh dấu cũ');
+  for (let i = 0; i < 6; i++) A.VIEWS.reports();
+  await new Promise(r => setTimeout(r, 200));
+  t.eq(reads, afterRefresh, 'vẽ lại nhiều lần trong 5 giây: KHÔNG tính lại số liệu (bản cũ tính lại ngay sau mỗi lần dữ liệu đổi)');
+  A.clockOffset += 6000;
+  A.VIEWS.reports();
+  await A.until(() => reads > afterRefresh);
+  await new Promise(r => setTimeout(r, 100));
+  t.eq(reads, afterRefresh + 2, 'qua 5 giây thì được tính lại đúng 1 lần');
+  Object.defineProperty(A.D, 'orders', { configurable: true, enumerable: true, writable: true, value: realOrders });
+}
+t.group('38d. Đồng bộ: lùi nhỏ ở lượt nền, huỷ lượt đang bay khi ngắt liên kết, lượt quá hạn không phá lượt mới, lỗi mạng tạm ≠ mất phiên, máy nhân viên mất phiên có đường thoát');
+{
+  // --- (2) lượt nền chỉ kéo lùi nhỏ; nhịp định kỳ/syncNow/mở lại app mới lùi đủ ---
+  const w = newWorld(); const A = await setupOwner(w); const S = await addStaffDevice(w, A, 'lui');
+  await S.sync();
+  const cursor = 1000; await S.Persist.setMeta('cursor', cursor);      // đặt con trỏ lớn để thấy rõ độ lùi
+  const froms = [];
+  { const st = S.Cloud.store, realFrom = st.from.bind(st);
+    st.from = tbl => { const q = realFrom(tbl); if (tbl === 'records') { const g = q.gt.bind(q); q.gt = (c, v) => { if (c === 'seq') froms.push(v); return g(c, v); }; } return q; }; }
+  await S.Sync.cycle({ quick: true });
+  t.eq(froms[0], cursor - 50, 'lượt nền (Realtime/sau lưu cục bộ) chỉ lùi nhỏ 50 dòng — không kéo lại 400 dòng mỗi lần');
+  froms.length = 0; await S.Sync.syncNow();
+  t.eq(froms[0], cursor - 400, 'syncNow() (gọi tay) lùi đủ 400 dòng');
+  froms.length = 0; S.Sync.kick(0); await S.runTimers();
+  t.eq(froms[0], cursor - 50, 'kick() thường (nền) lùi nhỏ');
+  froms.length = 0; S.Sync.kick(0, { deep: true }); await S.runTimers();
+  t.eq(froms[0], cursor - 400, 'kick(…, {deep:true}) (nhịp định kỳ / mở lại app / có mạng lại) lùi đủ');
+  froms.length = 0; S.Sync.kick(0, { deep: true }); S.Sync.kick(0); await S.runTimers();
+  t.eq(froms[0], cursor - 400, 'yêu cầu lùi đủ không bị một kick nền đến sau thay thế làm mất');
+  const syncSrc = fs.readFileSync(new URL('../src/cloud/sync.js', import.meta.url), 'utf8');
+  t.ok(syncSrc.includes('setInterval(() => kick(0, { deep: true }), 30000)'), 'nhịp định kỳ 30 giây luôn lùi đủ (bắt bản ghi commit đảo thứ tự)');
+  t.ok(fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8').includes('Sync.kick(0, { deep: true });      // mở lại app'), 'mở lại app (resume) lùi đủ');
+
+  // --- (13) ngắt liên kết giữa lúc đang kéo: dữ liệu quán cũ không "sống lại" ---
+  const w2 = newWorld(); const A2 = await setupOwner(w2); const S2 = await addStaffDevice(w2, A2, 'huy');
+  await A2.api('/settings', { method: 'PATCH', body: { sound: false } }); await A2.sync();
+  const cursorBefore = S2.Persist.getMeta('cursor', 0);
+  t.ok(cursorBefore > 0, 'máy phụ đã có con trỏ đồng bộ trước khi ngắt');
+  let release; const gate = new Promise(r => { release = r; });
+  { const st = S2.Cloud.store, realFrom = st.from.bind(st);
+    st.from = tbl => { const q = realFrom(tbl); if (tbl === 'records') { const th = q.then.bind(q); q.then = (a, b) => th(res => gate.then(() => (a ? a(res) : res)), b); } return q; }; }   // máy chủ ĐÃ trả dữ liệu, nhưng nó chỉ tới máy sau khi ngắt liên kết
+  const pulling = S2.Sync.syncNow();
+  await new Promise(r => setTimeout(r, 60));                 // lượt đồng bộ đã tới truy vấn kéo và đang chờ
+  await S2.Cloud.unlinkAll();
+  release();
+  await pulling;
+  await S2.Persist.idle();
+  t.eq(S2.Persist.getMeta('cursor', 0), 0, 'ngắt liên kết giữa lúc kéo → KHÔNG ghi con trỏ cũ xuống máy');
+  t.eq([S2.D.menu.length, S2.D.tables.length, S2.D.orders.length, S2.D.settings && S2.D.settings.sound === false ? 1 : 0], [0, 0, 0, 0], 'D vẫn rỗng — dữ liệu quán cũ không sống lại sau khi ngắt liên kết');
+  { const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(S2.file);
+    t.eq([db.prepare('select count(*) c from records').get().c, db.prepare('select count(*) c from meta').get().c], [0, 0], 'SQLite trên máy cũng rỗng (không có dòng nào bị ghi sau khi xoá)'); db.close(); }
+  t.eq(S2.Sync.state.running, false, 'trạng thái đồng bộ không kẹt "đang chạy" sau khi huỷ');
+
+  // --- (14) lượt cũ quá hạn không được phá lượt mới ---
+  const w3 = newWorld(); const A3 = await setupOwner(w3);
+  await A3.sync();
+  await A3.api('/settings', { method: 'PATCH', body: { sound: false } }); await A3.save();
+  t.ok(A3.Records.dirtyCount() > 0, 'có thay đổi chưa gửi');
+  const st3 = A3.Cloud.store, orig3 = st3.rpc.bind(st3);
+  let hang = true, releasePush; const pushGate = new Promise(r => { releasePush = r; });
+  st3.rpc = (n, ...a) => (n === 'store_status' && hang) ? new Promise(() => {}) : n === 'push_records' ? pushGate.then(() => orig3(n, ...a)) : orig3(n, ...a);
+  A3.timers = [];
+  const run1 = A3.Sync.cycle();                               // lượt A: treo ở store_status
+  await new Promise(r => setTimeout(r, 30));
+  const timersOfA = A3.timers.slice(); A3.timers = [];
+  hang = false; A3.clockOffset += 200000;                     // quá 1,5 × thời hạn → lượt mới được phép thay thế lượt treo
+  const run2 = A3.Sync.cycle();                               // lượt B: chạy tới push_records (đang chờ)
+  await new Promise(r => setTimeout(r, 60));
+  for (const x of timersOfA) await x.fn();                    // hẹn giờ quá hạn của lượt A nổ MUỘN, khi lượt B đang chạy
+  releasePush();
+  await run2; await run1;
+  t.eq(A3.Sync.state.status, 'ok', 'lượt A nổ quá hạn muộn KHÔNG đặt trạng thái lỗi đè lên lượt B');
+  t.eq(A3.Records.dirtyCount(), 0, 'lượt B không bị huỷ oan: thay đổi đã gửi xong và đánh dấu sạch');
+  t.eq(A3.Sync.state.running, false, 'sau khi lượt B xong, không còn cờ "đang chạy"');
+
+  // --- (15) lỗi mạng tạm khi kiểm tra phiên ≠ mất phiên ---
+  const w4 = newWorld(); const A4 = await setupOwner(w4);
+  const st4 = A4.Cloud.store, gs = st4.auth.getSession;
+  t.eq(await A4.Cloud.sessionState(), 'ok', 'sessionState: còn phiên → ok');
+  st4.auth.getSession = async () => ({ data: { session: null }, error: { message: 'Failed to fetch' } });
+  t.eq(await A4.Cloud.sessionState(), 'unknown', 'session=null KÈM error (làm mới token thất bại vì mạng) → unknown, không phải none');
+  await A4.Sync.syncNow();
+  t.eq(A4.Sync.state.status, 'offline', 'lỗi mạng tạm khi làm mới token → trạng thái offline, tự thử lại (KHÔNG báo "cần đăng nhập lại")');
+  t.eq(A4.Sync.state.lastError, '', 'không hiện lỗi đáng sợ cho chủ quán');
+  st4.auth.getSession = async () => { throw new Error('boom'); };
+  t.eq(await A4.Cloud.sessionState(), 'unknown', 'getSession ném lỗi → unknown');
+  st4.auth.getSession = async () => ({ data: { session: null }, error: null });
+  t.eq(await A4.Cloud.sessionState(), 'none', 'không có session và không có lỗi → none (mất phiên thật)');
+  await A4.Sync.syncNow();
+  t.eq(A4.Sync.state.status, 'auth', 'mất phiên thật → cần đăng nhập lại');
+  st4.auth.getSession = gs;
+  await A4.Sync.syncNow();
+  t.eq(A4.Sync.state.status, 'ok', 'phiên trở lại → đồng bộ bình thường');
+
+  // --- (16) máy nhân viên mất phiên thật: có đường thoát KHÔNG mất dữ liệu chưa gửi ---
+  const w5 = newWorld(); const A5 = await setupOwner(w5); const S5 = await addStaffDevice(w5, A5, 'matphien');
+  await S5.login('chuquan', 'chuquan123');
+  const o5 = await order(S5, 'Bàn 02', 1, [['Trà đá', 2]]);
+  await S5.save();
+  t.ok(S5.Records.dirtyCount() > 0, 'máy nhân viên có thay đổi chưa gửi');
+  delete S5.sessions['sb-store'];                              // mất phiên đăng nhập vào kho
+  await S5.Sync.syncNow();
+  t.eq(S5.Sync.state.status, 'auth', 'máy nhân viên mất phiên → trạng thái cần xử lý');
+  t.ok(/liên kết lại bằng mã QR/.test(S5.Sync.state.lastError) && /không bị mất/.test(S5.Sync.state.lastError), 'thông báo chỉ đúng đường thoát và không hứa điều không làm được: ' + S5.Sync.state.lastError);
+  S5.route = { name: 'cloud', params: {} };
+  t.ok(S5.VIEWS.cloud().includes('c_rejoinGo') && S5.VIEWS.cloud().includes('c_rejoinScan'), 'màn Đồng bộ của máy nhân viên có nút Liên kết lại (quét / dán mã)');
+  await t.rejects(() => S5.Cloud.rejoinAsStaff('QLNH1|https://quan-khac.test|' + ANON + '|' + 'a'.repeat(32)), /quán khác/, 'mã mời của QUÁN KHÁC bị từ chối (không để dữ liệu hai quán lẫn nhau)');
+  t.ok(S5.D.orders.some(o => o.id === o5.id), 'dữ liệu chưa gửi vẫn còn nguyên sau lần thử sai');
+  const inv5 = await A5.Cloud.createInvite();
+  await S5.Cloud.rejoinAsStaff(inv5.payload);
+  t.ok(S5.D.orders.some(o => o.id === o5.id) && S5.D.tables.length > 0, 'liên kết lại bằng mã QR mới KHÔNG xoá dữ liệu trên máy');
+  await S5.sync();
+  t.eq(S5.Sync.state.status, 'ok', 'sau khi liên kết lại, đồng bộ bình thường');
+  t.eq(S5.Records.dirtyCount(), 0, 'các thay đổi chưa gửi đã được gửi lên bằng thiết bị mới');
+  await A5.sync();
+  t.ok(A5.D.orders.some(o => o.id === o5.id), 'chủ quán nhận được đơn của máy nhân viên đã mất phiên');
+  t.eq(w5.store.devices.size, 2, 'thiết bị mới được ghi nhận (máy cũ có thể bị thu hồi sau)');
+}
+t.group('38e. Phân quyền tài khoản (không nâng quyền, không chiếm tài khoản lớn hơn), thu hồi phiên khi đổi mật khẩu, khoá đăng nhập lặp lại / xoá khi tạo lại quán, xoá bàn');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  const ownerId = A.D.staff.find(s => s.role === 'Chủ quán').id;
+  const mk = async (name, username, role, perms) => {
+    const r = await A.api('/staff', { method: 'POST', body: { name, username, role } });
+    const id = A.D.staff.find(s => s.username === username).id;
+    if (perms) await A.api('/staff/' + id, { method: 'PATCH', body: { perms } });
+    return { id, pw: r.tempPassword };
+  };
+  const preset = A.D.staff.length && { pos: 1, tables: 1, kds: 1, reservations: 1, tablesAdmin: 1, menu: 1, stock: 1, promo: 1, report: 1, logs: 1 };
+  // (4) chủ quán cũng không tạo thêm được tài khoản Chủ quán; vai trò lạ bị từ chối
+  await t.rejects(() => A.api('/staff', { method: 'POST', body: { name: 'X', username: 'x1', role: 'Chủ quán' } }), /Chủ quán/, 'không ai (kể cả chủ quán) tạo thêm được tài khoản Chủ quán qua API');
+  await t.rejects(() => A.api('/staff', { method: 'POST', body: { name: 'X', username: 'x2', role: 'Siêu quản trị' } }), /Vai trò/, 'vai trò lạ bị từ chối');
+  t.eq(A.D.staff.length, 1, 'không có tài khoản nào được tạo ra từ các lần thử trên');
+  const qlFull = await mk('QL Đủ', 'qlfull', 'Quản lý', { ...preset, staff: 1 });
+  const qlLim = await mk('QL Hạn chế', 'qllim', 'Quản lý', { pos: 1, staff: 1 });
+  const tn = await mk('Thu ngân', 'tn', 'Thu ngân');
+  // Quản lý HẠN CHẾ (chỉ có pos + staff)
+  await A.login('qllim', qlLim.pw);
+  await A.api('/staff', { method: 'POST', body: { name: 'Con', username: 'con', role: 'Quản lý' } });
+  const con = A.D.staff.find(s => s.username === 'con');
+  t.eq(Object.keys(con.perms).sort(), ['pos'], 'tài khoản do Quản lý hạn chế tạo chỉ nhận phần quyền giao với quyền của người tạo (không vượt quyền)');
+  await A.api('/staff', { method: 'POST', body: { name: 'Bep', username: 'bep1', role: 'Bếp' } });
+  t.eq(A.D.staff.find(s => s.username === 'bep1').perms, {}, 'vai trò Bếp: người tạo không có quyền bếp/kho → tài khoản không nhận quyền nào');
+  await t.rejects(() => A.api(`/staff/${ownerId}/reset-password`, { method: 'POST' }), /chủ quán/i, 'không cấp lại mật khẩu của Chủ quán');
+  await t.rejects(() => A.api(`/staff/${tn.id}/reset-password`, { method: 'POST' }), /quyền mà bạn không có/, 'không cấp lại mật khẩu tài khoản có quyền mình không có (Thu ngân có tables/reservations/promo)');
+  await t.rejects(() => A.api(`/staff/${qlFull.id}`, { method: 'PATCH', body: { name: 'Đổi tên' } }), /quyền mà bạn không có/, 'không đổi tên tài khoản lớn hơn');
+  await t.rejects(() => A.api(`/staff/${qlFull.id}`, { method: 'PATCH', body: { active: false } }), /quyền mà bạn không có/, 'không khoá tài khoản lớn hơn');
+  await t.rejects(() => A.api(`/staff/${qlFull.id}`, { method: 'PATCH', body: { perms: {} } }), /quyền mà bạn không có/, 'không đổi quyền tài khoản lớn hơn');
+  await t.rejects(() => A.api(`/staff/${ownerId}`, { method: 'PATCH', body: { name: 'Hack' } }), /chủ quán/i, 'không sửa tài khoản Chủ quán');
+  const r1 = await A.api(`/staff/${con.id}/reset-password`, { method: 'POST' });
+  t.ok(r1.tempPassword, 'nhưng vẫn cấp lại được mật khẩu cho tài khoản nằm trong phạm vi quyền của mình');
+  await A.api(`/staff/${con.id}`, { method: 'PATCH', body: { name: 'Con 2', active: false } });
+  t.eq(A.D.staff.find(s => s.id === con.id).name, 'Con 2', '…và sửa/khoá được tài khoản đó');
+  // (5) Quản lý ĐỦ quyền sửa quyền người khác bằng cả bản đồ quyền (như giao diện gửi) — không bị 403 oan
+  await A.login('qlfull', qlFull.pw);
+  const tnPerms = A.D.staff.find(s => s.id === tn.id).perms;
+  await A.api(`/staff/${tn.id}`, { method: 'PATCH', body: { perms: { ...tnPerms, report: true } } });
+  t.ok(A.D.staff.find(s => s.id === tn.id).perms.report, 'cấp thêm quyền mình đang có (gửi cả bản đồ quyền cũ + quyền mới) → được');
+  await A.api(`/staff/${tn.id}`, { method: 'PATCH', body: { perms: { ...A.D.staff.find(s => s.id === tn.id).perms, promo: false } } });
+  t.ok(!A.D.staff.find(s => s.id === tn.id).perms.promo, 'gỡ quyền bằng cả bản đồ quyền cũng được');
+  await t.rejects(() => A.api(`/staff/${tn.id}`, { method: 'PATCH', body: { perms: { ...A.D.staff.find(s => s.id === tn.id).perms, billing: true } } }), /chưa có/, 'cấp thêm quyền mà mình KHÔNG có → vẫn bị chặn (chỉ xét quyền mới thêm)');
+  await t.rejects(() => A.api(`/staff/${qlFull.id}`, { method: 'PATCH', body: { perms: { staff: 1 } } }), /Không tự đổi quyền/, 'vẫn không tự đổi quyền của chính mình');
+  await A.login('chuquan', 'chuquan123');
+
+  // (6) cấp lại mật khẩu → phiên đang mở ở máy khác bị thu hồi thật
+  await A.sync();
+  const S = await addStaffDevice(w, A, 'may-tn'); await S.sync();
+  await S.login('tn', tn.pw);
+  t.ok(S.ME && S.ME.pv, 'phiên đăng nhập mang mốc mật khẩu (muối, không phải bản băm)');
+  t.ok(!JSON.stringify(S.ME).includes(A.D.staff.find(s => s.id === tn.id).pw.h), 'bản băm mật khẩu KHÔNG lộ ra phiên / giao diện');
+  await S.refresh(); t.ok(!!S.ME, 'chưa đổi mật khẩu → phiên vẫn giữ');
+  const rs = await A.api(`/staff/${tn.id}/reset-password`, { method: 'POST' });
+  await A.sync(); await S.sync(); await S.refresh();
+  t.ok(!S.ME, 'chủ quán cấp lại mật khẩu → phiên đang mở của tài khoản đó bị thu hồi ở lần làm mới kế tiếp');
+  t.ok(rs.tempPassword.length === 8, 'mật khẩu tạm được trả về');
+  // tự đổi mật khẩu của chính mình: không bị đá oan trước khi app kịp chuyển về màn đăng nhập
+  await A.login('tn', rs.tempPassword);
+  const pvBefore = A.ME.pv;
+  await A.api('/auth/password', { method: 'POST', body: { oldPassword: rs.tempPassword, newPassword: 'matkhaumoi1' } });
+  await A.refresh();
+  t.ok(!!A.ME && A.ME.pv !== pvBefore, 'người tự đổi mật khẩu: phiên của chính họ nhận mốc mới, refresh() không đá oan');
+  await A.login('chuquan', 'chuquan123');
+
+  // (7) xoá bàn: xoá cờ gọi nhân viên + không còn tính vào chấm "khách gọi"
+  const dotOf = html => /data-go="tables"[^>]*>(?:(?!<\/a>).)*<i class="dot">/s.test(html);
+  A.route = { name: 'admin', params: {} };
+  const t2 = tableOf(A, 'Bàn 02');
+  A.D.seats.find(s => s.table_id === t2.id && s.seat_no === 1).calling = 1;
+  await A.refresh();
+  t.ok(dotOf(A.VIEWS.admin()), 'ghế đang gọi nhân viên → có chấm báo ở mục Phục vụ');
+  await A.api('/tables/' + t2.id, { method: 'DELETE' });
+  t.ok(A.D.seats.filter(s => s.table_id === t2.id).every(s => !s.calling && s.locked === 1), 'xoá bàn → cờ gọi nhân viên của các ghế bị xoá');
+  A.D.seats.find(s => s.table_id === t2.id && s.seat_no === 1).calling = 1;      // dữ liệu cũ còn sót cờ gọi ở bàn đã ẩn
+  await A.refresh();
+  t.ok(!dotOf(A.VIEWS.admin()), 'ghế của bàn đã xoá/ẩn không còn được đếm vào chấm "khách gọi" (kể cả dữ liệu cũ còn sót cờ)');
+
+  // (11) khoá đăng nhập: hết hạn khoá thì đếm lại từ đầu → khoá được lần hai
+  const bad = i => A.apiLocal('/auth/login', { method: 'POST', body: { username: 'chuquan', password: 'sai-' + i } });
+  for (let i = 0; i < 5; i++) await t.rejects(() => bad(i), /Sai tên đăng nhập/, 'lần khoá thứ nhất: sai lần ' + (i + 1));
+  await t.rejects(() => bad(9), /khoá/, 'sai 5 lần → khoá 15 phút');
+  A.clockOffset += 16 * 60000;
+  for (let i = 0; i < 5; i++) await t.rejects(() => bad(i), /Sai tên đăng nhập/, 'sau khi hết khoá: sai lần ' + (i + 1) + ' (đếm lại từ đầu)');
+  await t.rejects(() => bad(9), /khoá/, 'sai 5 lần nữa → bị khoá LẦN HAI (bản cũ: khoá một lần rồi không bao giờ khoá lại)');
+  A.clockOffset += 16 * 60000;
+  await A.login('chuquan', 'chuquan123');
+  t.ok(!!A.ME, 'hết khoá lần hai, nhập đúng thì vào được');
+
+  // (12) khoá không dính sang quán mới
+  const w2 = newWorld(); const B = await setupOwner(w2, { link: false });
+  const badB = i => B.apiLocal('/auth/login', { method: 'POST', body: { username: 'chuquan', password: 'sai-' + i } });
+  for (let i = 0; i < 5; i++) await t.rejects(() => badB(i), /Sai tên đăng nhập/, 'quán B: sai lần ' + (i + 1));
+  await t.rejects(() => badB(9), /khoá/, 'quán B đang bị khoá');
+  await B.createStore({ shopName: 'Quán mới', ownerName: 'Chủ', username: 'chuquan', appPassword: 'matkhau-moi', sample: false });
+  await B.login('chuquan', 'matkhau-moi');
+  t.ok(!!B.ME, 'tạo lại quán → khoá đăng nhập của quán cũ bị xoá, đăng nhập được ngay');
+  for (let i = 0; i < 5; i++) await t.rejects(() => badB(i), /Sai tên đăng nhập/, 'khoá lại: sai lần ' + (i + 1));
+  t.ok(!!B.window.localStorage.getItem('bepo_login_fail'), 'khoá đã được ghi lại');
+  await B.Persist.wipe();
+  t.ok(!B.window.localStorage.getItem('bepo_login_fail'), 'Persist.wipe() (dùng bởi ngắt liên kết, khôi phục, liên kết máy nhân viên) xoá khoá đăng nhập');
+}
+t.group('38f. Kiểm tra dữ liệu: món trong đơn (số lượng, trạng thái, đơn đã đóng), khuyến mãi, thực đơn; hoá đơn đã thu giữ nguyên số đã chốt');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  const tb = tableOf(A, 'Bàn 01'), tra = A.D.menu.find(m => m.name === 'Trà đá'), pho = A.D.menu.find(m => m.name === 'Phở bò tái');
+  // --- số lượng khi gọi món ---
+  const nO = A.D.orders.length, nI = A.D.orderItems.length;
+  for (const bad of [0, -1, 1.5, 'abc', 1000]) {
+    await t.rejects(() => A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: tra.id, qty: bad }] } }), /Số lượng/, 'gọi món với số lượng ' + JSON.stringify(bad) + ' bị từ chối');
+  }
+  t.ok(A.D.orders.length === nO && A.D.orderItems.length === nI, 'số lượng sai KHÔNG tạo đơn rỗng / trừ kho');
+  const o1 = await A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: tra.id, qty: 4 }, { menuItemId: pho.id }] } });
+  const it1 = A.D.orderItems.find(i => i.order_id === o1.id && i.menu_item_id === tra.id), it2 = A.D.orderItems.find(i => i.order_id === o1.id && i.menu_item_id === pho.id);
+  t.eq([it1.qty, it2.qty], [4, 1], 'qty hợp lệ được nhận; không ghi qty → 1');
+  // --- sửa món trong đơn ---
+  for (const bad of [0, -2, 2.5, 'x', 1000]) {
+    await t.rejects(() => A.api('/order-items/' + it1.id, { method: 'PATCH', body: { qty: bad } }), /Số lượng/, 'sửa số lượng thành ' + JSON.stringify(bad) + ' bị từ chối');
+  }
+  for (const bad of ['cancelled', 'bay-mau', 'DONE']) {
+    await t.rejects(() => A.api('/order-items/' + it1.id, { method: 'PATCH', body: { status: bad } }), /Trạng thái/, 'trạng thái tuỳ ý ' + JSON.stringify(bad) + ' bị từ chối');
+  }
+  t.eq(A.D.orderItems.find(i => i.id === it1.id).qty, 4, 'các lần bị từ chối không làm đổi dữ liệu');
+  it1.status = 'pending';      // món khách gọi qua QR, đang chờ nhân viên xác nhận
+  await A.api('/order-items/' + it1.id, { method: 'PATCH', body: { qty: 3 } });
+  t.eq(A.D.orderItems.find(i => i.id === it1.id).qty, 3, 'món CHỜ XÁC NHẬN giảm số lượng được (bản cũ báo sai "Món đã vào bếp")');
+  it1.status = 'queued';
+  await A.api('/order-items/' + it1.id, { method: 'PATCH', body: { qty: 2 } });
+  t.eq(A.D.orderItems.find(i => i.id === it1.id).qty, 2, 'món chờ bếp giảm được');
+  it1.status = 'cooking';
+  await t.rejects(() => A.api('/order-items/' + it1.id, { method: 'PATCH', body: { qty: 1 } }), /vào bếp/, 'món ĐÃ vào bếp (đang làm) thì không giảm được');
+  await A.api('/order-items/' + it1.id, { method: 'PATCH', body: { qty: 5 } });
+  t.eq(A.D.orderItems.find(i => i.id === it1.id).qty, 5, '…nhưng vẫn tăng được');
+  it1.status = 'queued';
+  // --- đơn đã đóng thì không sửa món ---
+  await serveAll(A, o1.id);
+  await A.api(`/orders/${o1.id}/payments`, { method: 'POST', body: { method: 'cash' } });
+  t.eq(A.D.orders.find(o => o.id === o1.id).status, 'paid', 'đơn đã thanh toán');
+  await t.rejects(() => A.api('/order-items/' + it1.id, { method: 'PATCH', body: { qty: 9 } }), /Đơn đã đóng/, 'đơn đã đóng: không sửa số lượng món được nữa');
+  await t.rejects(() => A.api('/order-items/' + it1.id, { method: 'PATCH', body: { status: 'queued' } }), /Đơn đã đóng/, 'đơn đã đóng: không đổi trạng thái món được nữa');
+
+  // --- khuyến mãi ---
+  const P = body => A.api('/promos', { method: 'POST', body: { name: 'KM', type: 'pct', value: 10, minTotal: 0, useLimit: 0, expiresOn: null, ...body } });
+  await t.rejects(() => P({ type: 'xyz' }), /Loại giảm giá/, 'khuyến mãi: loại lạ bị từ chối');
+  await t.rejects(() => P({ value: 150 }), /tối đa 100/, 'khuyến mãi %: lớn hơn 100 bị từ chối');
+  await t.rejects(() => P({ value: 0 }), /lớn hơn 0/, 'khuyến mãi %: 0 bị từ chối');
+  await t.rejects(() => P({ type: 'amt', value: -5 }), /lớn hơn 0/, 'khuyến mãi tiền: số âm bị từ chối');
+  await t.rejects(() => P({ value: 'abc' }), /lớn hơn 0/, 'khuyến mãi: không phải số bị từ chối');
+  await t.rejects(() => P({ minTotal: -1 }), /tối thiểu/, 'đơn tối thiểu âm bị từ chối');
+  await t.rejects(() => P({ useLimit: 1.5 }), /số nguyên/, 'giới hạn lượt lẻ bị từ chối');
+  await t.rejects(() => P({ useLimit: -2 }), /số nguyên/, 'giới hạn lượt âm bị từ chối');
+  await t.rejects(() => P({ expiresOn: 'abc' }), /Ngày hết hạn/, 'ngày hết hạn sai dạng bị từ chối');
+  await t.rejects(() => P({ expiresOn: '2026-13-45' }), /Ngày hết hạn/, 'ngày hết hạn không có thật bị từ chối');
+  t.eq(A.D.promos.length, 0, 'không có khuyến mãi nào được tạo từ các lần thử sai');
+  await P({ value: 10, expiresOn: '2099-12-31' });
+  await P({ name: 'Giảm tiền', type: 'amt', value: 15000, minTotal: 20000 });
+  const pm = A.D.promos.find(p => p.name === 'Giảm tiền'), pp = A.D.promos.find(p => p.name === 'KM');
+  t.ok(pm && pp && pm.value === 15000 && pp.expires_on === '2099-12-31', 'khuyến mãi hợp lệ được tạo');
+  await t.rejects(() => A.api('/promos/' + pm.id, { method: 'PATCH', body: { type: 'pct' } }), /tối đa 100/, 'sửa: đổi loại sang % mà giữ số tiền 15.000 → bị từ chối');
+  await t.rejects(() => A.api('/promos/' + pp.id, { method: 'PATCH', body: { value: 101 } }), /tối đa 100/, 'sửa: % vượt 100 bị từ chối');
+  await t.rejects(() => A.api('/promos/' + pp.id, { method: 'PATCH', body: { expiresOn: 'hôm qua' } }), /Ngày hết hạn/, 'sửa: ngày hết hạn sai bị từ chối');
+  await A.api('/promos/' + pp.id, { method: 'PATCH', body: { value: 20, expiresOn: '' } });
+  t.ok(A.D.promos.find(p => p.id === pp.id).value === 20 && A.D.promos.find(p => p.id === pp.id).expires_on === null, 'sửa hợp lệ (xoá ngày hết hạn bằng chuỗi rỗng) được nhận');
+
+  // --- thực đơn ---
+  const cat = A.D.categories[0], kit = A.D.kitchens[0];
+  const M2 = body => A.api('/menu', { method: 'POST', body: { name: 'Món mới', price: 50000, categoryId: cat.id, kitchenId: kit.id, ...body } });
+  await t.rejects(() => M2({ categoryId: undefined }), /Chọn danh mục/, 'thêm món thiếu danh mục → báo rõ');
+  await t.rejects(() => M2({ kitchenId: undefined }), /Chọn khu bếp/, 'thêm món thiếu khu bếp → báo rõ');
+  await t.rejects(() => M2({ categoryId: 'khong-co' }), /Danh mục không tồn tại/, 'danh mục không có thật bị từ chối');
+  await t.rejects(() => M2({ kitchenId: 'khong-co' }), /Khu bếp không tồn tại/, 'khu bếp không có thật bị từ chối');
+  await t.rejects(() => M2({ price: Infinity }), /Giá/, 'giá vô hạn bị từ chối');
+  await M2({});
+  t.ok(A.D.menu.some(m => m.name === 'Món mới'), 'thêm món hợp lệ được');
+  await t.rejects(() => A.api('/menu/' + tra.id, { method: 'PATCH', body: { categoryId: 'khong-co' } }), /Danh mục không tồn tại/, 'sửa món sang danh mục không có thật bị từ chối');
+  await t.rejects(() => A.api('/menu/' + tra.id, { method: 'PATCH', body: { kitchenId: 'khong-co' } }), /Khu bếp không tồn tại/, 'sửa món sang khu bếp không có thật bị từ chối');
+  await t.rejects(() => A.api('/menu/' + tra.id, { method: 'PATCH', body: { price: Infinity } }), /Giá/, 'sửa giá thành vô hạn bị từ chối');
+
+  // --- (10) hoá đơn đã thu giữ nguyên số đã chốt dù khuyến mãi bị tắt / sửa sau đó ---
+  const tb2 = tableOf(A, 'Bàn 02');
+  const o2 = await A.api('/orders/items', { method: 'POST', body: { tableId: tb2.id, seatNo: 1, lines: [{ menuItemId: pho.id, qty: 2 }] } });
+  await A.api(`/orders/${o2.id}/promo`, { method: 'POST', body: { promoId: pm.id } });      // giảm 15.000 trên 150.000
+  await serveAll(A, o2.id);
+  const pay = await A.api(`/orders/${o2.id}/payments`, { method: 'POST', body: { method: 'cash' } });
+  t.eq([pay.subtotal, pay.discount, pay.total], [150000, 15000, 135000], 'thu tiền: giảm 15.000 → 135.000');
+  await A.api('/promos/' + pm.id, { method: 'PATCH', body: { active: false } });
+  await A.api('/promos/' + pm.id, { method: 'PATCH', body: { type: 'amt', value: 99000 } });
+  const dt = await A.api(`/orders/${o2.id}/detail`);
+  t.eq([dt.subtotal, dt.discount, dt.total], [150000, 15000, 135000], 'chi tiết đơn đã thu: dùng số ĐÃ CHỐT (bản cũ tính lại bằng khuyến mãi hiện hành → đổi số tiền đã thu)');
+  const mdl = A.modelFromDetail(dt);
+  const vals = mdl.rows.map(r => r.value);
+  t.ok(vals.includes('150.000đ') && vals.includes('−15.000đ') && vals.includes('135.000đ'), 'in lại hoá đơn cũng đúng số đã chốt: ' + vals.join(' | '));
+  // đơn đang mở vẫn tính động
+  const o3 = await A.api('/orders/items', { method: 'POST', body: { tableId: tableOf(A, 'Bàn 03').id, seatNo: 1, lines: [{ menuItemId: pho.id, qty: 2 }] } });
+  await A.api('/promos/' + pm.id, { method: 'PATCH', body: { active: true, value: 15000 } });
+  await A.api(`/orders/${o3.id}/promo`, { method: 'POST', body: { promoId: pm.id } });
+  t.eq((await A.api(`/orders/${o3.id}/detail`)).discount, 15000, 'đơn đang mở: giảm giá tính theo khuyến mãi hiện hành');
+  await A.api('/promos/' + pm.id, { method: 'PATCH', body: { value: 20000 } });
+  t.eq((await A.api(`/orders/${o3.id}/detail`)).discount, 20000, 'đơn đang mở: sửa khuyến mãi thì số giảm đổi theo (vẫn tính động)');
+}
+t.group('38g. Script SQL: phiếu kho cố ý không bị dọn, nhắc chạy lại script khi kho còn bản cũ, guest_* bù lệch giờ theo cột updated_at, store-sql.ts khớp');
+{
+  const sqlSrc = fs.readFileSync(new URL('../supabase/store-setup.sql', import.meta.url), 'utf8');
+  // (3) phiếu kho: không xoá; chú thích lỗi thời đã dọn
+  t.ok(!sqlSrc.includes('v_stock_cutoff') && !sqlSrc.includes('v_purged_stock') && !/\(4\) lịch sử kho/.test(sqlSrc), 'cleanup_old_data: không còn biến/chú thích lỗi thời về xoá lịch sử kho 12 tháng');
+  t.ok(/CỐ Ý KHÔNG xoá phiếu kho/.test(sqlSrc), 'ghi rõ trong chú thích hàm: cố ý không xoá phiếu kho (vì sao)');
+  const w = newWorld(); const A = await setupOwner(w);
+  const ingId = A.D.ingredients[0].id, old = Date.now() - 400 * 86400000;     // 13 tháng trước
+  w.store.putRecord('stockMoves', 'sm-cu', { id: 'sm-cu', ingredient_id: ingId, type: 'in', qty: 1, qty_after: 1, reason: 'cũ', ref_order_id: null, staff_id: null, created_at: old }, old);
+  const r = await A.Cloud.store.rpc('cleanup_old_data', {});
+  t.eq(r.data.purged_stock_moves, 0, 'dọn dữ liệu: purged_stock_moves luôn 0');
+  t.ok(w.store.records.has('stockMoves|sm-cu'), 'phiếu kho 13 tháng tuổi VẪN còn (xoá phiếu làm tồn kho lệch giữa máy cũ và máy mới khôi phục)');
+  // nhắc chạy lại script khi kho còn bản cũ
+  A.route = { name: 'cloud', params: {} };
+  await A.Sync.syncNow();
+  t.eq(A.Sync.state.sqlVersion, 2, 'app đọc được phiên bản script của kho (store_status.version)');
+  t.ok(!A.VIEWS.cloud().includes('Kho dữ liệu cần cập nhật script SQL'), 'kho đã chạy bản mới nhất → không nhắc');
+  w.store.sqlVersion = 1;
+  await A.Sync.syncNow();
+  const vc = A.VIEWS.cloud();
+  t.ok(vc.includes('Kho dữ liệu cần cập nhật script SQL') && vc.includes('c_copySql'), 'kho còn chạy script bản 1 → màn Đồng bộ nhắc chủ quán chạy lại script (có nút sao chép)');
+  w.store.sqlVersion = 2; await A.Sync.syncNow();
+  t.ok(!A.VIEWS.cloud().includes('Kho dữ liệu cần cập nhật script SQL'), 'chạy lại script xong → hết nhắc');
+  // (17) chữ SQL: mốc ghi vượt CỘT updated_at của dòng ghế/đơn, không phải trường trong JSON
+  const body = name => (sqlSrc.split('create or replace function public.').find(ch => ch.startsWith(name + '(')) || '');
+  const gc = body('guest_call'), go = body('guest_order'), gs = body('_guest_seat');
+  t.ok(/out row_updated_at bigint/.test(gs) && /drop function if exists public\._guest_seat\(text, boolean\)/.test(sqlSrc), '_guest_seat trả thêm row_updated_at (xoá hàm cũ trước vì đổi kiểu trả về)');
+  t.ok(/v_now := greatest\(v_now, coalesce\(v_seat\.row_updated_at, 0\) \+ 1\)/.test(gc) && !/seat_data ->> 'updated_at'/.test(gc), 'guest_call: v_now vượt cột updated_at của dòng ghế (không dùng updated_at trong JSON)');
+  t.ok(/v_now := greatest\(v_now, coalesce\(v_seat\.row_updated_at, 0\) \+ 1\)/.test(go) && !/seat_data ->> 'updated_at'/.test(go), 'guest_order: v_now vượt cột updated_at của dòng ghế');
+  t.ok(/v_now := greatest\(v_now, coalesce\(v_order_col, 0\) \+ 1\)/.test(go), 'guest_order: khi cập nhật đơn hiện có, mốc ghi cũng vượt cột updated_at của dòng đơn');
+  t.ok(/'version', 2,/.test(sqlSrc), 'store_status trả version 2');
+  // store-sql.ts khớp
+  const ts = fs.readFileSync(new URL('../supabase/functions/_shared/store-sql.ts', import.meta.url), 'utf8');
+  t.ok(ts.includes(JSON.stringify(sqlSrc)), 'store-sql.ts (nhúng cho Edge Function) khớp từng chữ với store-setup.sql sau khi sinh lại');
+}
+t.group('38h. Việc nhỏ: dịch vụ nền không kẹt sau đăng xuất + báo khi tự dừng, tên tệp PDF theo giờ máy, tên khách ở vé bếp, nhãn thanh toán ở lịch sử, trang khách làm mới khi mở lại, hộp thoại ngắt liên kết');
+{
+  const appSrc = fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8');
+  // (18) chỉ còn một vòng ensureKeepAlive (60 giây)
+  t.eq((appSrc.match(/setInterval\(ensureKeepAlive/g) || []).length, 1, 'chỉ còn MỘT vòng setInterval(ensureKeepAlive…) — vòng 10 phút thừa đã bỏ');
+  t.ok(appSrc.includes('setInterval(ensureKeepAlive, 60000)'), 'vòng còn lại chạy mỗi 60 giây (đủ để dừng dịch vụ nền trước hạn 5,5 giờ)');
+  // bridge.js: chạy THẬT đoạn mã keepAlive với thư viện giả
+  const bsrc = fs.readFileSync(new URL('../src/native/bridge.js', import.meta.url), 'utf8');
+  const code = bsrc.slice(bsrc.indexOf('const CHIME_COUNT'), bsrc.indexOf('/* ---------- Máy in hoá đơn nhiệt'));
+  const calls = { start: 0, stop: 0, scheduled: [] };
+  let clock = 1e12;
+  const LN = { checkPermissions: async () => ({ display: 'granted' }), requestPermissions: async () => ({ display: 'granted' }), createChannel: async () => {}, schedule: async o => { calls.scheduled.push(o); } };
+  const FS = { createNotificationChannel: async () => {}, startForegroundService: async () => { calls.start++; }, stopForegroundService: async () => { calls.stop++; } };
+  const alerts = new Function('isNative', 'LocalNotifications', 'ForegroundService', 'Haptics', 'Date', code + '\nreturn alerts;')(true, LN, FS, { vibrate: async () => {} }, { now: () => clock });
+  await alerts.keepAlive(true);
+  t.eq(calls.start, 1, 'đăng nhập → bật dịch vụ nền');
+  clock += 6 * 3600000;
+  await alerts.keepAlive(true);
+  t.eq([calls.stop, calls.start], [1, 1], 'chạm 5,5 giờ → tự dừng dịch vụ nền (không bật lại ngay)');
+  t.eq(calls.scheduled.length, 1, 'tự dừng → đăng MỘT thông báo cục bộ');
+  t.ok(/Mở lại BEPO để tiếp tục nhận thông báo khách gọi và món mới/.test(((calls.scheduled[0] || { notifications: [{}] }).notifications[0].body) || ''), 'nội dung nhắc mở lại app');
+  await alerts.keepAlive(true); await alerts.keepAlive(true);
+  t.eq([calls.start, calls.scheduled.length], [1, 1], 'các lần kiểm tra định kỳ sau đó KHÔNG bật lại, KHÔNG đăng thêm thông báo');
+  await alerts.keepAlive(false);                           // đăng xuất
+  await alerts.keepAlive(true);                            // đăng nhập lại ngay trong cùng lần chạy
+  t.eq(calls.start, 2, 'đăng xuất rồi đăng nhập lại cùng lần chạy → bật lại được (cờ tạm dừng không kẹt)');
+  clock += 6 * 3600000; await alerts.keepAlive(true);      // lại chạm hạn
+  alerts.resumed(); await alerts.keepAlive(true);
+  t.eq(calls.start, 3, 'mở lại app (resume) cũng bật lại được');
+
+  // (19) tên tệp PDF theo GIỜ MÁY (không phải UTC)
+  const tz = new Date().getTimezoneOffset();
+  const w = newWorld(); const A = await setupOwner(w);
+  await A.api('/settings', { method: 'PATCH', body: { menuPageUrl: 'https://thucdon.test/menu' } }); await A.refresh();
+  const tgt = new Date(); tgt.setDate(tgt.getDate() + 1); tgt.setHours(tz < 0 ? 0 : 23, 30, 0, 0);       // ngày mai lúc 00:30 (múi giờ đông UTC) hoặc 23:30 (tây UTC): ngày UTC ≠ ngày giờ máy
+  A.clockOffset = tgt.getTime() - Date.now();
+  const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const n0 = A.saved.length;
+  A.QRPDF.build = async () => ({ size: 10 });                 // harness không có canvas để vẽ PDF thật: chỉ cần kiểm tra TÊN tệp
+  A.handleAct({ dataset: { act: 'printMenuQr' } });
+  await A.until(() => A.saved.length > n0);
+  const nm = A.saved[A.saved.length - 1].name;
+  t.eq(nm, `tem-qr-thuc-don-${ymd(tgt)}.pdf`, 'tên tệp PDF tem QR dùng ngày theo giờ máy' + (tz === 0 ? ' (máy chạy test ở UTC nên chưa phân biệt được với bản cũ)' : ''));
+  t.ok(!appSrc.includes('toISOString().slice(0, 10)'), 'không còn chỗ nào dùng toISOString().slice(0, 10) cho tên tệp');
+  A.clockOffset = 0;
+
+  // tên khách giao hàng ở vé bếp đi qua usr() (không bị bộ dịch động vào), lịch sử đơn dùng nhãn phương thức thanh toán
+  const kit = A.D.kitchens[0].id, mn = A.D.menu[0];
+  A.D.orders.push({ id: 'od1', code: '#D1', table_id: null, seat_no: null, source: 'grab', status: 'open', promo_id: null, customer_name: 'Anh Tùng', customer_phone: '', created_at: Date.now(), updated_at: Date.now() });
+  A.D.orderItems.push({ id: 'odi1', order_id: 'od1', menu_item_id: mn.id, name_snapshot: mn.name, price_snapshot: mn.price, kitchen_id: mn.kitchen_id, qty: 1, status: 'queued', batch: 1, created_at: Date.now(), updated_at: Date.now() });
+  await A.refresh(); A.route = { name: 'kds', params: {} };
+  t.ok(A.VIEWS.kds().includes('Giao hàng · <span data-notr>Anh Tùng</span>'), 'vé bếp giao hàng: tên khách hiển thị qua usr() (data-notr)');
+  A.window._history = [{ id: 'h1', code: '#9', status: 'paid', created_at: Date.now(), subtotal: 1000, item_count: 1, paid_total: 1000, paid_method: 'cash', table_name: 'Bàn 01', seat_no: 1 }];
+  A.route = { name: 'history', params: {} };
+  const hv = A.VIEWS.history();
+  t.ok(hv.includes('· Tiền mặt') && !hv.includes('· cash'), 'lịch sử đơn hiện "Tiền mặt" thay vì mã "cash"');
+  // trang khách: mở lại tab (visibilitychange) → làm mới ngay
+  const gp = (await import('./harness.mjs')).buildGuestPageHtmlForTest();
+  t.ok(/visibilitychange[\s\S]{0,120}poll\(\)/.test(gp), 'trang khách gọi poll() ngay khi tab hiện lại (visibilitychange)');
+}
+t.group('38i. Hộp thoại ngắt liên kết: cờ "nguy hiểm" chốt lúc mở hộp thoại, không báo "Gõ XOA" khi không có ô nhập');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  await A.sync();
+  const made = []; const orig = A.document.createElement;
+  A.document.createElement = (...a) => { const e = orig(...a); made.push(e); return e; };
+  const sheetHtml = () => (made.filter(e => e.className === 'sheet-bg').pop() || {}).innerHTML || '';
+  A.route = { name: 'cloud', params: {} };
+  A.handleAct({ dataset: { act: 'c_unlinkAsk' } });
+  let h = sheetHtml();
+  t.ok(A.Records.dirtyCount() === 0 && h.includes('data-act="c_unlinkGo" data-destructive="0"') && !h.includes('unl_confirm'), 'dữ liệu đã đồng bộ: hộp thoại không có ô nhập, nút mang cờ destructive=0');
+  // sau khi mở hộp thoại, phát sinh thay đổi chưa gửi
+  await A.api('/settings', { method: 'PATCH', body: { sound: false } }); await A.save();
+  t.ok(A.Records.dirtyCount() > 0, 'có thay đổi chưa gửi phát sinh sau khi mở hộp thoại');
+  A.lastToast = '';
+  A.handleAct({ dataset: { act: 'c_unlinkGo', destructive: '0' } });
+  await A.until(() => /xác nhận lại/.test(A.lastToast || ''));
+  t.ok(/xác nhận lại/.test(A.lastToast) && !/Gõ đúng chữ XOA/.test(A.lastToast), 'bấm xác nhận: KHÔNG báo "Gõ đúng chữ XOA" khi ô nhập không tồn tại — mở lại hộp thoại để xác nhận lại');
+  h = sheetHtml();
+  t.ok(h.includes('unl_confirm') && h.includes('data-destructive="1"'), 'hộp thoại mở lại giờ CÓ ô nhập XOA và cờ destructive=1');
+  t.ok(A.D.staff.length > 0 && A.Cloud.linked, 'dữ liệu chưa bị xoá');
+  A.lastToast = '';
+  A.handleAct({ dataset: { act: 'c_unlinkGo', destructive: '1' } });
+  await A.until(() => /XOA/.test(A.lastToast || ''));
+  t.ok(/Gõ đúng chữ XOA/.test(A.lastToast) && A.Cloud.linked, 'có ô nhập mà chưa gõ XOA → vẫn bị chặn');
+  A.setInput('unl_confirm', 'xoa');
+  A.handleAct({ dataset: { act: 'c_unlinkGo', destructive: '1' } });
+  await A.until(() => A.D.staff.length === 0);
+  t.ok(!A.Cloud.linked && A.D.staff.length === 0, 'gõ XOA → ngắt liên kết và xoá dữ liệu trên máy');
+  A.clearInputs();
+}
+// ngắt liên kết khi dữ liệu đã an toàn: đi tiếp không cần ô nhập
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  await A.sync();
+  A.route = { name: 'cloud', params: {} };
+  A.handleAct({ dataset: { act: 'c_unlinkGo', destructive: '0' } });
+  await A.until(() => A.D.staff.length === 0);
+  t.ok(!A.Cloud.linked && A.D.staff.length === 0, 'dữ liệu đã đồng bộ (không nguy hiểm): ngắt liên kết đi tiếp, không đòi gõ XOA');
+}
+t.group('38j. Vòng 2: bộ dịch có dấu "-" không sập, lượt nối tiếp lùi nhỏ, khuyến mãi cũ dữ liệu lệch vẫn bật/tắt được, cờ gọi nhân viên của bàn đã xoá được dọn');
+{
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // (1) khoá dịch có "-" và "/" phải biên dịch được (bản cũ: "\-" ngoài lớp ký tự là cú pháp lỗi dưới cờ 'u' → cả bộ dịch sập)
+  {
+    const w = newWorld(); const F = await newDevice(w, 'dich-gach');
+    const orig = F.LANGS.en.table;
+    F.LANGS.en.table = () => [].concat(orig(), [['Wi-Fi quán', 'Shop Wi-Fi'], ['đặt bàn trước - qr / zalo', 'pre-booking - qr / zalo']]);
+    let out1 = null, out2 = null, err = '';
+    try { out1 = F.trText('Mật khẩu Wi-Fi quán', 'en'); out2 = F.trText('đặt bàn trước - qr / zalo', 'en'); } catch (e) { err = e.message; }
+    t.eq(err, '', 'bảng dịch có khoá chứa dấu "-" và "/" vẫn biên dịch được (không ném SyntaxError)');
+    t.ok(out1 === 'Mật khẩu Shop Wi-Fi' && out2 === 'pre-booking - qr / zalo', 'và dịch đúng: ' + out1 + ' | ' + out2);
+    t.eq(F.trText('Thu ngân', 'en'), 'Cashier', 'các khoá cũ vẫn dịch bình thường');
+  }
+
+  // --- gom ghi nhận tham số `from` của truy vấn kéo, và có thể giữ chân truy vấn đầu tiên ---
+  const spyPull = dev => {
+    const froms = []; let release = () => {}; let gate = Promise.resolve(), hold = false;
+    const st = dev.Cloud.store, realFrom = st.from.bind(st);
+    st.from = tbl => {
+      const q = realFrom(tbl);
+      if (tbl === 'records') {
+        const g = q.gt.bind(q); q.gt = (c, v) => { if (c === 'seq') froms.push(v); return g(c, v); };
+        const th = q.then.bind(q); q.then = (a, b) => th(res => (hold ? gate : Promise.resolve()).then(() => (a ? a(res) : res)), b);
+      }
+      return q;
+    };
+    return { froms, hold() { hold = true; gate = new Promise(r => { release = r; }); }, release() { hold = false; release(); } };
+  };
+  // (2) lượt nối tiếp (again) không được tự động lùi 400
+  {
+    const w = newWorld(); const A = await setupOwner(w); const S = await addStaffDevice(w, A, 'noi-tiep'); await S.sync();
+    await S.Persist.setMeta('cursor', 1000);
+    const sp = spyPull(S);
+    sp.hold();
+    const first = S.Sync.cycle({ quick: true });
+    await sleep(60);
+    S.Sync.cycle({ quick: true });                   // một kick nền khác đến lúc đang chạy → chỉ ghi nhớ "chạy nối tiếp"
+    sp.release(); await first; await sleep(20);
+    sp.froms.length = 0;
+    await S.runTimers();                             // chạy lượt nối tiếp (kick 500ms)
+    t.eq(sp.froms[0], 950, 'lượt nối tiếp sau kick nền chỉ lùi 50 (bản cũ luôn lùi 400 → mỗi lần gọi món kéo lại 400 dòng)');
+    // yêu cầu "sâu" thật (syncNow / resume) đến lúc đang chạy → lượt nối tiếp vẫn lùi đủ
+    sp.hold(); sp.froms.length = 0;
+    const first2 = S.Sync.cycle({ quick: true });
+    await sleep(60);
+    S.Sync.syncNow();                                // syncNow đến lúc đang chạy → ghi nhớ yêu cầu sâu
+    sp.release(); await first2; await sleep(20);
+    sp.froms.length = 0;
+    await S.runTimers();
+    t.eq(sp.froms[0], 600, 'yêu cầu sâu (syncNow) đến lúc đang chạy → lượt nối tiếp lùi đủ 400');
+  }
+  // (5e) hành vi THẬT của nhịp định kỳ 30 giây và của resume (hàm xử lý do wireCloud đăng ký qua NativeBridge.app.onResume)
+  {
+    const w = newWorld(); const A = await setupOwner(w); const S = await addStaffDevice(w, A, 'dinh-ky'); await S.sync();
+    await S.Persist.setMeta('cursor', 1000);
+    const sp = spyPull(S);
+    const periodic = (S.intervals || []).filter(i => i.ms === 30000).pop();
+    t.ok(!!periodic && typeof S.resumeCb === 'function', 'harness bắt được nhịp 30 giây của Sync.start() và hàm xử lý resume của app');
+    periodic.fn(); await S.runTimers();
+    t.eq(sp.froms[0], 600, 'nhịp định kỳ 30 giây chạy thật → kéo lùi đủ 400');
+    sp.froms.length = 0;
+    S.resumeCb(); await S.runTimers();
+    t.eq(sp.froms[0], 600, 'mở lại app (resume) chạy thật → kéo lùi đủ 400 (kể cả khi recheckLicense kick nền ngay sau đó)');
+    sp.froms.length = 0;
+    S.Sync.kick(0); await S.runTimers();
+    t.eq(sp.froms[0], 950, 'kick nền thường vẫn chỉ lùi 50');
+  }
+
+  // (3) khuyến mãi cũ có dữ liệu "lệch" vẫn bật/tắt, đổi tên được; sửa trường nào thì kiểm trường đó
+  {
+    const w = newWorld(); const A = await setupOwner(w);
+    const base = { name: 'Cũ', used_count: 0, active: 1, updated_at: 1 };
+    A.D.promos.push({ ...base, id: 'pL1', type: 'pct', value: 500, min_total: 0, use_limit: 0, expires_on: null },
+      { ...base, id: 'pL2', type: 'amt', value: 1000, expires_on: null },                       // thiếu min_total / use_limit
+      { ...base, id: 'pL3', type: 'amt', value: 1000, min_total: 0, use_limit: 1.5, expires_on: null },
+      { ...base, id: 'pL4', type: 'amt', value: 1000, min_total: 0, use_limit: 0, expires_on: '31/12/2026' });
+    for (const id of ['pL1', 'pL2', 'pL3', 'pL4']) {
+      await A.api('/promos/' + id, { method: 'PATCH', body: { active: false } });
+      t.ok(A.D.promos.find(p => p.id === id).active === 0, id + ': dữ liệu lệch vẫn TẮT được (nút bật/tắt chỉ gửi {active})');
+      await A.api('/promos/' + id, { method: 'PATCH', body: { active: true } });
+      await A.api('/promos/' + id, { method: 'PATCH', body: { name: 'Đã đổi ' + id } });
+      t.ok(A.D.promos.find(p => p.id === id).active === 1 && A.D.promos.find(p => p.id === id).name === 'Đã đổi ' + id, id + ': bật lại và đổi tên được');
+    }
+    await t.rejects(() => A.api('/promos/pL1', { method: 'PATCH', body: { value: 600 } }), /tối đa 100/, 'sửa giá trị thì VẪN kiểm tra (% vượt 100)');
+    await A.api('/promos/pL1', { method: 'PATCH', body: { value: 50 } });
+    t.eq(A.D.promos.find(p => p.id === 'pL1').value, 50, 'sửa giá trị hợp lệ được nhận');
+    await t.rejects(() => A.api('/promos/pL2', { method: 'PATCH', body: { minTotal: -5 } }), /tối thiểu/, 'sửa đơn tối thiểu thì kiểm trường đó');
+    await t.rejects(() => A.api('/promos/pL4', { method: 'PATCH', body: { expiresOn: 'mai' } }), /Ngày hết hạn/, 'sửa ngày hết hạn sai dạng vẫn bị chặn');
+    await A.api('/promos/pL4', { method: 'PATCH', body: { expiresOn: '2027-01-01' } });
+    t.eq(A.D.promos.find(p => p.id === 'pL4').expires_on, '2027-01-01', 'sửa ngày hết hạn đúng dạng sửa được dữ liệu lệch');
+  }
+
+  // (4) bàn đã xoá còn cờ calling: banner không hiện, được dọn khi làm mới / khi mở app
+  {
+    const w = newWorld(); const A = await setupOwner(w);
+    const tDel = tableOf(A, 'Bàn 02'), tLive = tableOf(A, 'Bàn 03');
+    await A.api('/tables/' + tDel.id, { method: 'DELETE' });
+    A.D.seats.find(s => s.table_id === tDel.id && s.seat_no === 1).calling = 1;      // dữ liệu cũ còn sót cờ gọi
+    A.D.seats.find(s => s.table_id === tLive.id && s.seat_no === 1).calling = 1;     // ghế của bàn đang dùng gọi thật
+    await A.refresh();
+    t.eq(A.D.seats.find(s => s.table_id === tDel.id && s.seat_no === 1).calling, 0, 'làm mới dữ liệu: cờ gọi của ghế bàn đã xoá được dọn');
+    t.eq(A.D.seats.find(s => s.table_id === tLive.id && s.seat_no === 1).calling, 1, '…còn cờ gọi của bàn đang dùng giữ nguyên');
+    A.DB.seatsState[tDel.id + '#1'] = { locked: true, calling: true, qrToken: 'x', boundOrderId: null };    // ép riêng phần hiển thị (chưa dọn kịp)
+    A.route = { name: 'tables', params: {} };
+    const html = A.VIEWS.tables();
+    t.ok(/1 ghế đang gọi nhân viên/.test(html) && html.includes(tLive.name) && !html.includes(tDel.name + ' ·'), 'banner "ghế đang gọi nhân viên" chỉ đếm/ghi ghế của bàn đang dùng');
+    A.D.seats.find(s => s.table_id === tDel.id && s.seat_no === 1).calling = 1;
+    await A.save();
+    const B = await A.reopen(w);
+    await B.until(() => B.D.staff.length > 0);
+    t.eq(B.D.seats.find(s => s.table_id === tDel.id && s.seat_no === 1).calling, 0, 'mở lại app (nạp từ SQLite): cờ gọi còn sót ở bàn đã xoá được dọn');
+  }
+}
+t.group('38k. Vòng 2: giao diện phân quyền (công tắc về đúng trạng thái, không unhandled rejection), xoá tài khoản theo quyền, khôi phục phiên khi mở app, đẩy dữ liệu bị huỷ khi ngắt liên kết, lượt quá hạn bị huỷ, refetch có kiểm soát');
+{
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const unhandled = []; const onUnh = e => unhandled.push(e && e.message ? e.message : String(e));
+  process.on('unhandledRejection', onUnh);
+  const w = newWorld(); const A = await setupOwner(w);
+  const ownerId = A.D.staff.find(s => s.role === 'Chủ quán').id;
+  const mk = async (name, username, role, perms) => {
+    const r = await A.api('/staff', { method: 'POST', body: { name, username, role } });
+    const id = A.D.staff.find(s => s.username === username).id;
+    if (perms) await A.api('/staff/' + id, { method: 'PATCH', body: { perms } });
+    return { id, pw: r.tempPassword };
+  };
+  const full = { pos: 1, tables: 1, kds: 1, reservations: 1, tablesAdmin: 1, menu: 1, stock: 1, promo: 1, report: 1, logs: 1 };
+  const hi = await mk('QL Cao', 'qlcao', 'Quản lý', { ...full, staff: 1 });
+  const lim = await mk('QL Thấp', 'qlthap', 'Quản lý', { pos: 1, staff: 1 });
+  const made = []; const origEl = A.document.createElement;
+  A.document.createElement = (...a) => { const e = origEl(...a); made.push(e); return e; };
+  const sheetHtml = () => (made.filter(e => e.className === 'sheet-bg').pop() || {}).innerHTML || '';
+  const appHtml = () => A.document.getElementById('app').innerHTML;
+
+  await A.login('qlthap', lim.pw);
+  // (6c) tạo tài khoản bị cắt quyền mẫu → báo rõ danh sách quyền bị bỏ
+  const rr = await A.api('/staff', { method: 'POST', body: { name: 'Con', username: 'con2', role: 'Quản lý' } });
+  t.ok(Array.isArray(rr.trimmedPerms) && rr.trimmedPerms.includes('menu') && rr.trimmedPerms.includes('report') && !rr.trimmedPerms.includes('pos'), 'POST /staff trả trimmedPerms = các quyền mẫu bị bỏ vì người tạo chưa có: ' + rr.trimmedPerms);
+  const con = A.D.staff.find(s => s.username === 'con2');
+  await A.refresh();
+  A.route = { name: 'staff', params: {} };
+  A.setInput('sn', 'Con ba'); A.setInput('su', 'con3'); A.setInput('sr2', 'Quản lý');
+  A.handleAct({ dataset: { act: 'saveStaff' } });
+  await A.until(() => /quyền hạn chế/.test(sheetHtml()));
+  t.ok(/Tài khoản được tạo với quyền hạn chế vì bạn chưa có:/.test(sheetHtml()), 'giao diện báo "Tài khoản được tạo với quyền hạn chế vì bạn chưa có: …"');
+  A.clearInputs();
+  const con3 = A.D.staff.find(s => s.username === 'con3');
+  // (6a) bật công tắc quyền bị từ chối → toast + vẽ lại để công tắc về đúng trạng thái, không unhandled rejection
+  A.handleAct({ dataset: { act: 'closeSheet' } });      // đóng hộp thoại "Đã tạo tài khoản" (đang mở hộp thoại thì app không tự vẽ lại)
+  A.route = { name: 'staff', params: { id: con.id } }; A.render();
+  A.document.getElementById('app').innerHTML = 'CU-CHUA-VE-LAI';
+  unhandled.length = 0; A.lastToast = '';
+  A.handleAct({ dataset: { act: 'perm', id: con.id, k: 'menu' }, checked: true });
+  await A.until(() => /chưa có/.test(A.lastToast || ''));
+  await sleep(30);
+  t.ok(/chưa có/.test(A.lastToast), 'API từ chối (403) → hiện thông báo lỗi');
+  t.ok(appHtml() !== 'CU-CHUA-VE-LAI' && !/data-k="menu"[^>]*checked/.test(appHtml()), 'màn được vẽ lại sau lỗi → công tắc quay về trạng thái thật (đang tắt)');
+  t.eq(unhandled.length, 0, 'run() không còn tạo unhandled rejection khi API báo lỗi');
+  // (6b) màn Nhân viên: vô hiệu hoá với tài khoản không được động tới, dùng cùng hàm với engine
+  A.route = { name: 'staff', params: { id: hi.id } };
+  let v = A.VIEWS.staff();
+  t.ok(/data-act="resetPw" data-id="[^"]+" disabled/.test(v) && /data-act="toggleStaff" data-id="[^"]+" disabled/.test(v), 'tài khoản có quyền lớn hơn: nút Cấp lại mật khẩu / Khoá bị vô hiệu hoá');
+  const nSw = (v.match(/class="switch"/g) || []).length;
+  t.ok(nSw > 5 && (v.match(/class="switch"[^>]*disabled/g) || []).length === nSw && /quyền mà bạn không có/.test(v), 'mọi công tắc quyền bị vô hiệu hoá + có dòng giải thích');
+  A.route = { name: 'staff', params: { id: ownerId } };
+  t.ok(/data-act="resetPw" data-id="[^"]+" disabled/.test(A.VIEWS.staff()), 'tài khoản Chủ quán: người không phải chủ quán không bấm được');
+  A.route = { name: 'staff', params: { id: con.id } };
+  v = A.VIEWS.staff();
+  t.ok(!/data-act="resetPw" data-id="[^"]+" disabled/.test(v) && !/data-act="toggleStaff" data-id="[^"]+" disabled/.test(v), 'tài khoản nằm trong phạm vi quyền: nút dùng được');
+  t.ok(/data-k="pos"[^>]*>/.test(v) && !/data-k="pos"[^>]*disabled/.test(v) && /data-k="menu"[^>]*disabled/.test(v), 'công tắc quyền mình có thì bật được, quyền mình KHÔNG có (và tài khoản chưa có) thì khoá');
+  A.route = { name: 'staff', params: { id: lim.id } };
+  t.ok((A.VIEWS.staff().match(/class="switch"[^>]*disabled/g) || []).length === nSw, 'không tự đổi quyền của chính mình: công tắc bị vô hiệu hoá');
+
+  // (5a) xoá tài khoản theo quyền
+  await A.api(`/staff/${con.id}`, { method: 'PATCH', body: { active: false } });
+  await A.login('chuquan', 'chuquan123');
+  await A.api(`/staff/${hi.id}`, { method: 'PATCH', body: { active: false } });      // chủ quán khoá tài khoản "cao"
+  await A.login('qlthap', lim.pw);
+  await t.rejects(() => A.api('/staff/' + hi.id, { method: 'DELETE' }), /quyền mà bạn không có/, 'Quản lý thấp KHÔNG xoá được tài khoản (đã khoá) có quyền lớn hơn mình');
+  t.ok(A.D.staff.some(s => s.id === hi.id), 'tài khoản đó vẫn còn');
+  await A.api('/staff/' + con.id, { method: 'DELETE' });
+  t.ok(!A.D.staff.some(s => s.id === con.id), '…nhưng xoá được tài khoản (đã khoá) nằm trong phạm vi quyền của mình');
+  await A.login('chuquan', 'chuquan123');
+
+  // (5b) reset-password cho chính mình giữ phiên; khôi phục phiên từ token ở lúc mở app
+  const pv0 = A.ME.pv;
+  await A.api(`/staff/${ownerId}/reset-password`, { method: 'POST' });
+  t.ok(A.ME.pv && A.ME.pv !== pv0, 'tự cấp lại mật khẩu cho chính mình: phiên hiện tại nhận mốc mới');
+  await A.refresh();
+  t.ok(!!A.ME, '…và refresh() không đá oan người vừa tự cấp lại');
+  await A.api(`/staff/${ownerId}`, { method: 'PATCH', body: { name: 'Chủ Quán' } });
+  const owner2 = (await A.apiLocal('/auth/login', { method: 'POST', body: { username: 'chuquan', password: 'chuquan123' } }).catch(() => null));
+  t.ok(owner2 === null, 'sau khi cấp lại mật khẩu, mật khẩu cũ không còn đăng nhập được');
+  const tnA = await mk('TN', 'tn5', 'Thu ngân');
+  const loginTn = await A.apiLocal('/auth/login', { method: 'POST', body: { username: 'tn5', password: tnA.pw } });
+  await A.refresh();
+  t.ok(A.restoreSessionFrom(loginTn.token) === null, 'khôi phục phiên từ token: tài khoản đang bị buộc đổi mật khẩu (mật khẩu tạm) → bắt đăng nhập lại');
+  A.D.staff.find(s => s.id === tnA.id).must_change = 0;
+  await A.refresh();
+  const okMe = A.restoreSessionFrom(loginTn.token);
+  t.ok(okMe && okMe.id === tnA.id && okMe.pv === loginTn.staff.pv, 'khôi phục phiên từ token hợp lệ → có ME kèm mốc mật khẩu');
+  const legacy = 'local.' + Buffer.from(JSON.stringify({ sub: tnA.id })).toString('base64') + '.x';
+  t.ok(A.restoreSessionFrom(legacy)?.pv, 'token cũ (chưa có mốc mật khẩu) vẫn dùng được, nhận mốc hiện tại');
+  A.D.staff.find(s => s.id === tnA.id).pw = await A.AuthLocal.hash('mat-khau-moi-2');          // mật khẩu bị đổi/cấp lại khi app đóng
+  await A.refresh();
+  t.ok(A.restoreSessionFrom(loginTn.token) === null, 'mật khẩu đã đổi/cấp lại từ sau lúc đăng nhập → token cũ không khôi phục được phiên');
+  A.D.staff.find(s => s.id === tnA.id).active = 0; await A.refresh();
+  t.ok(A.restoreSessionFrom(legacy) === null, 'tài khoản đã khoá → không khôi phục được phiên');
+  let bad = ''; try { A.restoreSessionFrom('khong-phai-token'); } catch (e) { bad = 'throw'; }
+  t.eq(bad, 'throw', 'token hỏng → ném lỗi (app xoá token)');
+  t.ok(fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8').includes('ME = restoreSessionFrom(TOKEN);'), 'app.js khi khởi động dùng đúng hàm này');
+
+  // (5c) ngắt liên kết giữa lúc push_records đang bay → D/SQLite rỗng, cursor 0, không unhandled rejection
+  const w2 = newWorld(); const B = await setupOwner(w2);
+  await B.sync();
+  await B.api('/settings', { method: 'PATCH', body: { sound: false } }); await B.save();
+  t.ok(B.Records.dirtyCount() > 0, 'có thay đổi chưa gửi');
+  let rel; const pushGate = new Promise(r => { rel = r; });
+  { const st = B.Cloud.store, orig = st.rpc.bind(st); st.rpc = (n, ...a) => n === 'push_records' ? orig(n, ...a).then(res => pushGate.then(() => res)) : orig(n, ...a); }
+  unhandled.length = 0;
+  const pushing = B.Sync.syncNow();
+  await sleep(80);
+  await B.Cloud.unlinkAll();
+  rel(); await pushing; await B.Persist.idle(); await sleep(40);
+  t.eq(B.Persist.getMeta('cursor', 0), 0, 'ngắt liên kết giữa lúc ĐẨY: cursor = 0');
+  t.eq([B.D.menu.length, B.D.tables.length, B.D.orders.length], [0, 0, 0], 'D rỗng');
+  { const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(B.file);
+    t.eq([db.prepare('select count(*) c from records').get().c, db.prepare('select count(*) c from meta').get().c], [0, 0], 'SQLite rỗng (kết quả đẩy về muộn không được ghi "đã gửi" xuống máy vừa xoá)'); db.close(); }
+  t.eq(unhandled.length, 0, 'không có unhandled rejection');
+
+  // (5d) lượt quá hạn bị huỷ: kết quả về muộn của nó KHÔNG được áp dụng
+  const w3 = newWorld(); const C = await setupOwner(w3);
+  await C.sync();
+  await C.api('/settings', { method: 'PATCH', body: { sound: false } }); await C.save();
+  let rel3; const g3 = new Promise(r => { rel3 = r; });
+  { const st = C.Cloud.store, orig = st.rpc.bind(st); C.origRpc = orig; st.rpc = (n, ...a) => n === 'push_records' ? orig(n, ...a).then(res => g3.then(() => res)) : orig(n, ...a); }
+  C.timers = [];
+  const slow = C.Sync.cycle();
+  await sleep(80);
+  const tm = C.timers.slice(); C.timers = [];
+  for (const x of tm) await x.fn();                         // hạn 60 giây của lượt này nổ
+  await sleep(20);
+  t.ok(C.Sync.state.status === 'error' && /Hết thời gian chờ/.test(C.Sync.state.lastError), 'lượt quá hạn → báo lỗi hết thời gian chờ');
+  rel3(); await slow; await sleep(40);
+  t.ok(C.Records.dirtyCount() > 0, 'lượt đã quá hạn bị HUỶ: kết quả đẩy về muộn không được áp dụng (vẫn còn thay đổi chưa gửi, sẽ gửi lại ở lượt sau)');
+  C.Cloud.store.rpc = C.origRpc;
+  await C.Sync.syncNow();
+  t.ok(C.Sync.state.status === 'ok' && C.Records.dirtyCount() === 0, 'lượt sau gửi lại bình thường');
+
+  // (9) refetch sau trả lời "duplicate" cho bản ghi không phải thanh toán: có await + kiểm soát lỗi
+  const w4 = newWorld(); const E = await setupOwner(w4);
+  await E.sync();
+  await E.api('/settings', { method: 'PATCH', body: { sound: false } }); await E.save();
+  { const st = E.Cloud.store, orig = st.rpc.bind(st), realFrom = st.from.bind(st);
+    st.rpc = (n, ...a) => n === 'push_records' ? orig(n, ...a).then(res => ({ ...res, data: (res.data || []).map(r => ({ ...r, status: 'duplicate' })) })) : orig(n, ...a);
+    st.from = tbl => { const q = realFrom(tbl); if (tbl === 'records') { const rin = q.in.bind(q); q.in = (c, v) => { const r = rin(c, v); r.then = (res, rej) => Promise.resolve({ data: null, error: { message: 'loi-refetch', code: 'XX000' } }).then(res, rej); return r; }; } return q; }; }
+  unhandled.length = 0;
+  await E.Sync.syncNow(); await sleep(40);
+  t.eq(unhandled.length, 0, 'lỗi khi lấy lại bản máy chủ KHÔNG còn thành unhandled rejection');
+  t.ok(E.Sync.state.status === 'error' && /loi-refetch/.test(E.Sync.state.lastError), 'lỗi được ghi nhận qua đường xử lý lỗi chung (trạng thái lỗi + lý do)');
+
+  // (10) cảnh báo script SQL: banner nhẹ; và đặt lại khi ngắt/liên kết kho khác
+  const w5 = newWorld(); const F = await setupOwner(w5);
+  w5.store.sqlVersion = 1;
+  await F.Sync.syncNow();
+  F.route = { name: 'admin', params: {} }; F.render();
+  t.ok(F.document.getElementById('app').innerHTML.includes('Kho dữ liệu cần cập nhật script SQL — bấm để xem cách làm'), 'kho còn script cũ → banner nhẹ ở đầu mọi màn của chủ quán');
+  w5.store.sqlVersion = 2; await F.Sync.syncNow(); F.render();
+  t.ok(!F.document.getElementById('app').innerHTML.includes('cần cập nhật script SQL'), 'script đã mới → hết banner');
+  w5.store.sqlVersion = 1; await F.Sync.syncNow();
+  t.eq(F.Sync.state.sqlVersion, 1, 'đã biết kho chạy bản 1');
+  F.Sync.stop();
+  t.ok(!F.Sync.state.sqlVersion, 'Sync.stop() đặt lại phiên bản đã biết');
+  await F.Sync.syncNow(); t.eq(F.Sync.state.sqlVersion, 1, '…rồi đọc lại ở lần kiểm tra quyền kế tiếp');
+  await F.Cloud.unlinkAll();
+  t.ok(!F.Sync.state.sqlVersion, 'ngắt liên kết: không giữ phiên bản script của kho cũ (kẻo cảnh báo nhầm cho kho khác)');
+  process.off('unhandledRejection', onUnh);
+}
+t.group('38l. Vòng 2: dịch vụ nền không dừng khi app đang ở phía trước; liên kết lại máy nhân viên giữ mã đã dán, không bấm đúp, báo rõ mã đã dùng, đánh dấu thiết bị trùng tên');
+{
+  const bsrc = fs.readFileSync(new URL('../src/native/bridge.js', import.meta.url), 'utf8');
+  const code = bsrc.slice(bsrc.indexOf('const CHIME_COUNT'), bsrc.indexOf('/* ---------- Máy in hoá đơn nhiệt'));
+  const mkAlerts = doc => {
+    const ctl = { start: 0, stop: 0, scheduled: [], failStart: false, clock: 1e12 };
+    const LN = { checkPermissions: async () => ({ display: 'granted' }), requestPermissions: async () => ({ display: 'granted' }), createChannel: async () => {}, schedule: async o => { ctl.scheduled.push(o); } };
+    const FS = { createNotificationChannel: async () => {}, startForegroundService: async () => { if (ctl.failStart) throw new Error('không được phép'); ctl.start++; }, stopForegroundService: async () => { ctl.stop++; } };
+    ctl.alerts = new Function('isNative', 'LocalNotifications', 'ForegroundService', 'Haptics', 'Date', 'document', code + '\nreturn alerts;')(true, LN, FS, { vibrate: async () => {} }, { now: () => ctl.clock }, doc);
+    return ctl;
+  };
+  const H = 3600000;
+  // app đang ở PHÍA TRƯỚC (tablet luôn mở trước mặt): chạm 5,5 giờ → dừng rồi bật lại ngay, KHÔNG thông báo
+  const doc = { visibilityState: 'visible' };
+  const F = mkAlerts(doc);
+  await F.alerts.keepAlive(true);
+  t.eq(F.start, 1, 'đăng nhập → bật dịch vụ nền');
+  F.clock += 6 * H; await F.alerts.keepAlive(true);
+  t.eq([F.stop, F.start, F.scheduled.length], [1, 2, 0], 'chạm 5,5 giờ khi app đang ở phía trước → dừng rồi BẬT LẠI ngay, không đăng thông báo "Mở lại BEPO…"');
+  await F.alerts.keepAlive(true); await F.alerts.keepAlive(true);
+  t.eq([F.stop, F.start], [1, 2], 'hạn mới đã được tính lại → các lần kiểm tra sau không dừng lặp');
+  F.clock += 6 * H; await F.alerts.keepAlive(true);
+  t.eq([F.stop, F.start, F.scheduled.length], [2, 3, 0], '5,5 giờ sau nữa vẫn tự gia hạn như vậy');
+  // app đã ra nền khi chạm hạn → dừng + báo MỘT lần, đặt tạm dừng
+  doc.visibilityState = 'hidden'; F.clock += 6 * H; await F.alerts.keepAlive(true);
+  t.eq([F.stop, F.start, F.scheduled.length], [3, 3, 1], 'chạm hạn khi app ở nền → dừng, đăng đúng 1 thông báo, không bật lại');
+  await F.alerts.keepAlive(true);
+  t.eq([F.start, F.scheduled.length], [3, 1], '…và đang tạm dừng (không bật lại, không báo thêm) cho tới khi mở lại app');
+  // app ở phía trước nhưng Android không cho bật lại → rơi về đường "nền": tạm dừng + báo
+  const G = mkAlerts({ visibilityState: 'visible' });
+  await G.alerts.keepAlive(true); G.failStart = true; G.clock += 6 * H; await G.alerts.keepAlive(true);
+  t.eq([G.stop, G.start, G.scheduled.length], [1, 1, 1], 'bật lại không được → tạm dừng và báo người dùng (không im lặng mất thông báo nền)');
+
+  // --- máy nhân viên mất phiên: liên kết lại ---
+  const w = newWorld(); const A = await setupOwner(w); const S = await addStaffDevice(w, A, 'lien-ket-lai');
+  await S.login('chuquan', 'chuquan123');
+  delete S.sessions['sb-store']; await S.Sync.syncNow();
+  t.eq(S.Sync.state.status, 'auth', 'máy nhân viên mất phiên');
+  S.route = { name: 'cloud', params: {} };
+  const pasted = 'QLNH1|https://quan-a.test|khoa-anon|' + 'a'.repeat(32);
+  S.window._rjCode = pasted;
+  t.ok(S.VIEWS.cloud().includes('>' + pasted + '</textarea>'), 'mã đã dán/quét được giữ lại khi màn Đồng bộ vẽ lại (cập nhật trạng thái mỗi 60 giây không làm mất)');
+  t.ok(fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8').includes("e.target.id === 'rj_code'"), 'gõ/dán vào ô nhập cập nhật bản nhớ');
+  S.window._rjCode = '';
+  S.window._rejoining = true;
+  t.ok(/data-act="c_rejoinGo" disabled/.test(S.VIEWS.cloud()) && /data-act="c_rejoinScan" disabled/.test(S.VIEWS.cloud()), 'trong lúc đang liên kết lại, hai nút bị vô hiệu hoá');
+  S.window._rejoining = false;
+  const inv = await A.Cloud.createInvite();
+  S.setInput('rj_code', inv.payload);
+  let n = 0; const origRedeem = w.store.rpc_redeem_pairing_ticket.bind(w.store);
+  w.store.rpc_redeem_pairing_ticket = (...a) => { n++; return origRedeem(...a); };
+  S.handleAct({ dataset: { act: 'c_rejoinGo' } });
+  S.handleAct({ dataset: { act: 'c_rejoinGo' } });          // bấm lần hai khi lần một chưa xong
+  await S.until(() => n >= 1 && !S.window._rejoining);
+  await new Promise(r => setTimeout(r, 60));
+  t.eq(n, 1, 'bấm "Liên kết lại" hai lần liên tiếp → chỉ gọi đổi mã đúng 1 lần (mã chỉ dùng được một lần)');
+  S.lastToast = '';
+  S.handleAct({ dataset: { act: 'c_rejoinGo' } });          // dùng lại đúng mã đã dùng
+  await S.until(() => /đã được dùng/.test(S.lastToast || ''));
+  t.ok(/Mã mời đã được dùng hoặc đã hết hạn/.test(S.lastToast), 'mã đã dùng → báo tiếng Việt dễ hiểu: ' + S.lastToast);
+  t.ok(S.Cloud.store && S.Cloud.role === 'staff', 'thất bại không làm hỏng kết nối đang có');
+  S.clearInputs();
+
+  // --- chủ quán: chỉ đánh dấu dòng thiết bị CŨ đã im lặng khi có dòng cùng tên xuất hiện sau nó ---
+  A.route = { name: 'cloud', params: {} };
+  const t0 = Date.now() - 10 * H, at = ms => new Date(ms).toISOString();
+  const MARK = /cùng tên với máy khác — có thể là máy đã liên kết lại/g;
+  const dev = (id, name, created, seen, revoked) => ({ id, device_name: name, created_at: at(created), last_seen_at: at(seen), revoked_at: revoked ? at(seen) : null });
+  const marks = list => { A.window._devices = list; return (A.VIEWS.cloud().match(MARK) || []).length; };
+  t.eq(marks([dev('m1', 'Máy bếp', t0, t0 + H), dev('m2', 'Máy bếp', t0 + 3 * H, Date.now()), dev('m3', 'Máy thu ngân', t0 + H, Date.now())]), 1,
+    'máy cũ đã im lặng từ trước khi có máy cùng tên xuất hiện → đánh dấu đúng MỘT dòng (dòng cũ); máy tên khác không bị đánh dấu');
+  t.eq(marks([dev('n1', 'Máy nhân viên', t0, Date.now()), dev('n2', 'Máy nhân viên', t0 + H, Date.now()), dev('n3', 'Máy nhân viên', t0 + 2 * H, Date.now() - 60000)]), 0,
+    'nhiều máy cùng tên mặc định "Máy nhân viên" mà đều đang hoạt động → KHÔNG đánh dấu (không gây nhiễu)');
+  t.eq(marks([dev('r1', 'Máy bếp', t0, t0 + H, true), dev('r2', 'Máy bếp', t0 + 3 * H, Date.now())]), 0, 'dòng cũ đã bị thu hồi thì không cần nhắc thêm');
+  t.eq(marks([dev('d1', 'Máy bếp', t0, t0 + 5 * H), dev('d2', 'Máy bếp', t0 + 3 * H, Date.now())]), 0, 'dòng cũ vẫn còn hoạt động SAU khi dòng mới xuất hiện → là hai máy thật, không đánh dấu');
+  A.window._devices = null;
+}
+t.group('38m. Vòng 3: máy nhân viên mất phiên THẬT liên kết lại thất bại không bị xoá oan; các điểm huỷ lượt đồng bộ');
+{
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const mkStaffWithPending = async name => {
+    const w = newWorld(); const A = await setupOwner(w); const S = await addStaffDevice(w, A, name);
+    await S.login('chuquan', 'chuquan123');
+    for (const [tb, seat] of [['Bàn 02', 1], ['Bàn 02', 2], ['Bàn 03', 1], ['Bàn 04', 1], ['Bàn 05', 1]]) await order(S, tb, seat, [['Trà đá', 2]]);
+    await S.save();
+    return { w, A, S, dirty: S.Records.dirtyCount(), orders: S.D.orders.length };
+  };
+  // --- (#1) rejoinAsStaff thất bại khi máy đã MẤT PHIÊN thật: không để lại phiên ẩn danh lạ → không bị coi là "thu hồi" rồi xoá sạch ---
+  {
+    const { w, A, S, dirty, orders } = await mkStaffWithPending('mat-phien-that');
+    t.ok(dirty >= 5 && orders >= 5, `máy nhân viên có ${orders} đơn và ${dirty} thay đổi chưa gửi`);
+    delete S.sessions['sb-store'];                                   // mất phiên thật: getSession trả none
+    await S.Sync.syncNow();
+    t.eq(S.Sync.state.status, 'auth', 'mất phiên thật → trạng thái auth');
+    const after = async label => {
+      await S.Sync.syncNow();
+      t.eq(S.Sync.state.status, 'auth', label + ': syncNow() → vẫn "cần xử lý" (auth), KHÔNG phải "revoked"');
+      t.ok(S.Cloud.role === 'staff' && S.D.orders.length === orders && S.Records.dirtyCount() === dirty, label + ': vai trò vẫn là máy nhân viên, đơn và thay đổi chưa gửi còn nguyên');
+      t.ok(!S.sessions['sb-store'], label + ': kho lưu trữ không còn phiên ẩn danh lạ');
+    };
+    // (a1) mã chưa từng cấp
+    await t.rejects(() => S.Cloud.rejoinAsStaff('QLNH1|https://quan-a.test|' + ANON + '|' + 'b'.repeat(32)), /đã được dùng hoặc đã hết hạn/, 'mã chưa từng cấp → báo mã không dùng được');
+    await after('mã chưa từng cấp');
+    // (a2) mã đã dùng ở máy khác
+    const invUsed = await A.Cloud.createInvite();
+    const other = await newDevice(w, 'may-khac'); await other.Cloud.joinAsStaff(invUsed.payload, 'Máy khác');
+    await t.rejects(() => S.Cloud.rejoinAsStaff(invUsed.payload), /đã được dùng hoặc đã hết hạn/, 'mã đã dùng → báo mã đã dùng');
+    await after('mã đã dùng');
+    // (b) rpc đổi mã ném lỗi mạng
+    const origRpc = w.store.rpc.bind(w.store);
+    w.store.rpc = (name, ...a) => { if (name === 'redeem_pairing_ticket') throw new Error('Failed to fetch'); return origRpc(name, ...a); };
+    const invNet = await A.Cloud.createInvite();
+    await t.rejects(() => S.Cloud.rejoinAsStaff(invNet.payload), /Failed to fetch/, 'rớt mạng giữa lúc đổi mã → ném lỗi');
+    await after('rớt mạng');
+    w.store.rpc = origRpc;
+    // (c) không đăng nhập ẩn danh được (lỗi trước khi tạo phiên): không đổi gì
+    w.store.anonEnabled = false;
+    const invAnon = await A.Cloud.createInvite();
+    await t.rejects(() => S.Cloud.rejoinAsStaff(invAnon.payload), /Allow anonymous|ẩn danh/, 'chưa bật đăng nhập ẩn danh → báo lỗi');
+    await after('không tạo được phiên ẩn danh');
+    w.store.anonEnabled = true;
+    // (d) mã hợp lệ → vẫn liên kết lại được và dữ liệu chưa gửi được đẩy lên
+    await S.Cloud.rejoinAsStaff((await A.Cloud.createInvite()).payload);
+    t.ok(S.D.orders.length === orders, 'liên kết lại bằng mã hợp lệ thành công, dữ liệu còn nguyên');
+    await S.sync();
+    t.eq([S.Sync.state.status, S.Records.dirtyCount()], ['ok', 0], 'đồng bộ bình thường, thay đổi chưa gửi đã được đẩy lên bằng thiết bị mới');
+    await A.sync();
+    t.ok(A.D.orders.length >= orders, 'chủ quán nhận được các đơn của máy nhân viên');
+  }
+  // --- (#1) liên kết lại CHẠY SONG SONG với đồng bộ: trong lúc chờ đổi mã, phiên ẩn danh mới đã nằm trong kho lưu trữ chung ---
+  {
+    const { w, A, S, dirty, orders } = await mkStaffWithPending('song-song');
+    // một lượt đồng bộ ĐANG BAY (đã qua bước kiểm tra phiên, đang chờ store_status) thì phiên mất và bắt đầu liên kết lại;
+    // câu trả lời của lượt đó (is_device=false, vì phiên ẩn danh mới chưa phải thiết bị) đến muộn
+    let relS; const gateS = new Promise(r => { relS = r; });
+    const st = S.Cloud.store, origS = st.rpc.bind(st);
+    st.rpc = (n, ...a) => n === 'store_status' ? gateS.then(() => ({ data: { ready: true, version: 2, has_owner: true, is_owner: false, is_device: false }, error: null })) : origS(n, ...a);
+    const inflight = S.Sync.cycle();
+    await sleep(30);
+    delete S.sessions['sb-store'];                                  // mất phiên thật ngay lúc đó
+    // chặn bước đổi mã để giữ cửa sổ "đã có phiên ẩn danh mới nhưng chưa là thiết bị"
+    let relR; const gateR = new Promise(r => { relR = r; });
+    const origRpc = w.store.rpc.bind(w.store);
+    w.store.rpc = (name, ...a) => name === 'redeem_pairing_ticket' ? gateR.then(() => origRpc(name, ...a)) : origRpc(name, ...a);
+    const inv = await A.Cloud.createInvite();
+    const rejoin = S.Cloud.rejoinAsStaff(inv.payload);
+    await sleep(60);
+    t.ok(!!S.sessions['sb-store'], 'đang trong cửa sổ liên kết lại: phiên ẩn danh mới có trong kho lưu trữ');
+    relS(); await inflight; await sleep(20);                       // lượt đang bay nhận câu trả lời is_device=false
+    S.Cloud.store && S.Sync.kick(0); await S.runTimers();           // và các kick/lượt mới chen vào
+    await S.Sync.syncNow();
+    t.ok(S.Sync.state.status !== 'revoked' && S.Cloud.role === 'staff' && S.D.orders.length === orders, 'đồng bộ chen vào lúc liên kết lại KHÔNG làm máy bị coi là thu hồi / bị xoá');
+    relR(); await rejoin;
+    w.store.rpc = origRpc;
+    await S.sync();
+    t.eq([S.Sync.state.status, S.Records.dirtyCount(), S.D.orders.length], ['ok', 0, orders], 'liên kết lại xong → đồng bộ bình thường, dữ liệu đủ');
+  }
+
+  // --- (#2) các điểm stale(my) trong sync.js ---
+  {
+    const w = newWorld(); const A = await setupOwner(w); const S = await addStaffDevice(w, A, 'diem-huy');
+    await S.sync();
+    const newData = async v => { await A.api('/settings', { method: 'PATCH', body: { sound: v } }); await A.sync(); };
+    // (X) huỷ NGAY sau khi lô kéo cuối được áp dụng (onChange chạy đồng bộ ở cuối applyRemote) → không ghi con trỏ mới
+    await newData(false);
+    const cur0 = S.Persist.getMeta('cursor', 0);
+    S.Sync.onChange = () => { S.Sync.onChange = null; S.Sync.stop(); };
+    await S.Sync.syncNow();
+    t.eq(S.Persist.getMeta('cursor', 0), cur0, 'huỷ ngay sau lô kéo cuối → KHÔNG ghi con trỏ mới (stale trước setMeta cursor)');
+    await S.sync();
+    t.ok(S.Persist.getMeta('cursor', 0) > cur0, '(đối chứng) không huỷ thì con trỏ tiến lên bình thường');
+    // (Y) lần kéo đầu (initialPullPending): huỷ trong lúc ghi con trỏ → KHÔNG xoá cờ initialPullPending
+    const origSet = S.Persist.setMeta;
+    const gateCursor = () => { let rel; const g = new Promise(r => { rel = r; }); S.Persist.setMeta = async (k, v) => { if (k === 'cursor') await g; return origSet(k, v); }; return rel; };
+    await newData(true);
+    await S.Persist.setMeta('initialPullPending', 1);
+    let rel = gateCursor();
+    const lastOk0 = S.Sync.state.lastSyncAt;
+    const first = S.Sync.syncNow();
+    await sleep(120); S.Sync.stop(); rel(); await first; await sleep(20);
+    S.Persist.setMeta = origSet;
+    t.eq(S.Persist.getMeta('initialPullPending', 0), 1, 'huỷ giữa lúc kéo lần đầu → cờ initialPullPending KHÔNG bị xoá (stale sau lần kéo đầu)');
+    t.ok(S.Sync.state.status !== 'ok' && S.Sync.state.lastSyncAt === lastOk0, '…và lượt bị huỷ không báo "đã đồng bộ"');
+    await S.Persist.setMeta('initialPullPending', 0);
+    // (Z) đường thành công: huỷ trong lúc ghi con trỏ của lần kéo cuối → không đặt trạng thái 'ok'
+    await newData(false);
+    rel = gateCursor();
+    const lastOk1 = S.Sync.state.lastSyncAt;
+    S.Sync.start();                                                  // (đưa đồng bộ về trạng thái chạy bình thường sau các lần stop() ở trên)
+    const run2 = S.Sync.syncNow();
+    await sleep(120); S.Sync.stop(); rel(); await run2; await sleep(20);
+    S.Persist.setMeta = origSet;
+    t.ok(S.Sync.state.status !== 'ok' && S.Sync.state.lastSyncAt === lastOk1, 'lượt bị huỷ ở bước cuối KHÔNG báo "đã đồng bộ" (stale ở đường thành công)');
+  }
+}
+t.group('38n. Vòng 3: công tắc về đúng trạng thái dù đang giữ focus; banner script SQL có nút ẩn');
+{
+  // (#3) sau khi bấm công tắc, ô công tắc đang giữ focus → safeToRender() = false → không vẽ lại; công tắc phải được đặt lại trực tiếp
+  const w = newWorld(); const A = await setupOwner(w);
+  const lim = (await A.api('/staff', { method: 'POST', body: { name: 'QL Thấp', username: 'qlthap3', role: 'Quản lý' } })).tempPassword;
+  const limId = A.D.staff.find(s => s.username === 'qlthap3').id;
+  await A.api('/staff/' + limId, { method: 'PATCH', body: { perms: { pos: 1, staff: 1 } } });
+  await A.login('qlthap3', lim);
+  await A.api('/staff', { method: 'POST', body: { name: 'Con', username: 'con4', role: 'Quản lý' } });
+  const con = A.D.staff.find(s => s.username === 'con4');
+  await A.refresh();
+  A.route = { name: 'staff', params: { id: con.id } }; A.render();
+  A.document.activeElement = { tagName: 'INPUT' };                       // chính ô công tắc đang giữ focus sau khi bấm
+  const el = { dataset: { act: 'perm', id: con.id, k: 'menu' }, checked: true };
+  A.lastToast = '';
+  A.handleAct(el);
+  await A.until(() => /chưa có/.test(A.lastToast || ''));
+  await new Promise(r => setTimeout(r, 30));
+  t.ok(/chưa có/.test(A.lastToast), 'API từ chối quyền → thông báo lỗi');
+  t.eq(el.checked, false, 'công tắc quay về trạng thái cũ NGAY cả khi không vẽ lại được (đang giữ focus)');
+  const ok = { dataset: { act: 'perm', id: con.id, k: 'pos' }, checked: false };
+  A.handleAct(ok);
+  await A.until(() => !A.D.staff.find(s => s.id === con.id).perms.pos);
+  t.eq(ok.checked, false, 'thao tác hợp lệ thì công tắc giữ nguyên giá trị người dùng chọn');
+  A.document.activeElement = null;
+  // công tắc cài đặt trên máy nhân viên (bị chặn ghi cài đặt)
+  const S = await addStaffDevice(w, A, 'cong-tac');
+  S.document.activeElement = { tagName: 'INPUT' };
+  const el2 = { dataset: { act: 'setSetting', k: 'autoLock' }, checked: false };
+  S.lastToast = '';
+  S.handleAct(el2);
+  await S.until(() => /Chỉ máy của chủ quán/.test(S.lastToast || ''));
+  t.eq(el2.checked, true, 'công tắc cài đặt bị từ chối → quay về trạng thái cũ');
+
+  // (#5) banner "cần cập nhật script SQL" ẩn được cho phiên chạy hiện tại; thẻ chi tiết ở màn Đồng bộ vẫn hiện
+  const w2 = newWorld(); const F = await setupOwner(w2);
+  w2.store.sqlVersion = 1;
+  await F.Sync.syncNow();
+  F.route = { name: 'admin', params: {} }; F.render();
+  let html = F.document.getElementById('app').innerHTML;
+  t.ok(html.includes('Kho dữ liệu cần cập nhật script SQL — bấm để xem cách làm') && html.includes('data-act="c_hideSqlBanner"'), 'banner có nút ✕ ẩn');
+  F.handleAct({ dataset: { act: 'c_hideSqlBanner' } });
+  t.eq(F.document.getElementById('syncbar').innerHTML, '', 'bấm ✕ → banner biến mất ngay');
+  F.render();
+  t.ok(!F.document.getElementById('app').innerHTML.includes('Kho dữ liệu cần cập nhật script SQL — bấm'), 'các lần vẽ lại sau đó không hiện lại banner');
+  F.route = { name: 'cloud', params: {} };
+  t.ok(F.VIEWS.cloud().includes('Kho dữ liệu cần cập nhật script SQL') && F.VIEWS.cloud().includes('c_copySql'), 'thẻ chi tiết (có nút sao chép script) ở màn Đồng bộ vẫn hiện');
+}
 t.group('37. Trang Hướng dẫn sử dụng trong app: song ngữ, ảnh thật + khung đỏ, mở được từ Quản lý (kể cả khi bị khoá)');
 {
   const w = newWorld(); const A = await setupOwner(w);

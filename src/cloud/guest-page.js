@@ -103,6 +103,8 @@ async function boot() {
   // Nhân viên xác nhận/bếp đổi trạng thái món bên phía họ — khách không tự biết trừ khi tải lại,
   // nên âm thầm làm mới mỗi 15 giây để "Đơn của tôi" tự cập nhật, không cần khách bấm gì.
   poller = setInterval(poll, 15000);
+  // Tab bị ẩn (khoá màn hình / chuyển app) thì poll() bỏ qua; mở lại phải làm mới NGAY, không đợi tới nhịp 15 giây kế tiếp mới thấy trạng thái món
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 }
 async function load() {
   const { data, error } = await sb.rpc('guest_menu', { p_seat_token: TOKEN });

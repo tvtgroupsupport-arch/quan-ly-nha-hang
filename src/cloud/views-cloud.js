@@ -21,8 +21,12 @@ function syncBannerHtml() {
   let msg = '', bg = '';
   if (s.status === 'offline') { msg = 'Đang offline — thay đổi được lưu trên máy và tự đồng bộ khi có mạng'; bg = 'var(--amber)'; }
   else if (s.status === 'error' || s.status === 'auth') { msg = 'Đồng bộ lỗi: ' + s.lastError; bg = 'var(--red)'; }
-  if (!msg) return '';
-  if (s.status === 'auth' && Cloud.role === 'owner') return `<button data-go="cloud" style="display:block;width:100%;border:0;background:${bg};color:#fff;padding:7px 14px;font-size:12px;font-weight:600;text-align:center">${esc(msg)} — bấm để đăng nhập lại</button>`;
+  if (!msg) {
+    // Nhẹ nhàng, không chặn gì: kho của quán còn chạy bản script SQL cũ → nhắc chủ quán (chỉ máy chủ quán đăng nhập tài khoản Chủ quán)
+    if (isOwnerDevice() && s.sqlVersion && s.sqlVersion < STORE_SQL_VERSION && !window._sqlBannerHidden) return `<div style="display:flex;background:var(--blue);color:#fff"><button data-go="cloud" style="flex:1;border:0;background:transparent;color:inherit;padding:7px 14px;font-size:12px;font-weight:600;text-align:center">Kho dữ liệu cần cập nhật script SQL — bấm để xem cách làm</button><button data-act="c_hideSqlBanner" aria-label="Ẩn thông báo này" style="border:0;background:transparent;color:inherit;padding:7px 14px;font-size:14px">✕</button></div>`;
+    return '';
+  }
+  if (s.status === 'auth') return `<button data-go="cloud" style="display:block;width:100%;border:0;background:${bg};color:#fff;padding:7px 14px;font-size:12px;font-weight:600;text-align:center">${esc(msg)} — bấm để xử lý</button>`;
   return `<div style="background:${bg};color:#fff;padding:7px 14px;font-size:12px;font-weight:600;text-align:center">${esc(msg)}</div>`;
 }
 function syncBanner() { return `<div id="syncbar">${syncBannerHtml()}</div>`; }
@@ -205,6 +209,14 @@ function vCloud() {
   const isOwner = Cloud.role === 'owner', s = Sync.state, linked = Cloud.linked;
   if (isOwnerDevice() && linked && !window._devices && !window._devicesLoading && !(window._devicesErr && Date.now() - (window._devicesErrAt || 0) < 20000)) loadDevices();
   const devs = window._devices || [];
+  // Máy nhân viên liên kết lại tạo thêm một dòng thiết bị cùng tên. Chỉ đánh dấu dòng CŨ khi có dòng cùng tên được tạo SAU nó và nó đã im lặng từ trước lúc dòng mới xuất hiện
+  // (last_seen_at < created_at của dòng mới). Nhiều máy cùng tên mặc định "Máy nhân viên" mà đều đang hoạt động thì KHÔNG đánh dấu.
+  const devRelinked = {};
+  devs.forEach(d => {
+    if (d.revoked_at) return;
+    const seen = Date.parse(d.last_seen_at || d.created_at) || 0, born = Date.parse(d.created_at) || 0;
+    if (devs.some(e => e !== d && e.device_name === d.device_name && (Date.parse(e.created_at) || 0) > born && seen < (Date.parse(e.created_at) || 0))) devRelinked[d.id] = true;
+  });
   return `<div class="screen">
     ${hdr('Đồng bộ & thiết bị', isOwner ? 'Máy chủ quán (máy gốc)' : `Máy nhân viên · ${esc(Cloud.cfg.deviceName || '')}`)}
     <div class="body">
@@ -216,11 +228,20 @@ function vCloud() {
           <div class="row" style="gap:8px;margin-top:10px"><button class="btn sm ghost" data-act="c_syncNow" style="flex:1">Đồng bộ ngay</button><button class="btn sm ghost" data-act="c_diag" style="flex:1">Chẩn đoán</button></div>`
           : `<div class="t-xs" style="line-height:1.6">Máy này đang dùng dữ liệu riêng, chưa chia sẻ với thiết bị nào.</div>`}
       </div>
+      ${isOwner && linked && s.sqlVersion && s.sqlVersion < STORE_SQL_VERSION ? `<div class="card" style="border-color:var(--amber);gap:8px">
+        <div class="t-md" style="color:var(--amber)">Kho dữ liệu cần cập nhật script SQL</div>
+        <div class="t-xs" style="line-height:1.7">Kho Supabase của quán đang chạy bản script cũ (số ${s.sqlVersion}), app cần bản số ${STORE_SQL_VERSION}. Bấm sao chép script, mở <b>SQL Editor</b> trên supabase.com, dán và bấm <b>Run</b>. Chạy lại an toàn, dữ liệu không mất.</div>
+        <button class="btn sm ghost" data-act="c_copySql">Sao chép script SQL</button></div>` : ''}
       ${isOwner && s.status === 'auth' ? `<div class="card" style="border-color:var(--red);gap:8px">
         <div class="t-md" style="color:var(--red)">Cần đăng nhập lại vào kho dữ liệu</div>
         <div class="t-xs" style="line-height:1.7">Phiên đăng nhập vào kho đã hết nên chưa gửi được dữ liệu. Nhập <b>mật khẩu lưu trữ</b> (mật khẩu bạn đặt lúc tạo tài khoản lưu trữ dữ liệu) để đồng bộ tiếp — <b>dữ liệu trên máy không mất</b>.</div>
         <input class="input" id="rl_pass" type="password" placeholder="Mật khẩu lưu trữ" autocomplete="current-password">
         <button class="btn pri" data-act="c_relogin">Đăng nhập lại</button></div>` : ''}
+      ${!isOwner && linked && s.status === 'auth' ? `<div class="card" style="border-color:var(--red);gap:8px">
+        <div class="t-md" style="color:var(--red)">Máy mất phiên đăng nhập vào kho</div>
+        <div class="t-xs" style="line-height:1.7">Chủ quán mở <b>Quản lý → Đồng bộ &amp; thiết bị → Thêm thiết bị nhân viên</b> để hiện mã QR mới, rồi quét hoặc dán mã vào đây. <b>Các thay đổi chưa gửi (${Records.dirtyCount()}) vẫn được giữ</b> và gửi lên ngay sau khi liên kết lại.</div>
+        <textarea class="input" id="rj_code" rows="3" placeholder="QLNH1|https://..." style="font-family:monospace;font-size:12px">${esc(window._rjCode || '')}</textarea>
+        <div class="row" style="gap:8px"><button class="btn ghost" data-act="c_rejoinScan" ${window._rejoining ? 'disabled' : ''} style="flex:1">Quét mã QR</button><button class="btn pri" data-act="c_rejoinGo" ${window._rejoining ? 'disabled' : ''} style="flex:1">Liên kết lại</button></div></div>` : ''}
       ${s.conflicts.length ? `<div class="sec">Cần kiểm tra</div><div class="card">${s.conflicts.slice(0, 5).map(c =>
         `<div class="t-xs" style="margin-bottom:6px;color:var(--red)">⚠ ${esc(c.reason || 'Xung đột dữ liệu')} <span class="muted">(${esc(fmtTime(c.at))})</span></div>`).join('')}</div>` : ''}
       ${isOwner && !linked && ownerOnlyUpgrade() ? (Cloud.localMode ? upgradeCardHtml() : `<button class="btn pri" data-go="ownerLink">Liên kết Supabase của quán</button>`) : ''}
@@ -230,7 +251,8 @@ function vCloud() {
         ${window._devicesErr ? `<div class="card" style="border-color:var(--red);gap:6px"><div class="t-xs" style="color:var(--red);line-height:1.6">Không tải được danh sách thiết bị: ${esc(window._devicesErr)}</div><button class="btn sm ghost" data-act="c_devReload" style="width:auto">Tải lại danh sách</button></div>` : `<div class="between"><span class="t-xs muted">${devs.length} thiết bị</span><button class="btn sm ghost" data-act="c_devReload" style="width:auto">Tải lại</button></div>`}
         ${devs.map(d => `<div class="card between">
           <div style="flex:1;min-width:0"><div class="t-md">${esc(d.device_name)}</div>
-            <div class="t-xs">Liên kết ${esc(fmtTime(Date.parse(d.created_at)))} · Hoạt động ${esc(fmtTime(d.last_seen_at ? Date.parse(d.last_seen_at) : 0))}</div></div>
+            <div class="t-xs">Liên kết ${esc(fmtTime(Date.parse(d.created_at)))} · Hoạt động ${esc(fmtTime(d.last_seen_at ? Date.parse(d.last_seen_at) : 0))}</div>
+            ${devRelinked[d.id] ? '<div class="t-xs" style="color:var(--amber)">(cùng tên với máy khác — có thể là máy đã liên kết lại)</div>' : ''}</div>
           ${d.revoked_at
             ? `<div class="row" style="gap:6px"><span class="badge b-red">Đã thu hồi</span>
                  <button class="btn sm ghost" data-act="c_deleteDeviceAsk" data-id="${esc(d.id)}" data-nm="${esc(d.device_name)}" style="width:auto">Xoá</button></div>`
@@ -608,6 +630,16 @@ function cloudAct(el) {
       await doStaffJoin(val('sj_code'), val('sj_name'));
     }); return true;
 
+    case 'c_rejoinScan': busy(async () => {
+      const text = await NativeBridge.scan();
+      if (!text) return;
+      window._rjCode = text;
+      const ta = document.getElementById('rj_code'); if (ta) ta.value = text;
+      await doStaffRejoin(text);
+    }); return true;
+    case 'c_rejoinGo': busy(async () => { await doStaffRejoin(val('rj_code')); }); return true;
+
+    case 'c_hideSqlBanner': { window._sqlBannerHidden = true; updateSyncBanner(); return true; }      // chỉ ẩn trong phiên chạy này (không lưu bền); thẻ chi tiết ở màn Đồng bộ vẫn hiện
     case 'c_copyRef': busy(async () => { await NativeBridge.copy(d.ref || storeProjectRef()); toast('Đã sao chép ID dự án'); }); return true;
     case 'c_devReload': window._devices = null; window._devicesErr = ''; render(); return true;
     case 'c_inviteNew': busy(async () => {
@@ -672,10 +704,11 @@ function cloudAct(el) {
       if (!canUnlinkHere()) { toast('Dữ liệu quán chưa được sao lưu lên kho — chỉ tài khoản Chủ quán mới được xoá dữ liệu trên máy này'); return true; }
       // Chủ quán đã liên kết kho: cho chọn GỠ LUÔN liên kết ở máy chủ trung tâm (nếu chỉ xoá trên máy, tài khoản vẫn nhớ kho cũ)
       const detach = canDetachStore();
+      const destructive = unlinkIsDestructive();     // tính MỘT lần lúc mở hộp thoại: ô nhập XOA có hiện hay không do cờ này quyết định, nút bấm dùng đúng cờ đó (data-destructive)
       sheet('Ngắt liên kết?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">Toàn bộ dữ liệu trên máy này sẽ bị <b>xoá</b> và máy quay về màn thiết lập. ${Cloud.localMode ? '<b>Dữ liệu quán chỉ nằm trên máy này</b> (chưa bật đồng bộ) — xoá là <b>mất hẳn, không khôi phục được</b>.' : 'Dữ liệu đã đồng bộ vẫn còn trên Supabase của quán.'}${detach ? `<br><br><b>Chỉ xoá trên máy này:</b> tài khoản lưu trữ vẫn nhớ kho Supabase — đăng nhập lại sẽ khôi phục được dữ liệu.<br><b>Xoá và gỡ liên kết kho:</b> tài khoản lưu trữ quên kho cũ để bạn tạo kho mới (kho cũ không bị xoá, bạn tự xoá trên supabase.com nếu muốn). Chọn cách này TRƯỚC khi xoá dự án trên Supabase.` : ''}${Records.dirtyCount() ? `<br><br><span style="color:var(--red)">Còn ${Records.dirtyCount()} thay đổi chưa gửi lên — sẽ mất nếu ngắt ngay.</span>` : ''}</div>
-        ${unlinkIsDestructive() ? '<div class="field"><label class="f">Gõ <b>XOA</b> để xác nhận</label><input class="input" id="unl_confirm" autocapitalize="characters" autocomplete="off"></div>' : ''}
-        <button class="btn danger" data-act="c_unlinkGo">${detach ? 'Chỉ xoá dữ liệu trên máy này' : 'Xoá dữ liệu &amp; ngắt liên kết'}</button>
-        ${detach ? `<button class="btn danger" data-act="c_unlinkDetachGo" style="margin-top:8px">Xoá &amp; gỡ liên kết kho (để tạo kho mới)</button>` : ''}
+        ${destructive ? '<div class="field"><label class="f">Gõ <b>XOA</b> để xác nhận</label><input class="input" id="unl_confirm" autocapitalize="characters" autocomplete="off"></div>' : ''}
+        <button class="btn danger" data-act="c_unlinkGo" data-destructive="${destructive ? 1 : 0}">${detach ? 'Chỉ xoá dữ liệu trên máy này' : 'Xoá dữ liệu &amp; ngắt liên kết'}</button>
+        ${detach ? `<button class="btn danger" data-act="c_unlinkDetachGo" data-destructive="${destructive ? 1 : 0}" style="margin-top:8px">Xoá &amp; gỡ liên kết kho (để tạo kho mới)</button>` : ''}
         <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Huỷ</button>`);
       return true;
     }
@@ -700,7 +733,8 @@ function cloudAct(el) {
     }); return true;
 
     case 'c_unlinkDetachGo': busy(async () => {
-      if (unlinkIsDestructive() && val('unl_confirm').trim().toUpperCase() !== 'XOA') throw new Error('Gõ đúng chữ XOA để xác nhận');
+      if (unlinkNeedsReconfirm(d)) return;
+      if (d.destructive === '1' && val('unl_confirm').trim().toUpperCase() !== 'XOA') throw new Error('Gõ đúng chữ XOA để xác nhận');
       if (!canDetachStore()) throw new Error('Chỉ tài khoản Chủ quán trên máy chủ quán mới được gỡ liên kết kho');
       await Cloud.unlinkAndDetach(); closeSheet(); TOKEN = null; ME = null;
       try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
@@ -709,8 +743,9 @@ function cloudAct(el) {
     }); return true;
 
     case 'c_unlinkGo': busy(async () => {
+      if (unlinkNeedsReconfirm(d)) return;
       if (!canUnlinkHere()) throw new Error('Chỉ tài khoản Chủ quán mới được xoá dữ liệu chưa sao lưu');
-      if (unlinkIsDestructive() && val('unl_confirm').trim().toUpperCase() !== 'XOA') throw new Error('Gõ đúng chữ XOA để xác nhận');
+      if (d.destructive === '1' && val('unl_confirm').trim().toUpperCase() !== 'XOA') throw new Error('Gõ đúng chữ XOA để xác nhận');
       closeSheet(); await Cloud.unlinkAll(); TOKEN = null; ME = null;
       try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
       route = { name: 'setup', params: {} }; render();
@@ -737,6 +772,25 @@ function cloudAct(el) {
   return false;
 }
 
+/** Máy nhân viên mất phiên: liên kết lại bằng mã mời mới, GIỮ nguyên dữ liệu và các thay đổi chưa gửi trên máy (khác doStaffJoin: không xoá gì) */
+async function doStaffRejoin(text) {
+  if (window._rejoining) return;                      // đang xử lý một lần bấm: bấm thêm lần nữa thì bỏ qua (mã mời chỉ dùng được một lần)
+  if (!String(text || '').trim()) throw new Error('Chưa có mã mời');
+  window._rejoining = true; if (route.name === 'cloud') render();
+  try {
+    await Cloud.rejoinAsStaff(text);
+    window._rjCode = '';
+    toast('Đã liên kết lại — các thay đổi chưa gửi đang được gửi lên');
+  } finally { window._rejoining = false; if (route.name === 'cloud') render(); }
+}
+/** Hộp thoại ngắt liên kết được mở lúc dữ liệu đã an toàn trên kho (không có ô nhập XOA), nhưng từ đó có thay đổi chưa gửi → bấm xác nhận sẽ mất dữ liệu:
+    KHÔNG xoá lặng lẽ và cũng KHÔNG báo "Gõ đúng chữ XOA" khi ô nhập không tồn tại — mở lại hộp thoại (lần này có ô nhập XOA) để xác nhận lại. */
+function unlinkNeedsReconfirm(d) {
+  if (d.destructive === '1' || !unlinkIsDestructive()) return false;
+  closeSheet(); cloudAct({ dataset: { act: 'c_unlinkAsk' } });
+  toast('Vừa có thay đổi chưa gửi lên kho — hãy xác nhận lại');
+  return true;
+}
 async function doStaffJoin(text, name) {
   if (!String(text || '').trim()) throw new Error('Chưa có mã mời');
   const nm = String(name || '').trim() || 'Máy nhân viên';

@@ -1,5 +1,5 @@
 -- ============================================================================
---  QUẢN LÝ NHÀ HÀNG — script dựng Supabase CỦA QUÁN (chạy 1 lần duy nhất)
+--  QUẢN LÝ NHÀ HÀNG — script dựng Supabase CỦA QUÁN (chạy lần đầu; app nhắc cập nhật thì chạy lại — chạy lại an toàn, không mất dữ liệu)
 -- ============================================================================
 --  Cách dùng (chủ quán làm trên máy tính hoặc điện thoại):
 --   1. Tạo dự án Supabase miễn phí tại supabase.com (đây là dự án RIÊNG của quán,
@@ -141,7 +141,9 @@ create or replace function public.store_status() returns jsonb
 language sql stable security definer set search_path = public as $$
   select jsonb_build_object(
     'ready', true,
-    'version', 1,
+    -- Phiên bản script: app so số này với số trong bản script đi kèm app; thấp hơn → app nhắc chủ quán chạy lại script (xem Đồng bộ).
+    --   1 = bản đầu · 2 = guest_call/guest_order bù lệch đồng hồ theo CỘT updated_at của dòng records (không theo updated_at trong JSON)
+    'version', 2,
     'has_owner', exists (select 1 from public.app_owner),
     'is_owner', public.is_owner(),
     'is_device', public.is_active_device(),
@@ -346,14 +348,18 @@ end $$;
    "đang gọi nhân viên" của ĐÚNG ghế mình — không đọc/sửa được gì khác.
    ============================================================ */
 
-/** Tìm đúng dòng ghế theo mã QR; báo lỗi rõ ràng nếu mã sai hoặc ghế đã khoá. */
-create or replace function public._guest_seat(p_token text, p_require_unlocked boolean default true, out seat_id text, out seat_data jsonb)
+/** Tìm đúng dòng ghế theo mã QR; báo lỗi rõ ràng nếu mã sai hoặc ghế đã khoá.
+    Trả thêm row_updated_at = CỘT updated_at của dòng records (mốc logic do máy khách đặt, có thể LỚN HƠN updated_at ghi trong JSON seat_data):
+    điều kiện "bản mới hơn thắng" của ON CONFLICT so với cột này, nên mốc ghi của khách phải vượt cột này chứ không phải trường trong JSON. */
+-- Thêm một cột OUT làm đổi kiểu trả về nên phải xoá hàm cũ trước (create or replace không đổi được) — chạy lại script trên kho cũ vẫn được.
+drop function if exists public._guest_seat(text, boolean);
+create or replace function public._guest_seat(p_token text, p_require_unlocked boolean default true, out seat_id text, out seat_data jsonb, out row_updated_at bigint)
 language plpgsql stable security definer set search_path = public as $$
 begin
   if p_token is null or length(p_token) < 4 or length(p_token) > 120 then
     raise exception 'Mã QR không hợp lệ' using errcode = '22023';
   end if;
-  select id, data into seat_id, seat_data from public.records
+  select id, data, updated_at into seat_id, seat_data, row_updated_at from public.records
     where collection = 'seats' and data ->> 'qr_token' = p_token and not deleted limit 1;
   if seat_id is null then raise exception 'Mã QR không hợp lệ hoặc đã bị đổi' using errcode = '22023'; end if;
   if p_require_unlocked and coalesce((seat_data ->> 'locked')::int, 0) = 1 then
@@ -399,7 +405,7 @@ language plpgsql security definer set search_path = public as $$
 declare v_seat record; v_now bigint := (extract(epoch from now()) * 1000)::bigint;
 begin
   select * into v_seat from public._guest_seat(p_seat_token, true);
-  v_now := greatest(v_now, coalesce((v_seat.seat_data ->> 'updated_at')::bigint, 0) + 1);   -- máy chủ quán có đồng hồ nhanh thì mốc seat hiện có lớn hơn: vẫn phải ghi đè được
+  v_now := greatest(v_now, coalesce(v_seat.row_updated_at, 0) + 1);   -- máy chủ quán có đồng hồ nhanh thì CỘT updated_at của dòng ghế lớn hơn giờ máy chủ: mốc ghi phải vượt nó để ON CONFLICT ... WHERE vẫn ghi đè được
   insert into public.records (collection, id, data, updated_at, deleted)
   values ('seats', v_seat.seat_id, v_seat.seat_data || jsonb_build_object('calling', 1, 'updated_at', v_now), v_now, false)
   on conflict (collection, id) do update
@@ -415,7 +421,7 @@ create or replace function public.guest_order(p_seat_token text, p_lines jsonb) 
 language plpgsql security definer set search_path = public as $$
 declare
   v_seat record; v_now bigint := (extract(epoch from now()) * 1000)::bigint;
-  v_order_id text; v_order_data jsonb; v_is_new boolean := false;
+  v_order_id text; v_order_data jsonb; v_order_col bigint; v_is_new boolean := false;
   v_batch int; v_confirm boolean := false; v_status text;
   v_line record; v_menu jsonb; v_qty int; v_item_id text; v_item jsonb;
   v_rec jsonb; v_used numeric; v_mv_id text; v_ing jsonb; v_qty_after numeric;
@@ -425,11 +431,11 @@ begin
     raise exception 'Chưa chọn món' using errcode = '22023';
   end if;
   select * into v_seat from public._guest_seat(p_seat_token, true);
-  v_now := greatest(v_now, coalesce((v_seat.seat_data ->> 'updated_at')::bigint, 0) + 1);
+  v_now := greatest(v_now, coalesce(v_seat.row_updated_at, 0) + 1);   -- xem chú thích ở guest_call: so với CỘT updated_at của dòng ghế
 
   v_order_id := v_seat.seat_data ->> 'bound_order_id';
   if v_order_id is not null then
-    select data into v_order_data from public.records
+    select data, updated_at into v_order_data, v_order_col from public.records
       where collection = 'orders' and id = v_order_id and not deleted and (data ->> 'status') = 'open';
     if not found then v_order_id := null; end if;
   end if;
@@ -449,6 +455,9 @@ begin
     on conflict (collection, id) do update set data = excluded.data, updated_at = excluded.updated_at
       where public.records.updated_at <= excluded.updated_at;
   else
+    -- Dòng đơn hiện có có thể mang mốc LỚN HƠN giờ máy chủ (máy chủ quán đồng hồ nhanh): mốc mới phải vượt nó, nếu không cột updated_at bị kéo LÙI
+    -- và máy khác có thể coi bản của khách là cũ hơn bản mình đang có.
+    v_now := greatest(v_now, coalesce(v_order_col, 0) + 1);
     update public.records set data = data || jsonb_build_object('updated_at', v_now), updated_at = v_now
       where collection = 'orders' and id = v_order_id;
   end if;
@@ -504,7 +513,10 @@ end $$;
    lúc máy chủ quán đồng bộ bình thường — không cần cron/máy chủ riêng nào khác.
    Chỉ xoá: (1) bản ghi ĐÃ đánh dấu xoá từ hơn 30 ngày (chắc chắn mọi máy đã đồng bộ xong),
    (2) đơn ĐÃ THANH TOÁN XONG quá cũ (mặc định giữ 24 tháng — đủ so sánh doanh thu theo năm,
-   chỉnh được qua p_months_keep), (3) nhật ký hoạt động quá 6 tháng, (4) lịch sử kho quá 12 tháng.
+   chỉnh được qua p_months_keep), (3) nhật ký hoạt động quá 6 tháng.
+   CỐ Ý KHÔNG xoá phiếu kho (stockMoves): tồn kho trên MỌI máy = tồn đầu (qty0) + tổng mọi phiếu, nên xoá phiếu cũ trên máy chủ làm máy mới /
+   máy khôi phục ra số tồn khác với máy đang dùng (và máy cũ vẫn giữ phiếu đã xoá). Phiếu kho nhỏ (~250 byte/dòng) nên để tăng dần là chấp nhận được;
+   muốn gom phiếu cũ phải có giao thức riêng (chốt tồn đầu + bia mộ phiếu trong cùng một giao dịch, máy cũ/mới đều hiểu) — chưa làm vì không kiểm chứng an toàn được.
    KHÔNG BAO GIỜ đụng tới đơn còn đang mở — chỉ status='paid' mới bị tính tới ở mục (2). */
 create or replace function public.cleanup_old_data(p_months_keep int default 24) returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -513,8 +525,7 @@ declare
   v_deleted_cutoff bigint := v_now_ms - 30 * 86400000;                    -- 30 ngày
   v_orders_cutoff   bigint := v_now_ms - (greatest(p_months_keep, 6) * 30 * 86400000);  -- tối thiểu 6 tháng, không cho xoá gần hơn
   v_logs_cutoff     bigint := v_now_ms - 6 * 30 * 86400000;                -- 6 tháng
-  v_stock_cutoff    bigint := v_now_ms - 12 * 30 * 86400000;               -- 12 tháng
-  v_purged_deleted int; v_purged_orders int; v_purged_logs int; v_purged_stock int;
+  v_purged_deleted int; v_purged_orders int; v_purged_logs int;
   v_order_ids text[];
 begin
   if not public.is_owner() then raise exception 'Chỉ chủ quán được dọn dữ liệu' using errcode = '42501'; end if;
@@ -536,11 +547,10 @@ begin
 
   with del as (delete from public.records where collection = 'logs' and updated_at < v_logs_cutoff returning 1)
     select count(*) into v_purged_logs from del;
-  -- KHÔNG xoá phiếu kho (stockMoves): tồn kho mỗi máy = tồn đầu (qty0) + tổng phiếu; xoá phiếu cũ trên máy chủ làm máy mới/máy khôi phục ra tồn kho khác máy đang dùng.
-  v_purged_stock := 0;
+  -- KHÔNG xoá phiếu kho (stockMoves) — xem chú thích đầu hàm. 'purged_stock_moves' luôn là 0 (giữ khoá này để tương thích bản app cũ).
 
   return jsonb_build_object('purged_tombstones', v_purged_deleted, 'purged_orders_rows', v_purged_orders,
-    'purged_logs', v_purged_logs, 'purged_stock_moves', v_purged_stock, 'months_kept', greatest(p_months_keep, 6));
+    'purged_logs', v_purged_logs, 'purged_stock_moves', 0, 'months_kept', greatest(p_months_keep, 6));
 end $$;
 
 -- ---------- Quyền thực thi hàm ----------
