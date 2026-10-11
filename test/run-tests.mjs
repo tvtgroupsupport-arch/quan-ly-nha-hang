@@ -1569,6 +1569,21 @@ t.group('38. Trạng thái "đã làm xong" của bếp, nhật ký ghi giá tr�
   const before = A.D.seats.filter(s => s.table_id === tb.id).map(s => s.qr_token);
   await A.api(`/seats/${tb.id}/1/rotate`, { method: 'POST' });
   t.ok(A.D.seats.find(s => s.table_id === tb.id && s.seat_no === 1).qr_token !== before[0], 'đổi mã QR ghế → mã mới khác mã cũ');
+  // nhật ký chi tiết: ai, món gì, bàn/ghế nào, đơn nào, trạng thái trước → sau
+  const tb2 = A.D.tables.find(x => x.id !== tb.id) || tb;
+  await A.api('/orders/items', { method: 'POST', body: { tableId: tb2.id, seatNo: 2, lines: [{ menuItemId: A.D.menu[1].id, qty: 2, note: 'ít cay' }] } });
+  const gl = A.D.logs.find(l => l.action === 'Gửi món');
+  t.ok(gl.detail.includes(tb2.name) && gl.detail.includes('Ghế 2') && gl.detail.includes(A.D.menu[1].name + ' ×2') && gl.detail.includes('ít cay') && /đơn /.test(gl.detail), 'gọi món ghi bàn, ghế, mã đơn, tên món, số lượng, ghi chú: ' + gl.detail);
+  t.ok(/\(/.test(gl.actor), 'nhật ký ghi rõ tài khoản và vai trò người thao tác: ' + gl.actor);
+  const it2 = A.D.orderItems[A.D.orderItems.length - 1];
+  await A.api(`/kds/items/${it2.id}/start`, { method: 'POST' });
+  const kl = A.D.logs.find(l => l.action === 'Đổi trạng thái món');
+  t.ok(kl.detail.includes(tb2.name) && kl.detail.includes('Chờ bếp → Đang làm'), 'đổi trạng thái món ghi bàn/đơn và trạng thái trước → sau: ' + kl.detail);
+  await A.api(`/kds/items/${it2.id}/ready`, { method: 'POST' }); await A.api(`/kds/items/${it2.id}/done`, { method: 'POST' });
+  const ord2 = A.D.orders.find(o => o.id === it2.order_id);
+  await A.api(`/orders/${ord2.id}/payments`, { method: 'POST', body: { method: 'cash' } });
+  const pl = A.D.logs.find(l => l.action === 'Thu tiền');
+  t.ok(pl.detail.includes(ord2.code) && pl.detail.includes(tb2.name) && pl.detail.includes('tiền mặt'), 'thu tiền ghi mã đơn, bàn/ghế, số tiền, hình thức: ' + pl.detail);
   // danh sách thiết bị: lỗi không bị nuốt
   A.route = { name: 'cloud', params: {} };
   const orig = A.Cloud.listDevices; A.Cloud.listDevices = async () => { throw new Error('permission denied for table staff_devices'); };

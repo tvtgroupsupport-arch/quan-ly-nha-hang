@@ -337,32 +337,44 @@ function handleAct(el, ev) {
     renderTablePreview();
     return;
   }
-  case 'tblQrView': {
+  case 'tblQrView': case 'tblQrRotate': {
     const t = tableById(d.id); if (!t) return;
-    const items = Array.from({ length: t.seats }, (_, i) => {
-      const url = guestUrl(t.id, i + 1);
-      return `<div style="text-align:center"><div class="t-xs" style="margin-bottom:4px">Ghế ${i + 1}</div>${url ? `<div style="width:100%;max-width:150px;margin:0 auto;background:#fff;padding:6px;border-radius:8px">${QR.svg(url, { label: 'Mã QR ' + t.name + ' ghế ' + (i + 1) })}</div>` : '<div class="t-xs muted">Chưa có mã</div>'}</div>`;
-    }).join('');
-    sheet('Mã QR · ' + t.name, `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px">${items}</div>
-      <div class="t-xs muted" style="line-height:1.6;margin-bottom:12px">Mỗi ghế có một mã riêng. Cần in thành tem thì vào Quản lý bàn → In mã QR.</div>
-      <button class="btn pri" data-act="tblQrPrint" data-id="${t.id}">Tạo file PDF tem của bàn này</button>
-      <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Đóng</button>`);
+    window._tq = { id: t.id, sel: new Set(Array.from({ length: t.seats }, (_, i) => i + 1)), mode: a === 'tblQrRotate' ? 'rotate' : 'view' };
+    showTableQr();
     return;
   }
-  case 'tblQrPrint': { const t = tableById(d.id); if (!t) return; openQrSheet(Array.from({ length: t.seats }, (_, i) => t.id + ':' + (i + 1))); return; }
-  case 'tblQrRotate': {
-    const t = tableById(d.id); if (!t) return;
-    window._rotateList = Array.from({ length: t.seats }, (_, i) => ({ tableId: t.id, seatNo: i + 1 }));
-    sheet('Đổi mã QR của ' + t.name + '?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">${t.seats} ghế của bàn này sẽ nhận mã QR mới. <b>Mã đã in trước đó lập tức hết hiệu lực</b> — nhớ in lại tem.</div>
+  case 'tblQrSeat': {
+    const q = window._tq; if (!q) return;
+    const n = Number(d.n); q.sel.has(n) ? q.sel.delete(n) : q.sel.add(n);
+    showTableQr(); return;
+  }
+  case 'tblQrAll': {
+    const q = window._tq, t = q && tableById(q.id); if (!t) return;
+    q.sel = q.sel.size === t.seats ? new Set() : new Set(Array.from({ length: t.seats }, (_, i) => i + 1));
+    showTableQr(); return;
+  }
+  case 'tblQrPrint': {
+    const q = window._tq, t = q && tableById(q.id); if (!t) return;
+    const keys = [...q.sel].sort((x, y) => x - y).map(n => t.id + ':' + n);
+    if (!keys.length) { toast('Chưa chọn ghế nào'); return; }
+    openQrSheet(keys); return;
+  }
+  case 'tblQrRotate2': {
+    const q = window._tq, t = q && tableById(q.id); if (!t) return;
+    const seats = [...q.sel].sort((x, y) => x - y);
+    if (!seats.length) { toast('Chưa chọn ghế nào'); return; }
+    sheet('Đổi mã QR của ' + t.name + '?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">Ghế <b>${seats.join(', ')}</b> sẽ nhận mã QR mới. <b>Mã đã in trước đó lập tức hết hiệu lực</b> — nhớ in lại tem.</div>
       <button class="btn danger" data-act="tblQrRotateGo">Đổi mã mới</button>
-      <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Huỷ</button>`);
+      <button class="btn ghost" data-act="tblQrBack" style="margin-top:8px">Huỷ</button>`);
     return;
   }
+  case 'tblQrBack': { showTableQr(); return; }
   case 'tblQrRotateGo': {
-    const seats = window._rotateList || [];
+    const q = window._tq, t = q && tableById(q.id); if (!t) return;
+    const seats = [...q.sel].sort((x, y) => x - y);
     run(async () => {
-      for (const s of seats) await api(`/seats/${s.tableId}/${s.seatNo}/rotate`, { method: 'POST' });
-      window._rotateList = null; closeSheet();
+      for (const n of seats) await api(`/seats/${t.id}/${n}/rotate`, { method: 'POST' });
+      showTableQr();
     }, 'Đã đổi mã QR — nhớ in lại tem');
     return;
   }
@@ -1378,6 +1390,22 @@ async function saveQrPdf(tags, filename) {
   } catch (e) { console.warn('QR PDF error:', e); toast('Không tạo được file PDF'); }
 }
 
+/** Khung xem / đổi mã QR của một bàn: chọn từng ghế (hoặc tất cả), xem mã, tạo PDF tem, đổi mã. */
+function showTableQr() {
+  const q = window._tq, t = q && tableById(q.id); if (!t) return;
+  const chips = Array.from({ length: t.seats }, (_, i) => i + 1).map(n =>
+    `<button class="chip ${q.sel.has(n) ? 'on' : ''}" data-act="tblQrSeat" data-n="${n}" style="justify-content:center">Ghế ${n}</button>`).join('');
+  const items = [...q.sel].sort((x, y) => x - y).map(n => {
+    const url = guestUrl(t.id, n);
+    return `<div style="text-align:center"><div class="t-xs" style="margin-bottom:4px">Ghế ${n}</div>${url ? `<div style="width:100%;max-width:150px;margin:0 auto;background:#fff;padding:6px;border-radius:8px">${QR.svg(url, { label: 'Mã QR ' + t.name + ' ghế ' + n })}</div>` : '<div class="t-xs muted">Chưa có mã</div>'}</div>`;
+  }).join('');
+  sheet('Mã QR · ' + t.name, `<div class="row" style="justify-content:space-between;margin-bottom:6px"><span class="t-xs muted">Chọn ghế (${q.sel.size}/${t.seats})</span><button class="btn sm ghost" data-act="tblQrAll" style="width:auto">Chọn / bỏ tất cả</button></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px">${chips}</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px">${items || '<div class="t-xs muted" style="grid-column:1/3;text-align:center">Chưa chọn ghế nào</div>'}</div>
+    <button class="btn ${q.mode === 'view' ? 'pri' : 'ghost'}" data-act="tblQrPrint">Tạo file PDF tem các ghế đã chọn</button>
+    <button class="btn ${q.mode === 'rotate' ? 'danger' : 'ghost'}" data-act="tblQrRotate2" style="margin-top:8px">Đổi mã QR các ghế đã chọn</button>
+    <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Đóng</button>`);
+}
 function renderTablePreview() {
   const box = document.getElementById('tblPreview');
   if (!box) return;

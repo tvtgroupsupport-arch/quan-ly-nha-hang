@@ -10,7 +10,7 @@ let D = null;                       // kho dữ liệu đang dùng (nạp từ S
 
 const nowMs = () => Date.now();
 /** Ai đang thao tác — chịu được cả khi chưa đăng nhập (gọi API trực tiếp) */
-const who = () => (typeof ME !== 'undefined' && ME) ? ME.name : 'Hệ thống';
+const who = () => (typeof ME !== 'undefined' && ME) ? ME.name + (ME.role ? ' (' + ME.role + ')' : '') : 'Hệ thống';
 const whoId = () => (typeof ME !== 'undefined' && ME) ? ME.id : null;
 /** Mã ngẫu nhiên 12 ký tự từ bộ sinh số an toàn — nhiều máy cùng tạo bản ghi offline không được trùng id */
 const rid = () => {
@@ -115,6 +115,12 @@ function addLog(actor, action, detail, level) {
   D.logs.unshift({ id: 'l' + rid(), level: level || 'info', actor, action, detail: detail || null, created_at: nowMs() });
   if (D.logs.length > 3000) D.logs.pop();   // chỉ cắt nhật ký cục bộ; máy chủ vẫn giữ
 }
+/** Mô tả vị trí/đơn/món cho nhật ký: "Bàn 3 · Ghế 2", "đơn #12", "Phở ×2 (ít hành)" — để đọc nhật ký biết chính xác thao tác ở đâu. */
+const STATUS_VI = { pending: 'Chờ xác nhận', queued: 'Chờ bếp', cooking: 'Đang làm', ready: 'Đã làm xong', served: 'Đã phục vụ', cancelled: 'Đã huỷ' };
+const placeOf = (tid, sn) => { if (!tid) return 'Giao hàng'; const t = D.tables.find(x => x.id === tid); return (t ? t.name : 'Bàn đã xoá') + (sn ? ' · Ghế ' + sn : ''); };
+const orderPlace = o => placeOf(o.table_id, o.seat_no);
+const itemTxt = i => i.name_snapshot + ' ×' + i.qty + (i.note ? ' (' + i.note + ')' : '');
+const itemPlace = i => { const o = D.orders.find(x => x.id === i.order_id); return (i.origin_table ? placeOf(i.origin_table, i.origin_seat) : (o ? orderPlace(o) : '?')) + (o ? ' · đơn ' + o.code : ''); };
 /** Nhật ký thay đổi: ghi rõ GIÁ TRỊ TRƯỚC → SAU của từng trường đã đổi (bỏ qua nếu không có gì đổi).
     fields = { khoá: ['Nhãn hiển thị', hàmĐổiGiáTrị?] } — hàm đổi giá trị dùng để hiện tên thay vì mã (khu vực, danh mục, khu bếp…). */
 function showLogVal(v) {
@@ -324,7 +330,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       const s = D.seats.find(v => v.table_id === x.tableId && v.seat_no === Number(x.seatNo));
       if (s) { s.locked = body.locked ? 1 : 0; s.updated_at = nowMs(); }
     });
-    addLog(who(), body?.locked ? 'Khoá QR' : 'Mở khoá QR', `${(body?.seats || []).length} ghế`);
+    addLog(who(), body?.locked ? 'Khoá QR' : 'Mở khoá QR', (body?.seats || []).map(x => placeOf(x.tableId, Number(x.seatNo))).join(', '));
     saveD(); return { ok: true };
   }
   if (M('POST', 'seats', 'bulk-clear')) {
@@ -334,7 +340,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       const s = D.seats.find(v => v.table_id === x.tableId && v.seat_no === Number(x.seatNo));
       if (s) { s.locked = 0; s.calling = 0; s.bound_order_id = null; s.updated_at = nowMs(); }
     });
-    addLog(who(), 'Dọn bàn, mở lại QR', `${(body?.seats || []).length - busy.length} ghế`);
+    addLog(who(), 'Dọn bàn, mở lại QR', (body?.seats || []).filter(x => !busy.includes(x)).map(x => placeOf(x.tableId, Number(x.seatNo))).join(', ') + (busy.length ? ` (chưa dọn được vì còn đơn: ${busy.map(x => placeOf(x.tableId, Number(x.seatNo))).join(', ')})` : ''));
     saveD(); return { ok: true, cleared: (body?.seats || []).length - busy.length, busy };
   }
   if (M('POST', 'seats', '*', '*', 'clear-call')) {
@@ -350,7 +356,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('POST', 'seats', '*', '*', 'rotate')) {
     const s = D.seats.find(v => v.table_id === seg[1] && v.seat_no === Number(seg[2]));
     if (s) { s.qr_token = tok(); s.updated_at = nowMs(); }
-    addLog(who(), 'Đổi mã QR ghế', `${seg[1]} ghế ${seg[2]}`); saveD(); return { qrToken: s?.qr_token };
+    addLog(who(), 'Đổi mã QR ghế', placeOf(seg[1], Number(seg[2])) + ' — mã cũ hết hiệu lực'); saveD(); return { qrToken: s?.qr_token };
   }
 
   /* --- đơn hàng --- */
@@ -373,6 +379,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       if (s) s.bound_order_id = id;
     }
     const batch = Math.max(0, ...D.orderItems.filter(i => i.order_id === o.id).map(i => i.batch)) + 1;
+    const added = [];
     for (const ln of lines) {
       const m = D.menu.find(x => x.id === ln.menuItemId && x.active);
       if (!m) throw err(400, 'Món không tồn tại');
@@ -384,15 +391,17 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
         batch, origin_table: tableId || null, origin_seat: tableId ? Number(seatNo) : null,
         created_at: nowMs(), updated_at: nowMs() });
       consume(m.id, qty, o.id);
+      added.push(m.name + ' ×' + qty + (ln.note ? ' (' + ln.note + ')' : ''));
     }
     o.updated_at = nowMs();
-    addLog(who(), 'Gửi món', `${lines.length} món · đợt ${batch}`);
+    addLog(who(), 'Gửi món', `${orderPlace(o)} · đơn ${o.code}${isNew ? ' (mới)' : ''} · đợt ${batch}: ${added.join(', ')}`);
     saveD(); return orderFull(o.id);
   }
   if (M('PATCH', 'order-items', '*')) {
     const it = D.orderItems.find(i => i.id === seg[1]);
     if (!it) throw err(404, 'Không tìm thấy món');
     if (it.status === 'cancelled') throw err(409, 'Món này đã bị xoá khỏi đơn, không sửa được nữa');
+    const itBefore = snapOf(it, ['qty', 'note', 'status']);
     if (body?.qty !== undefined) {
       const n = Math.max(1, Number(body.qty));
       if (n !== it.qty) {
@@ -404,14 +413,16 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     if (body?.status) it.status = body.status;
     if (body?.note !== undefined) it.note = body.note;
     it.updated_at = nowMs();
+    diffLog('Sửa món trong đơn', it.name_snapshot + ' — ' + itemPlace(it), itBefore, snapOf(it, ['qty', 'note', 'status']), { qty: ['Số lượng'], note: ['Ghi chú'], status: ['Trạng thái', s => STATUS_VI[s] || s] });
     saveD(); return orderFull(it.order_id);
   }
   if (M('DELETE', 'order-items', '*')) {
     const it = D.orderItems.find(i => i.id === seg[1]);
     if (!it) throw err(404, 'Không tìm thấy món');
     consume(it.menu_item_id, -it.qty, it.order_id);
+    const prevSt = it.status;
     it.status = 'cancelled'; it.updated_at = nowMs();
-    addLog(who(), 'Xoá món', `${it.name_snapshot} ×${it.qty}`);
+    addLog(who(), 'Xoá món khỏi đơn', `${itemTxt(it)} — ${itemPlace(it)} (trạng thái trước khi xoá: ${STATUS_VI[prevSt] || prevSt})`);
     const left = D.orderItems.filter(i => i.order_id === it.order_id && i.status !== 'cancelled').length;
     if (!left) { const o = D.orders.find(x => x.id === it.order_id); if (o) o.status = 'void';
       D.seats.filter(s => s.bound_order_id === it.order_id).forEach(s => s.bound_order_id = null); }
@@ -433,7 +444,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     });
     const ms = D.seats.find(v => v.table_id === main.table_id && v.seat_no === main.seat_no);
     if (ms) ms.bound_order_id = main.id;
-    addLog(who(), 'Ghép đơn', `${orders.length} đơn · ${seatsOfOrderD(main.id).length} ghế dùng chung`);
+    addLog(who(), 'Ghép đơn', `Gộp vào đơn ${main.code} (${orderPlace(main)}) từ: ${orders.slice(1).map(o => o.code + ' ' + orderPlace(o)).join(', ')} — ${seatsOfOrderD(main.id).length} ghế dùng chung`);
     saveD(); return orderFull(main.id);
   }
   if (M('POST', 'orders', '*', 'split')) {
@@ -451,7 +462,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     items.forEach(i => { i.order_id = id; i.updated_at = nowMs(); });
     const s = D.seats.find(v => v.table_id === tableId && v.seat_no === Number(seatNo));
     if (s) s.bound_order_id = id;
-    addLog(who(), 'Tách ghế khỏi đơn ghép', `${items.length} món`);
+    addLog(who(), 'Tách ghế khỏi đơn ghép', `${placeOf(tableId, Number(seatNo))} tách khỏi đơn ${main.code} (${orderPlace(main)}) → đơn mới: ${items.map(itemTxt).join(', ')}`);
     saveD(); return orderFull(id);
   }
   if (M('POST', 'orders', '*', 'approve')) {
@@ -460,7 +471,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     const list = D.orderItems.filter(i => i.order_id === o.id && i.status === 'pending');
     if (!list.length) throw err(409, 'Đơn không có món nào chờ xác nhận');
     list.forEach(i => { i.status = 'queued'; i.updated_at = nowMs(); });
-    addLog(who(), 'Xác nhận đơn khách', `${list.length} món xuống bếp`);
+    addLog(who(), 'Xác nhận đơn khách', `${orderPlace(o)} · đơn ${o.code}: ${list.map(itemTxt).join(', ')} → xuống bếp`);
     saveD(); return orderFull(o.id);
   }
   if (M('POST', 'orders', '*', 'reject')) {
@@ -471,18 +482,19 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     list.forEach(i => { consume(i.menu_item_id, -i.qty, o.id); i.status = 'cancelled'; i.updated_at = nowMs(); });
     const left = D.orderItems.filter(i => i.order_id === o.id && i.status !== 'cancelled').length;
     if (!left) { o.status = 'void'; D.seats.filter(s => s.bound_order_id === o.id).forEach(s => s.bound_order_id = null); }
-    addLog(who(), 'Từ chối đơn khách', `${list.length} món`);
+    addLog(who(), 'Từ chối đơn khách', `${orderPlace(o)} · đơn ${o.code}: ${list.map(itemTxt).join(', ')}`);
     saveD(); return { ok: true };
   }
   if (M('POST', 'orders', '*', 'transfer')) {
     const o = D.orders.find(x => x.id === seg[1]);
     if (!o) throw err(404, 'Không tìm thấy đơn');
     if (openOrderD(body.tableId, body.seatNo)) throw err(409, 'Ghế đích đang có khách');
+    const fromPlace = orderPlace(o);
     D.seats.filter(s => s.bound_order_id === o.id).forEach(s => s.bound_order_id = null);
     o.table_id = body.tableId; o.seat_no = Number(body.seatNo); o.updated_at = nowMs();
     const s = D.seats.find(v => v.table_id === o.table_id && v.seat_no === o.seat_no);
     if (s) s.bound_order_id = o.id;
-    addLog(who(), 'Chuyển bàn', o.code); saveD(); return orderFull(o.id);
+    addLog(who(), 'Chuyển bàn', `Đơn ${o.code}: ${fromPlace} → ${orderPlace(o)}`); saveD(); return orderFull(o.id);
   }
   /* Chuyển NHIỀU ghế (hoặc cả bàn) cùng lúc: moves = [{ from:{tableId,seatNo}, to:{tableId,seatNo} }].
      Mỗi ghế nguồn phải đang có đơn; ghế đích phải trống (hoặc chính là ghế nguồn khác được chuyển đi trong lượt này). */
@@ -512,7 +524,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       const s = D.seats.find(v => v.table_id === m.to.t && v.seat_no === m.to.s);
       if (s) s.bound_order_id = m.order.id;
     });
-    addLog(who(), 'Chuyển chỗ', `${moves.length} ghế`);
+    addLog(who(), 'Chuyển chỗ', moves.map(m => `${placeOf(m.f.t, m.f.s)} → ${placeOf(m.to.t, m.to.s)} (đơn ${m.order.code})`).join('; '));
     saveD();
     return { ok: true, orderIds: [...new Set(moves.map(m => m.order.id))] };
   }
@@ -526,8 +538,10 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
         .reduce((s, i) => s + i.qty * i.price_snapshot, 0);
       if (sub < p.min_total) throw err(409, 'Đơn chưa đủ điều kiện tối thiểu');
     }
+    const prName = id => id ? ((D.promos.find(x => x.id === id) || {}).name || id) : '';
+    const prOld = o.promo_id;
     o.promo_id = body?.promoId || null; o.updated_at = nowMs();
-    addLog(who(), body?.promoId ? 'Áp khuyến mãi' : 'Bỏ khuyến mãi', o.code);
+    addLog(who(), body?.promoId ? 'Áp khuyến mãi' : 'Bỏ khuyến mãi', `Đơn ${o.code} · ${orderPlace(o)} — Khuyến mãi: ${showLogVal(prName(prOld))} → ${showLogVal(prName(o.promo_id))}`);
     saveD(); return { ok: true };
   }
   if (M('POST', 'orders', '*', 'payments')) {
@@ -577,7 +591,9 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     const map = { start: 'cooking', ready: 'ready', done: 'served', reset: 'queued' };
     const it = D.orderItems.find(i => i.id === seg[2]);
     if (!it) throw err(404, 'Không tìm thấy món');
+    const stOld = it.status;
     it.status = map[seg[3]] || it.status; it.updated_at = nowMs();
+    if (stOld !== it.status) addLog(who(), 'Đổi trạng thái món', `${itemTxt(it)} — ${itemPlace(it)}: ${STATUS_VI[stOld] || stOld} → ${STATUS_VI[it.status] || it.status}`);
     saveD(); return { ok: true };
   }
 
@@ -843,6 +859,7 @@ function settleD(paymentId) {
   if (!p || p.state === 'paid') return;
   p.state = 'paid'; p.paid_at = nowMs();
   const o = D.orders.find(x => x.id === p.order_id);
+  const payPlaces = o ? [...new Set(seatsOfOrderD(o.id).map(st => placeOf(st.table_id, st.seat_no)).concat([orderPlace(o)]))].join(' + ') : '';
   if (o) {
     o.status = 'paid'; o.updated_at = nowMs();
     if (o.promo_id) { const pr = D.promos.find(x => x.id === o.promo_id); if (pr) pr.used_count++; }
@@ -852,5 +869,5 @@ function settleD(paymentId) {
       if (s) { s.bound_order_id = null; s.calling = 0; s.locked = autoLock ? 1 : 0; s.updated_at = nowMs(); }
     });
   }
-  addLog(who(), 'Thu tiền', `${p.total}đ · ${p.method}`);
+  addLog(who(), 'Thu tiền', `${o ? 'Đơn ' + o.code + ' · ' + payPlaces + ' — ' : ''}${p.total}đ (tạm tính ${p.subtotal}đ, giảm ${p.discount || 0}đ) · ${({ cash: 'tiền mặt', transfer: 'chuyển khoản', vietqr: 'VietQR' }[p.method] || p.method)}`);
 }
