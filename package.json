@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "sync": "node build.mjs && npx cap sync android && node scripts/patch-android.mjs",
+    "postinstall": "node scripts/patch-plugins.mjs",
+    "sync": "node build.mjs && npx cap sync android && node scripts/patch-plugins.mjs --strict && node scripts/patch-android.mjs",
     "apk": "npm run sync && cd android && ./gradlew assembleDebug",
     "test": "node --experimental-sqlite --no-warnings test/run-tests.mjs && node --experimental-sqlite --no-warnings test/run-tests-guest.mjs"
   },

@@ -23,7 +23,7 @@ Lưu dữ liệu **cục bộ trên điện thoại** (SQLite), khi có mạng *
 
 ### 1. Dựng Supabase trung tâm
 1. Tạo dự án Supabase của bạn → **SQL Editor** → dán toàn bộ `supabase/central-setup.sql` → Run.
-2. Số ngày dùng thử tài khoản mới: sửa `trial_days` trong script (đặt `0` để tắt).
+2. `trial_days` trong script = số ngày dùng thử do máy chủ cấp cho tài khoản mới; mặc định `0` (không dùng thử — dùng thử miễn phí do Google Play cấp qua ưu đãi của gói 1 tháng). Dự án đã chạy script cũ thì sửa trực tiếp bảng `app_config`.
 3. Mở `admin/index.html` bằng trình duyệt → điền **Project URL** + **khoá anon** (xem bước 4 bên dưới
    để biết lấy ở đâu) → bấm **"Chưa có tài khoản? Tạo mới"** → điền email + mật khẩu của bạn → **Tạo tài
    khoản**. Trang tự hiện sẵn đúng dòng SQL cần chạy — copy, dán vào SQL Editor của Supabase trung tâm,

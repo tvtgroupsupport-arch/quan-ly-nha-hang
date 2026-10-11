@@ -513,19 +513,21 @@ t.group('14. Luồng thiết lập trên giao diện (chọn vai trò → chủ 
   t.eq(A.route.name, 'setup', 'máy mới mở app → màn chọn vai trò');
   A.setInput('oa_email', 'chu@quan.vn'); A.setInput('oa_pass', 'matkhau1'); A.setInput('oa_shop', 'Quán UI');
   A.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'signup' } });
-  await A.until(() => A.route.name === 'ownerInit');
-  t.eq(A.route.name, 'ownerInit', 'đăng ký xong → màn thiết lập quán');
+  await A.until(() => A.route.name === 'quickStart');
+  t.eq(A.route.name, 'quickStart', 'đăng ký xong → màn thông tin quán (cài mới không qua bước liên kết Supabase)');
   A.clearInputs();
-  Object.entries({ oi_shop: 'Quán UI', oi_user: 'chuquan', oi_pass: 'apppass1', oi_pass2: 'apppass1', oi_name: 'Chủ', oi_phone: '0900' }).forEach(([k, v]) => A.setInput(k, v));
-  A.handleAct({ dataset: { act: 'c_ownerInitGo' } });
-  await A.until(() => A.route.name === 'ownerLink');
-  t.eq(A.route.name, 'ownerLink', 'thiết lập quán xong → màn liên kết Supabase');
-  t.ok(A.D.staff.length === 1 && A.Cloud.role === 'owner', 'đã tạo tài khoản chủ quán và vai trò máy');
+  Object.entries({ qs_shop: 'Quán UI', qs_pass: 'apppass1', qs_pass2: 'apppass1', qs_name: 'Chủ' }).forEach(([k, v]) => A.setInput(k, v));
+  A.handleAct({ dataset: { act: 'c_quickStartGo' } });
+  await A.until(() => !!A.ME);
+  t.ok(A.D.staff.length === 1 && A.Cloud.role === 'owner' && A.Cloud.localMode && A.Cloud.hasAccount, 'đã tạo tài khoản chủ quán, vai trò máy; dữ liệu trên máy + có tài khoản BEPO');
   t.ok(!JSON.stringify(A.D.staff[0]).includes('apppass1'), 'mật khẩu app không nằm ở dạng rõ trong dữ liệu');
   A.clearInputs();
+  A.handleAct({ dataset: { act: 'c_upgradeStart' } });
+  await A.until(() => A.route.name === 'ownerLink');
+  t.eq(A.route.name, 'ownerLink', 'bấm "Bật đồng bộ" (đã có tài khoản, chưa có kho) → màn liên kết Supabase');
   A.setInput('ol_url', STORE_URL); A.setInput('ol_key', ANON); A.setInput('ol_pass', 'matkhau1');
   A.handleAct({ dataset: { act: 'c_linkGo' } });
-  await A.until(() => A.Cloud.linked && A.route.name === 'login');
+  await A.until(() => A.Cloud.linked && A.route.name === 'cloud');
   t.ok(A.Cloud.linked, 'liên kết Supabase thành công qua giao diện');
   await A.sync();
   t.ok([...w.store.records.values()].some(r => r.collection === 'license' && r.data.expires_at > Date.now()), 'thông tin gói cước (còn hạn) đã lên Supabase của quán ngay sau khi liên kết');
@@ -548,6 +550,15 @@ t.group('14. Luồng thiết lập trên giao diện (chọn vai trò → chủ 
   await S.sync();
   S.route = { name: 'restoring', params: {} }; S.render();
   t.eq(S.route.name, 'login', 'tải xong dữ liệu → tự chuyển sang màn đăng nhập');
+
+  // Màn "Thiết lập quán" (ownerInit) vẫn là màn có thật — dùng khi chủ quán chọn "Tạo kho dữ liệu mới" ở bước khôi phục
+  const w2 = newWorld(); const N = await newDevice(w2, 'ui-init');
+  await N.Cloud.ownerSignUp('chu@quan.vn', 'matkhau1', 'Quán UI');
+  N.route = { name: 'ownerInit', params: {} };
+  Object.entries({ oi_shop: 'Quán UI', oi_user: 'chuquan', oi_pass: 'apppass1', oi_pass2: 'apppass1', oi_name: 'Chủ', oi_phone: '0900' }).forEach(([k, v]) => N.setInput(k, v));
+  N.handleAct({ dataset: { act: 'c_ownerInitGo' } });
+  await N.until(() => N.route.name === 'ownerLink');
+  t.ok(N.route.name === 'ownerLink' && N.D.staff.length === 1 && N.Cloud.role === 'owner', 'ownerInit vẫn tạo quán rồi sang bước liên kết Supabase');
 }
 
 t.group('15. Tên quán hiện ở màn Đăng nhập dù CHƯA đăng nhập (sửa lỗi: trước đó chỉ hiện sau khi login)');
@@ -912,9 +923,9 @@ t.group('29. Gói cước qua Google Play — mua gói, xác minh qua Edge Funct
 
   // 4) Màn hình hiện đúng khi chưa tải xong / không có gói nào
   A.billingSupported = false;
-  let html = A.vSubscriptionPlay();   // lần gọi đầu tiên trong test này → _playProducts còn null, sẽ tự tải
-  await new Promise(r => setTimeout(r, 20));
-  html = A.vSubscriptionPlay();
+  A.handleAct({ dataset: { act: 'c_playReload' } });   // mua gói ở trên đã tải sẵn danh sách → buộc tải lại với Billing không khả dụng
+  await A.until(() => A.playProducts && A.playProducts.length === 0, 3000);
+  let html = A.vSubscriptionPlay();
   t.ok(html.includes('Không tải được gói cước'), 'máy không hỗ trợ Billing → báo rõ ràng, không im lặng trắng màn hình');
 
   // 4b) Danh sách gói rỗng/lỗi KHÔNG bị nhớ mãi: hiện lý do và tải lại được (trước đây phải thoát app mới thử lại)
@@ -1379,85 +1390,107 @@ t.group('33. In hoá đơn: bố cục ảnh 58/80mm, máy in Bluetooth, PDF d�
   t.eq(A.modelFromOrder(ord).address, '12 Nguyễn Huệ', 'địa chỉ quán (nhập ở Thông tin nhà hàng) in ở đầu hoá đơn');
 }
 
-t.group('34. Bắt đầu dùng ngay (không cần email/tài khoản): chạy hoàn toàn trên máy, dùng thử 14 ngày, nâng cấp đồng bộ sau mà không mất dữ liệu');
+t.group('34. Cài mới: tạo tài khoản BEPO → thông tin quán (dữ liệu lưu trên máy) → khoá tới khi mua gói Google Play → mua xong mở khoá; bật đồng bộ sau mà không mất dữ liệu');
 {
-  const w = newWorld(); const A = await newDevice(w, 'dung-ngay');
+  const w = newWorld(); w.central.trialDays = 0;     // Supabase trung tâm đúng cấu hình mới: trial_days = 0 (tài khoản mới hết hạn ngay)
+  const A = await newDevice(w, 'cai-moi', { billingMode: 'play' });
   t.eq(A.route.name, 'setup', 'máy mới → màn thiết lập');
   let html = A.VIEWS.setup();
-  t.ok(html.includes('data-go="quickStart"') && html.indexOf('data-go="quickStart"') < html.indexOf('data-go="ownerAuth"'), 'lựa chọn "Bắt đầu dùng ngay" nằm đầu tiên, trước đăng nhập tài khoản');
-  t.ok(A.VIEWS.quickStart().includes('qs_shop') && !A.VIEWS.quickStart().includes('oa_email'), 'màn bắt đầu chỉ hỏi tên quán + mật khẩu — không hỏi email');
+  t.ok(html.includes('data-go="ownerAuth" data-mode="signup"') && html.indexOf('data-go="ownerAuth" data-mode="signup"') < html.indexOf('data-go="ownerAuth" data-mode="login"'), 'thẻ "Bắt đầu" (tạo tài khoản) nằm đầu, trước thẻ "Tôi đã có tài khoản BEPO"');
+  t.ok(!html.includes('data-go="quickStart"') && !/không cần email|14 ngày|Bắt đầu dùng ngay/.test(html), 'màn thiết lập không còn lối vào "không cần tài khoản" hay chữ "14 ngày"');
+  t.ok(html.includes('gói 1 tháng có thể được dùng thử miễn phí nếu tài khoản Google của bạn đủ điều kiện') && html.includes('liên kết Supabase để đồng bộ nhiều máy'), 'mô tả nói rõ: gói 1 tháng CÓ THỂ được dùng thử miễn phí (tuỳ điều kiện), liên kết Supabase sau nếu muốn');
+  t.ok(A.VIEWS.quickStart().includes('qs_shop') && !A.VIEWS.quickStart().includes('oa_email'), 'màn thông tin quán chỉ hỏi tên quán + mật khẩu app (email nhập ở bước tài khoản)');
 
-  // kiểm tra nhập liệu
-  const run = async () => { A.lastToast = null; A.handleAct({ dataset: { act: 'c_quickStartGo' } }); await A.until(() => A.ME || A.lastToast, 8000); await new Promise(r => setTimeout(r, 30)); };
-  A.setInput('qs_shop', ''); A.setInput('qs_pass', 'abcdef'); A.setInput('qs_pass2', 'abcdef'); await run();
-  t.ok(!A.Cloud.role, 'thiếu tên quán → không tạo gì');
-  A.setInput('qs_shop', 'Quán Sen'); A.setInput('qs_pass', 'abc'); A.setInput('qs_pass2', 'abc'); await run();
-  t.ok(!A.Cloud.role, 'mật khẩu quá ngắn → không tạo gì');
-  A.setInput('qs_pass', 'abcdef'); A.setInput('qs_pass2', 'khacnhau'); await run();
-  t.ok(!A.Cloud.role, 'hai mật khẩu không khớp → không tạo gì');
+  const qsFill = (D, shop) => { D.setInput('qs_shop', shop); D.setInput('qs_pass', 'abcdef'); D.setInput('qs_pass2', 'abcdef'); D.setInput('qs_name', 'Chị Hoa'); D.inputs.qs_sample = { checked: true, value: '' }; };
+  const runQs = async (D) => { D.lastToast = null; D.handleAct({ dataset: { act: 'c_quickStartGo' } }); await D.until(() => D.ME || D.lastToast, 8000); await new Promise(r => setTimeout(r, 30)); };
 
-  // bắt đầu thật
-  A.setInput('qs_pass2', 'abcdef'); A.setInput('qs_name', 'Chị Hoa'); A.inputs.qs_sample = { checked: true, value: '' }; await run();
-  t.eq(A.Cloud.role, 'owner', 'tạo xong: máy này là máy gốc của chủ quán');
-  t.ok(A.Cloud.localMode && !A.Cloud.linked, 'đang ở chế độ dùng ngay (chưa có tài khoản, chưa đồng bộ)');
-  t.ok(A.ME && A.ME.role === 'Chủ quán' && A.ME.name === 'Chị Hoa', 'vào thẳng app, đã đăng nhập (không bắt đăng nhập lại)');
-  t.ok(A.route.name !== 'setup' && A.route.name !== 'login', 'màn hiện tại là màn làm việc: ' + A.route.name);
-  t.eq(A.D.restaurant.name, 'Quán Sen', 'tên quán đã lưu');
-  t.ok(A.D.tables.length > 0 && A.D.menu.length > 0, 'có dữ liệu mẫu để thử ngay');
-  t.eq(w.central.users.size, 0, 'KHÔNG tạo tài khoản nào ở máy chủ trung tâm (không cần email)');
-  const st = A.License.status();
-  t.ok(st.kind === 'trial' && st.daysLeft >= 13 && st.daysLeft <= 14 && !st.locked, 'dùng thử 14 ngày, tính trên máy (còn ' + st.daysLeft + ' ngày)');
-  t.ok(A.D.license && A.D.license.expires_at === st.expiresAt, 'hạn dùng thử cũng nằm trong dữ liệu quán (để máy nhân viên biết sau này)');
+  // Chưa có tài khoản BEPO thì KHÔNG tạo được quán
+  qsFill(A, 'Quán Sen'); A.route = { name: 'quickStart', params: {} };
+  await runQs(A);
+  t.ok(!A.Cloud.role && !A.ME, 'chưa có tài khoản BEPO → không tạo quán');
+  t.ok(/tạo hoặc đăng nhập tài khoản BEPO/.test(A.lastToast || '') && A.route.name === 'ownerAuth', 'báo "Hãy tạo hoặc đăng nhập tài khoản BEPO trước" và đưa về màn tài khoản');
 
-  // dùng bình thường khi offline
-  const tb = A.D.tables[0];
-  const o = await A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: A.D.menu[0].id, qty: 1 }] } });
-  t.ok(!!o.id, 'gọi món được ngay, không cần mạng');
-
-  // màn hình trong chế độ dùng ngay
-  A.route = { name: 'cloud', params: {} }; html = A.VIEWS.cloud();
-  t.ok(html.includes('c_upgradeStart') && !html.includes('c_inviteNew'), 'màn Đồng bộ mời bật đồng bộ; chưa có nút thêm máy nhân viên');
-  A.route = { name: 'admin', params: {} }; t.ok(A.VIEWS.admin().includes('Chưa bật'), 'màn Quản lý hiện đồng bộ "Chưa bật"');
-  A.route = { name: 'subscription', params: {} }; html = A.VIEWS.subscription();
-  t.ok(html.includes('c_upgradeStart') && !html.includes('c_playBuy') && !html.includes('c_planPick'), 'màn Gói cước: cần tạo tài khoản mới mua/gia hạn được');
-
-  // dùng thử hết hạn → khoá mềm như thường (máy riêng, vì đồng hồ chỉ tiến không lùi)
-  {
-    const wE = newWorld(); const E = await newDevice(wE, 'het-han');
-    E.setInput('qs_shop', 'Quán Hết Hạn'); E.setInput('qs_pass', 'abcdef'); E.setInput('qs_pass2', 'abcdef');
-    E.handleAct({ dataset: { act: 'c_quickStartGo' } }); await E.until(() => E.ME, 8000);
-    t.ok(!E.License.locked(), 'vừa bắt đầu → chưa khoá');
-    E.clockOffset = 15 * 86400000;
-    t.ok(E.License.locked(), 'sau 14 ngày dùng thử hết hạn → khoá');
-    E.route = { name: 'subscription', params: {} }; E.render();
-    t.eq(E.route.name, 'subscription', 'khi khoá vẫn vào được màn Gói cước (để tạo tài khoản gia hạn)');
-    // lỗi thật đã gặp: hết hạn mà bấm tạo tài khoản/gia hạn bị đá ngược về màn "hết hạn", không tạo được tài khoản
-    E.route = { name: 'tables', params: {} }; E.render();
-    t.ok(E.route.name === 'locked' && E.VIEWS.locked().includes('c_upgradeStart'), 'màn hết hạn (dùng ngay) có nút "Tạo tài khoản & gia hạn"');
-    E.handleAct({ dataset: { act: 'c_upgradeStart' } }); E.render();
-    t.eq(E.route.name, 'ownerAuth', 'đang bị khoá vẫn vào được màn tạo/đăng nhập tài khoản (không bị đá về màn hết hạn)');
-    for (const r of ['ownerLink', 'ownerRestore', 'ownerInit']) { E.route = { name: r, params: {} }; E.render(); t.ok(E.route.name === r, 'đang bị khoá vẫn ở được bước ' + r); }
-  }
-
-  // làm lại quán không "làm mới" 14 ngày (mốc nhớ ngoài bộ nhớ dữ liệu)
-  const exp0 = A.License.status().expiresAt;
-  A.License.startLocalTrial(14);
-  t.eq(A.License.status().expiresAt, exp0, 'bắt đầu lại không kéo dài thêm hạn dùng thử');
-
-  // nâng cấp: tạo tài khoản + liên kết kho, GIỮ dữ liệu
-  const ordersBefore = A.D.orders.length, tablesBefore = A.D.tables.length;
-  A.handleAct({ dataset: { act: 'c_upgradeStart' } });
-  t.eq(A.route.name, 'ownerAuth', 'bấm "Tạo tài khoản & bật đồng bộ" → màn tạo tài khoản');
+  // Tạo tài khoản (email + mật khẩu) → sang màn thông tin quán (KHÔNG qua ownerInit/ownerLink)
   A.setInput('oa_email', 'chu@sen.vn'); A.setInput('oa_pass', 'matkhau1'); A.setInput('oa_shop', 'Quán Sen');
   A.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'signup' } });
+  await A.until(() => A.route.name === 'quickStart', 8000);
+  t.eq(A.route.name, 'quickStart', 'tạo tài khoản xong → màn thông tin quán (cài mới không bắt liên kết Supabase)');
+  t.eq(w.central.users.size, 1, 'đã có tài khoản ở Supabase trung tâm');
+  t.ok(A.window._acctOk === true && !A.Cloud.role, 'ghi nhận đã có tài khoản; máy chưa là máy chủ quán nào cho tới khi nhập thông tin quán');
+  t.ok(A.License.status().locked && A.License.describe() === 'Chưa đăng ký gói cước', 'tài khoản mới: hết hạn ngay → "Chưa đăng ký gói cước"');
+
+  // kiểm tra nhập liệu
+  qsFill(A, ''); await runQs(A);
+  t.ok(!A.Cloud.role, 'thiếu tên quán → không tạo gì');
+  qsFill(A, 'Quán Sen'); A.setInput('qs_pass', 'abc'); A.setInput('qs_pass2', 'abc'); await runQs(A);
+  t.ok(!A.Cloud.role, 'mật khẩu quá ngắn → không tạo gì');
+  A.setInput('qs_pass', 'abcdef'); A.setInput('qs_pass2', 'khacnhau'); await runQs(A);
+  t.ok(!A.Cloud.role, 'hai mật khẩu không khớp → không tạo gì');
+
+  // tạo quán: dữ liệu trên máy, đăng nhập luôn, bị khoá vì chưa mua gói → vào thẳng màn Gói cước
+  qsFill(A, 'Quán Sen'); await runQs(A);
+  t.eq(A.Cloud.role, 'owner', 'tạo xong: máy này là máy gốc của chủ quán');
+  t.ok(A.Cloud.localMode && A.Cloud.hasAccount && A.Cloud.cfg.acct === true && !A.Cloud.linked, 'dữ liệu chỉ trên máy nhưng ĐÃ có tài khoản BEPO (cfg.acct), chưa liên kết Supabase');
+  t.ok(A.ME && A.ME.role === 'Chủ quán' && A.ME.name === 'Chị Hoa', 'đã đăng nhập luôn bằng tài khoản vừa tạo dù đang bị khoá (đăng nhập được phép khi khoá)');
+  t.ok(A.License.locked(), 'chưa mua gói → khoá');
+  t.eq(A.route.name, 'subscription', 'vào thẳng màn Gói cước để chọn gói');
+  t.ok(/dùng thử miễn phí/.test(A.lastToast || ''), 'toast nhắc: gói 1 tháng được dùng thử miễn phí');
+  t.eq(A.D.restaurant.name, 'Quán Sen', 'tên quán đã lưu'); t.ok(A.D.tables.length > 0 && A.D.menu.length > 0, 'có dữ liệu mẫu');
+  t.ok(!(A.License.current() || {}).local, 'không có gói dùng thử cục bộ nào được cấp');
+  await t.rejects(() => A.api('/orders/items', { method: 'POST', body: { tableId: A.D.tables[0].id, seatNo: 1, lines: [{ menuItemId: A.D.menu[0].id, qty: 1 }] } }), /402|hết hạn|Gói cước/, 'đang khoá: gọi món bị chặn');
+
+  // màn hình khi bị khoá (chưa từng mua)
+  A.route = { name: 'tables', params: {} }; A.render();
+  t.eq(A.route.name, 'locked', 'rời màn Gói cước → bị đưa về màn khoá');
+  html = A.VIEWS.locked();
+  t.ok(html.includes('Chưa đăng ký gói cước') && !html.includes('Gói cước đã hết hạn') && html.includes('gói 1 tháng có thể được dùng thử miễn phí (nếu tài khoản Google của bạn đủ điều kiện)'), 'tiêu đề "Chưa đăng ký gói cước" + gợi ý chọn gói 1 tháng dùng thử miễn phí');
+  t.ok(html.includes('data-go="subscription"') && html.includes('Chọn gói cước') && !html.includes('c_upgradeStart'), 'nút "Chọn gói cước" (không còn nút tạo tài khoản vì đã có tài khoản)');
+  A.route = { name: 'quickStart', params: {} }; A.render(); t.eq(A.route.name, 'quickStart', 'đang khoá vẫn vào được các bước tạo quán/tài khoản');
+  for (const r of ['ownerAuth', 'ownerLink', 'ownerRestore', 'ownerInit']) { A.route = { name: r, params: {} }; A.render(); t.ok(A.route.name === r, 'đang khoá vẫn ở được bước ' + r); }
+
+  // màn Gói cước (Google Play): gói 1 tháng có dùng thử miễn phí 14 ngày
+  const base = (id, m, price) => ({ identifier: 'goi-' + m + '-thang', planIdentifier: id, offerId: null, price, priceString: price.toLocaleString('vi-VN') + ' đ', title: 'Goi ' + m + ' thang', pricingPhases: [{ priceString: price.toLocaleString('vi-VN') + ' đ', price, billingPeriod: 'P' + m + 'M', recurrenceMode: 1 }] });
+  A.billingProducts = [
+    { identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: 'dung-thu', price: 0, priceString: 'Miễn phí', title: 'Goi 1 thang', pricingPhases: [{ priceString: 'Miễn phí', price: 0, billingPeriod: 'P14D', recurrenceMode: 3 }, { priceString: '199.000 đ', price: 199000, billingPeriod: 'P1M', recurrenceMode: 1 }] },
+    base('goi_1_thang', 1, 199000), base('goi_6_thang', 6, 999000), base('goi_12_thang', 12, 1999000)];
+  A.route = { name: 'subscription', params: {} }; A.render();
+  A.handleAct({ dataset: { act: 'c_playReload' } }); await A.until(() => A.playProducts && A.playProducts.some(p => p.trial), 3000);
+  html = A.VIEWS.subscription();
+  t.ok(html.includes('Chọn gói — thanh toán qua Google Play') && !html.includes('c_planPick') && !html.includes('c_upgradeStart'), 'đã có tài khoản (dữ liệu trên máy) → màn Gói cước là luồng mua Google Play');
+  t.ok(html.includes('Dùng thử miễn phí 14 ngày') && html.includes('Sau đó 199.000 đ/1 tháng'), 'gói 1 tháng hiện "Dùng thử miễn phí 14 ngày" và "Sau đó 199.000 đ/1 tháng"');
+  t.eq((html.match(/Dùng thử miễn phí 14 ngày/g) || []).length, 1, 'chỉ gói 1 tháng có dùng thử');
+  t.ok(html.includes('Google chưa tính tiền trong thời gian dùng thử') && html.includes('huỷ gói trong Google Play trước khi hết dùng thử'), 'có đoạn thông báo bắt buộc của Google về dùng thử');
+  t.eq((html.match(/data-act="c_playBuy"/g) || []).length, 3, 'vẫn đúng 3 nút mua (dòng ưu đãi không thành nút riêng)');
+
+  // mua gói: máy chủ xác minh → mở khoá
+  const uid = [...w.central.subs.keys()][0];
+  A.fetchImpl = async () => { w.central.adminExtend(uid, 1); return { ok: true, json: async () => ({ ok: true }) }; };
+  await A.playPurchase('goi_1_thang');
+  t.eq(A.lastPurchaseCall.planIdentifier, 'goi-1-thang', 'mua đúng base plan của gói 1 tháng');
+  t.ok(!A.License.locked(), 'mua gói xong → mở khoá');
+  A.route = { name: 'tables', params: {} }; A.render();
+  t.eq(A.route.name, 'tables', 'hết khoá: vào được màn làm việc');
+  const tb = A.D.tables[0];
+  const o = await A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: A.D.menu[0].id, qty: 1 }] } });
+  t.ok(!!o.id, 'gọi món được, không cần Supabase của quán (dữ liệu lưu trên máy)');
+  t.ok(A.D.license && A.D.license.plan_months === 1, 'gói đã mua nằm trong dữ liệu quán (để máy nhân viên biết sau này)');
+
+  // màn Đồng bộ mời liên kết Supabase (đã có tài khoản)
+  A.route = { name: 'cloud', params: {} }; html = A.VIEWS.cloud();
+  t.ok(html.includes('c_upgradeStart') && html.includes('Bật đồng bộ &amp; sao lưu (miễn phí)') && !html.includes('Tạo tài khoản BEPO để mua gói') && !html.includes('c_inviteNew'), 'thẻ mời "Bật đồng bộ & sao lưu (miễn phí)", chưa có nút thêm máy nhân viên');
+  A.route = { name: 'admin', params: {} }; t.ok(A.VIEWS.admin().includes('Chưa bật'), 'màn Quản lý hiện đồng bộ "Chưa bật"');
+
+  // bật đồng bộ: đã có tài khoản và CHƯA có kho → thẳng tới bước liên kết Supabase (không tạo tài khoản lần nữa); GIỮ dữ liệu
+  const ordersBefore = A.D.orders.length, tablesBefore = A.D.tables.length;
+  A.handleAct({ dataset: { act: 'c_upgradeStart' } });
   await A.until(() => A.route.name === 'ownerLink', 8000);
-  t.eq(A.route.name, 'ownerLink', 'tạo tài khoản xong → sang bước liên kết kho (KHÔNG hỏi lại thông tin quán, không tạo lại dữ liệu)');
-  t.eq(w.central.users.size, 1, 'lúc này mới có tài khoản ở máy chủ trung tâm');
+  t.eq(A.route.name, 'ownerLink', 'bấm "Bật đồng bộ" khi đã có tài khoản, chưa có kho → màn liên kết Supabase');
+  t.eq(w.central.users.size, 1, 'không tạo thêm tài khoản');
   await A.Cloud.linkStoreAsOwner({ url: STORE_URL, anonKey: ANON, email: 'chu@sen.vn', password: 'matkhau1' });
   await A.sync();
-  t.ok(A.Cloud.linked && !A.Cloud.localMode, 'liên kết xong: đã đồng bộ đám mây, hết chế độ dùng ngay');
+  t.ok(A.Cloud.linked && !A.Cloud.localMode && A.Cloud.hasAccount, 'liên kết xong: đã đồng bộ đám mây, hết chế độ "dữ liệu chỉ trên máy"');
   t.ok(A.D.orders.length === ordersBefore && A.D.tables.length === tablesBefore && A.D.restaurant.name === 'Quán Sen', 'toàn bộ dữ liệu đang có được giữ nguyên');
-  t.ok(!A.License.status().locked, 'gói cước chuyển sang gói của tài khoản mới (dùng thử máy chủ)');
+  t.ok(!A.License.status().locked, 'gói đã mua vẫn còn hiệu lực sau khi liên kết');
   A.route = { name: 'cloud', params: {} }; html = A.VIEWS.cloud();
   t.ok(html.includes('c_inviteNew') && !html.includes('c_upgradeStart'), 'giờ có nút thêm máy nhân viên');
   // máy mới của chủ quán khôi phục được dữ liệu vừa đưa lên
@@ -1465,38 +1498,441 @@ t.group('34. Bắt đầu dùng ngay (không cần email/tài khoản): chạy h
   await B.Cloud.ownerSignIn('chu@sen.vn', 'matkhau1');
   await B.Cloud.restoreOwner({ email: 'chu@sen.vn', password: 'matkhau1' });
   await B.sync();
-  t.ok(B.D.orders.some(x => x.id === o.id), 'đổi máy: dữ liệu đã dùng từ chế độ "dùng ngay" khôi phục đầy đủ trên máy mới');
+  t.ok(B.D.orders.some(x => x.id === o.id) && B.Cloud.hasAccount, 'đổi máy: dữ liệu khôi phục đầy đủ trên máy mới');
 }
 
-t.group('34b. Nâng cấp bằng tài khoản ĐÃ CÓ quán: cho chọn dùng quán cũ hoặc giữ dữ liệu máy này (không tự ghi đè)');
+t.group('34a. Cài mới: tài khoản BEPO đã có quán → khôi phục; Supabase bắt xác nhận email → báo và về Đăng nhập; đăng nhập sai không tạo quán');
 {
-  const quick = async (w, name) => { const L = await newDevice(w, name); L.setInput('qs_shop', 'Quán Thử'); L.setInput('qs_pass', 'abcdef'); L.setInput('qs_pass2', 'abcdef');
-    L.handleAct({ dataset: { act: 'c_quickStartGo' } }); await L.until(() => L.ME, 8000); return L; };
+  const w = newWorld();
+  const O = await setupOwner(w);              // tài khoản chu@quan.vn đã có quán + kho Supabase
+  await order(O, 'Bàn 01', 1, [['Trà đá', 1]]); await O.sync();
+  const N = await newDevice(w, 'may-cai-lai');
+  N.setInput('oa_email', 'chu@quan.vn'); N.setInput('oa_pass', 'sai-mat-khau');
+  N.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'login' } });
+  await N.until(() => N.lastToast, 8000);
+  t.ok(!N.Cloud.role && N.route.name !== 'quickStart' && N.route.name !== 'ownerRestore', 'sai mật khẩu → không sang bước tiếp, không tạo quán');
+  N.lastToast = null; N.setInput('oa_pass', 'matkhau1');
+  N.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'login' } });
+  await N.until(() => N.route.name === 'ownerRestore', 8000);
+  t.eq(N.route.name, 'ownerRestore', 'đăng nhập tài khoản đã có quán → màn khôi phục (không bắt nhập thông tin quán mới)');
+  await N.Cloud.restoreOwner({ email: 'chu@quan.vn', password: 'matkhau1' }); await N.sync();
+  t.ok(N.Cloud.linked && N.D.restaurant.name === 'Quán A' && N.D.orders.length >= 1, 'khôi phục đúng quán cũ');
+
+  const w2 = newWorld(); w2.central.trialDays = 0; w2.central.confirmEmail = true;
+  const C = await newDevice(w2, 'can-xac-nhan');
+  C.setInput('oa_email', 'moi@quan.vn'); C.setInput('oa_pass', 'matkhau1'); C.setInput('oa_shop', 'Quán Mới');
+  C.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'signup' } });
+  await C.until(() => C.lastToast, 8000); await new Promise(r => setTimeout(r, 30));
+  t.ok(/xác nhận/.test(C.lastToast || '') && C.route.name === 'ownerAuth' && C.route.params.mode === 'login', 'Supabase đòi xác nhận email → báo mở thư xác nhận và đưa về tab Đăng nhập');
+  t.ok(!C.Cloud.role, 'chưa tạo quán');
+}
+
+t.group('34b. Tài khoản BEPO ĐÃ CÓ quán: người dùng cũ (dùng thử cục bộ) và máy "dữ liệu trên máy" được CHỌN dùng quán cũ hoặc giữ dữ liệu máy này (không tự ghi đè)');
+{
+  /** Dựng đúng trạng thái của người dùng bản cũ: dữ liệu chỉ trên máy, KHÔNG có tài khoản (cfg.local, không cfg.acct), có gói dùng thử cục bộ 14 ngày */
+  const legacy = async (w, name, days = 14) => {
+    const L = await newDevice(w, name);
+    await L.createStore({ shopName: 'Quán Thử', ownerName: 'Chị Hoa', username: 'chuquan', appPassword: 'abcdef', sample: true });
+    await L.Cloud.saveCfg({ role: 'owner', local: true });
+    const t0 = Date.now(), lic = { plan_months: 0, status: 'trial', expires_at: t0 + days * 86400000, started_at: t0, checked_at: t0, local: true };
+    await L.Persist.setMeta('license', lic); L.License.load();
+    L.D.license = { plan_months: 0, status: 'trial', expires_at: lic.expires_at, checked_at: t0 };
+    await L.Persist.flush(); await L.login('chuquan', 'abcdef');
+    return L;
+  };
   const login = async (L) => { L.handleAct({ dataset: { act: 'c_upgradeStart' } }); L.setInput('oa_email', 'chu@quan.vn'); L.setInput('oa_pass', 'matkhau1');
-    L.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'login' } }); await L.until(() => L.Cloud.getStoreLink && true && L.lastToast !== undefined, 50); await new Promise(r => setTimeout(r, 400)); };
+    L.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'login' } }); await new Promise(r => setTimeout(r, 400)); };
 
   // (a) dùng quán cũ: dữ liệu quán cũ thay thế dữ liệu máy này
   const w = newWorld(); const O = await setupOwner(w);
   await order(O, 'Bàn 01', 1, [['Trà đá', 1]]); await O.sync();
-  const L = await quick(w, 'may-thu');
-  t.ok(L.Cloud.localMode && L.D.restaurant.name === 'Quán Thử', 'máy thử đang ở chế độ dùng ngay');
+  const L = await legacy(w, 'may-cu');
+  t.ok(L.Cloud.localMode && !L.Cloud.hasAccount && L.D.restaurant.name === 'Quán Thử', 'người dùng cũ: dữ liệu chỉ trên máy, chưa có tài khoản');
   await login(L);
   t.eq(L.route.name, 'ownerAuth', 'tài khoản đã có quán: ở lại màn tài khoản và hiện hộp chọn (không tự ghi đè, không báo lỗi cụt)');
-  t.ok(L.Cloud.localMode && L.D.restaurant.name === 'Quán Thử', 'chưa chọn thì dữ liệu máy này còn nguyên');
+  t.ok(L.Cloud.localMode && L.Cloud.hasAccount && L.Cloud.cfg.acct === true && L.D.restaurant.name === 'Quán Thử', 'đã gắn tài khoản BEPO (cfg.acct) nhưng dữ liệu máy này còn nguyên khi chưa chọn');
   L.handleAct({ dataset: { act: 'c_upgradeRestore' } });
   t.eq(L.route.name, 'ownerRestore', 'chọn "Dùng quán cũ" → sang màn khôi phục');
   await L.Cloud.restoreOwner({ email: 'chu@quan.vn', password: 'matkhau1' }); await L.sync();
-  t.ok(L.Cloud.linked && !L.Cloud.localMode, 'khôi phục xong: đã đồng bộ, hết chế độ dùng ngay');
+  t.ok(L.Cloud.linked && !L.Cloud.localMode, 'khôi phục xong: đã đồng bộ, hết chế độ dữ liệu trên máy');
   t.ok(L.D.restaurant.name === 'Quán A' && L.D.orders.length >= 1, 'dữ liệu là của quán cũ (' + L.D.restaurant.name + '), thay cho dữ liệu dùng thử');
 
   // (b) giữ dữ liệu máy này: bỏ liên kết quán cũ, đưa dữ liệu máy này lên kho mới
   const w2 = newWorld(); await setupOwner(w2);
-  const L2 = await quick(w2, 'may-thu-2'); await login(L2);
+  const L2 = await legacy(w2, 'may-cu-2'); await login(L2);
   const before = await L2.Cloud.getStoreLink(); t.ok(!!before, 'tài khoản đang có liên kết quán cũ');
   L2.handleAct({ dataset: { act: 'c_upgradeNewStore' } });
   await L2.until(() => L2.route.name === 'ownerLink', 8000);
   t.eq(await L2.Cloud.getStoreLink(), null, 'chọn "Giữ dữ liệu máy này" → bỏ liên kết quán cũ ở máy chủ trung tâm');
   t.ok(L2.Cloud.localMode && L2.D.restaurant.name === 'Quán Thử', 'dữ liệu trên máy này vẫn nguyên, sẵn sàng liên kết kho mới');
+
+  // (c) máy cài mới (đã có tài khoản, dữ liệu trên máy) bấm "Bật đồng bộ" mà tài khoản đã có kho (tạo từ máy khác) → cũng hộp chọn, không ép
+  const w3 = newWorld(); w3.central.trialDays = 0;
+  const F = await newDevice(w3, 'cai-moi-2');
+  F.setInput('oa_email', 'moi@quan.vn'); F.setInput('oa_pass', 'matkhau1'); F.setInput('oa_shop', 'Quán Mới');
+  F.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'signup' } }); await F.until(() => F.route.name === 'quickStart', 8000);
+  F.setInput('qs_shop', 'Quán Mới'); F.setInput('qs_pass', 'abcdef'); F.setInput('qs_pass2', 'abcdef');
+  F.handleAct({ dataset: { act: 'c_quickStartGo' } }); await F.until(() => F.ME, 8000);
+  t.ok(F.Cloud.localMode && F.Cloud.hasAccount, 'máy cài mới: dữ liệu trên máy + có tài khoản');
+  const fUid = [...w3.central.users.values()][0].id;
+  w3.central.links.set(fUid, { url: STORE_URL, anon_key: ANON });     // tài khoản này vừa được liên kết một kho từ máy khác
+  F.route = { name: 'cloud', params: {} };
+  F.handleAct({ dataset: { act: 'c_upgradeStart' } }); await new Promise(r => setTimeout(r, 200));
+  t.eq(F.route.name, 'cloud', 'tài khoản đã có kho → hiện hộp chọn, KHÔNG tự chuyển sang liên kết kho mới');
+  F.handleAct({ dataset: { act: 'c_upgradeNewStore' } }); await F.until(() => F.route.name === 'ownerLink', 8000);
+  t.eq(await F.Cloud.getStoreLink(), null, 'chọn "bỏ liên kết quán cũ" → xoá liên kết ở máy chủ, sang bước liên kết kho mới');
+}
+
+t.group('34c. Người dùng bản cũ (dùng thử 14 ngày cục bộ, chưa có tài khoản): vẫn dùng được tới hết hạn; hết hạn/nâng cấp dẫn tới tạo tài khoản BEPO để mua gói; không ép liên kết kho');
+{
+  const w = newWorld(); w.central.trialDays = 0;
+  const mk = async (name, days = 14) => {
+    const L = await newDevice(w, name, { billingMode: 'play' });
+    await L.createStore({ shopName: 'Quán Cũ', ownerName: 'Chị Hoa', username: 'chuquan', appPassword: 'abcdef', sample: true });
+    await L.Cloud.saveCfg({ role: 'owner', local: true });
+    const t0 = Date.now(), lic = { plan_months: 0, status: 'trial', expires_at: t0 + days * 86400000, started_at: t0, checked_at: t0, local: true };
+    await L.Persist.setMeta('license', lic); L.License.load();
+    L.D.license = { plan_months: 0, status: 'trial', expires_at: lic.expires_at, checked_at: t0 };
+    await L.Persist.flush(); await L.login('chuquan', 'abcdef');
+    return L;
+  };
+  const A = await mk('cu-1');
+  const st = A.License.status();
+  t.ok(A.Cloud.localMode && !A.Cloud.hasAccount, 'trạng thái người dùng cũ: dữ liệu trên máy, chưa có tài khoản');
+  t.ok(st.kind === 'trial' && st.daysLeft >= 13 && !st.locked && A.License.describe().startsWith('Dùng thử'), 'gói dùng thử cục bộ cũ vẫn còn hạn, không bị khoá (còn ' + st.daysLeft + ' ngày)');
+  const o = await A.api('/orders/items', { method: 'POST', body: { tableId: A.D.tables[0].id, seatNo: 1, lines: [{ menuItemId: A.D.menu[0].id, qty: 1 }] } });
+  t.ok(!!o.id, 'vẫn gọi món được');
+  await A.refreshLicenseWithPlay(true); await A.recheckLicense(true);
+  t.ok(A.License.status().kind === 'trial' && !A.License.locked(), 'kiểm tra gói không đụng tới dùng thử cục bộ khi chưa có tài khoản (không hỏi máy chủ)');
+  A.route = { name: 'subscription', params: {} }; let html = A.VIEWS.subscription();
+  t.ok(html.includes('c_upgradeStart') && html.includes('Tạo tài khoản BEPO để mua gói') && !html.includes('c_playBuy') && !html.includes('c_planPick'), 'màn Gói cước: hạn dùng thử cũ + nút "Tạo tài khoản BEPO để mua gói"');
+  A.route = { name: 'cloud', params: {} }; html = A.VIEWS.cloud();
+  t.ok(html.includes('c_upgradeStart') && html.includes('Tạo tài khoản BEPO') && !html.includes('c_inviteNew'), 'màn Đồng bộ: mời tạo tài khoản BEPO trước');
+  t.ok(!html.includes('c_deleteAccountAsk'), 'chưa có tài khoản BEPO → không hiện nút "Xoá tài khoản lưu trữ" (không có gì để xoá ở máy chủ)');
+
+  // tạo tài khoản (chưa có kho) → KHÔNG ép liên kết kho: sang màn Gói cước; dữ liệu giữ nguyên
+  A.handleAct({ dataset: { act: 'c_upgradeStart' } });
+  t.eq(A.route.name, 'ownerAuth', 'bấm tạo tài khoản → màn tạo tài khoản');
+  A.setInput('oa_email', 'cu@quan.vn'); A.setInput('oa_pass', 'matkhau1'); A.setInput('oa_shop', 'Quán Cũ');
+  A.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'signup' } });
+  await A.until(() => A.route.name === 'subscription', 8000);
+  t.eq(A.route.name, 'subscription', 'tạo tài khoản xong (chưa có kho) → màn Gói cước, không ép liên kết Supabase');
+  t.ok(A.Cloud.localMode && A.Cloud.hasAccount && A.Cloud.cfg.acct === true, 'đã gắn tài khoản BEPO, dữ liệu vẫn chỉ trên máy');
+  t.ok(A.D.restaurant.name === 'Quán Cũ' && A.D.orders.some(x => x.id === o.id), 'dữ liệu quán giữ nguyên');
+  A.route = { name: 'cloud', params: {} };
+  t.ok(A.VIEWS.cloud().includes('c_deleteAccountAsk'), 'có tài khoản BEPO (dữ liệu vẫn trên máy) → có nút xoá tài khoản (bắt buộc theo chính sách Google Play)');
+  A.route = { name: 'subscription', params: {} };
+  t.ok(/chọn gói/i.test(A.lastToast || ''), 'toast "Đã có tài khoản — chọn gói để tiếp tục"');
+  html = A.VIEWS.subscription(); await new Promise(r => setTimeout(r, 30)); html = A.VIEWS.subscription();
+  t.ok(html.includes('Chọn gói — thanh toán qua Google Play') && !html.includes('Tạo tài khoản BEPO để mua gói'), 'giờ màn Gói cước là luồng mua Google Play');
+  t.ok(!A.License.locked() && A.License.status().kind === 'trial' && A.License.status().daysLeft >= 13 && A.License.current().local === true, 'tạo tài khoản KHÔNG làm mất dùng thử cục bộ còn hạn (còn ' + A.License.status().daysLeft + ' ngày, không khoá)');
+  t.ok(A.D.license && A.D.license.status === 'trial' && A.D.license.plan_months === 0, 'hạn công khai trong dữ liệu quán không bị máy chủ (hạn nhỏ hơn) ghi đè');
+  w.central.adminExtend([...w.central.subs.keys()][0], 1);          // Google gia hạn/ghi nhận mua → máy chủ trung tâm cập nhật
+  await A.recheckLicense(true);
+  t.ok(!A.License.locked() && A.License.status().plan === 1 && !A.License.current().local, 'đã có tài khoản (dữ liệu vẫn trên máy): kiểm tra gói LÀ hỏi máy chủ trung tâm → gói mua (hạn lớn hơn) thay bản dùng thử cục bộ');
+
+  // dùng thử cục bộ còn 9 ngày + tạo tài khoản: không khoá; hết 9 ngày mới khoá; mua gói thì dùng bản máy chủ
+  {
+    const G = await mk('cu-3', 9);
+    G.handleAct({ dataset: { act: 'c_upgradeStart' } });
+    G.setInput('oa_email', 'g9@quan.vn'); G.setInput('oa_pass', 'matkhau1'); G.setInput('oa_shop', 'Quán Cũ');
+    G.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'signup' } });
+    await G.until(() => G.route.name === 'subscription', 8000);
+    t.ok(!G.License.locked() && G.License.status().daysLeft >= 8 && G.License.status().daysLeft <= 9, 'dùng thử cục bộ còn 9 ngày + tạo tài khoản → không khoá, còn ' + G.License.status().daysLeft + ' ngày');
+    G.clockOffset = 10 * 86400000;
+    t.ok(G.License.locked(), 'qua hạn dùng thử cục bộ → khoá');
+    const uidG = [...w.central.users.values()].find(u => u.email === 'g9@quan.vn').id;
+    w.central.adminExtend(uidG, 1); await G.recheckLicense(true);
+    t.ok(!G.License.locked() && G.License.status().plan === 1 && !G.License.current().local, 'mua gói → dùng bản máy chủ, bỏ cờ local');
+  }
+
+  // dùng thử cục bộ hết hạn (máy khác, kéo đồng hồ 15 ngày) → khoá; nút tạo tài khoản; vẫn vào được các bước tài khoản
+  const E = await mk('cu-2');
+  E.clockOffset = 15 * 86400000;
+  t.ok(E.License.locked(), 'sau 14 ngày dùng thử cục bộ hết hạn → khoá');
+  E.route = { name: 'tables', params: {} }; E.render();
+  html = E.VIEWS.locked();
+  t.ok(E.route.name === 'locked' && html.includes('c_upgradeStart') && html.includes('Tạo tài khoản BEPO để mua gói') && html.includes('Chưa đăng ký gói cước'), 'màn khoá có nút "Tạo tài khoản BEPO để mua gói"');
+  t.eq(E.License.describe().startsWith('Dùng thử'), true, 'mô tả vẫn là "Dùng thử — đã hết hạn" (không phải "Chưa đăng ký")');
+  E.handleAct({ dataset: { act: 'c_upgradeStart' } }); E.render();
+  t.eq(E.route.name, 'ownerAuth', 'đang khoá vẫn vào được màn tạo tài khoản (không bị đá về màn hết hạn)');
+}
+
+t.group('34d. Dùng thử miễn phí của Google Play: gắn vào dòng giá gốc (có/không có pricingPhases), đổi chu kỳ ISO 8601, hiển thị + thông báo bắt buộc, vá plugin idempotent');
+{
+  const w = newWorld(); const A = await newDevice(w, 'trial-ui', { billingMode: 'play' });
+  const price = (s, p) => ({ priceString: s, price: p });
+  // 1) plugin ĐÃ vá: có pricingPhases
+  let raw = [
+    { identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: 'dung-thu', ...price('Miễn phí', 0), title: 'G1', pricingPhases: [{ ...price('Miễn phí', 0), billingPeriod: 'P7D' }, { ...price('149.000 đ', 149000), billingPeriod: 'P1M' }] },
+    { identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: null, ...price('199.000 đ', 199000), title: 'G1' },
+    { identifier: 'goi-6-thang', planIdentifier: 'goi_6_thang', offerId: 'giam-gia', ...price('500.000 đ', 500000), title: 'G6', pricingPhases: [{ ...price('500.000 đ', 500000), billingPeriod: 'P6M' }] },
+    { identifier: 'goi-6-thang', planIdentifier: 'goi_6_thang', offerId: null, ...price('999.000 đ', 999000), title: 'G6' },
+    { identifier: 'goi-12-thang', planIdentifier: 'goi_12_thang', offerId: null, ...price('1.999.000 đ', 1999000), title: 'G12' },
+  ];
+  let out = A.normalizePlayProducts(raw);
+  t.eq(out.map(p => A.playProductId(p)), ['goi_1_thang', 'goi_6_thang', 'goi_12_thang'], 'vẫn đúng một dòng mỗi gói, đúng thứ tự');
+  t.eq(out[0].priceString, '199.000 đ', 'dòng giữ lại là dòng giá gốc (giá, base plan)');
+  t.eq(out[0].trial, { period: 'P7D', thenPrice: '149.000 đ' }, 'gói 1 tháng gắn trial: thời hạn lấy từ giai đoạn đầu (P7D), giá sau dùng thử lấy từ giai đoạn kế tiếp');
+  t.ok(out[1].trial === undefined && out[2].trial === undefined, 'ưu đãi giảm giá (giai đoạn đầu giá > 0) KHÔNG phải dùng thử; gói không có ưu đãi thì không có trial');
+  t.eq(raw[1].trial, undefined, 'không sửa đổi đối tượng gốc do plugin trả về');
+  // 2) plugin CHƯA vá: không có pricingPhases, chỉ biết price == 0
+  raw = [
+    { identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: 'dung-thu', ...price('Miễn phí', 0), title: 'G1' },
+    { identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: null, ...price('199.000 đ', 199000), title: 'G1' },
+    { identifier: 'goi-6-thang', planIdentifier: 'goi_6_thang', offerId: null, ...price('999.000 đ', 999000), title: 'G6' },
+  ];
+  out = A.normalizePlayProducts(raw);
+  t.ok(out.every(p => !p.trial), 'plugin CHƯA vá (không có pricingPhases): dòng ưu đãi giá 0 KHÔNG được coi là dùng thử (không có bằng chứng; lúc mua plugin chưa vá cũng không chọn ưu đãi đó)');
+  t.eq(A.playTrialLabel({ period: '' }), 'Dùng thử miễn phí', 'không biết số ngày → nhãn "Dùng thử miễn phí" (không bịa số ngày)');
+  t.ok(A.normalizePlayProducts([{ identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: 'x', priceString: 'Miễn phí', title: 'G1' }]).every(p => !p.trial), 'dòng ưu đãi không có số giá thì không tự coi là dùng thử');
+  // 3) chu kỳ ISO 8601 → tiếng Việt
+  t.eq(['P7D', 'P14D', 'P1W', 'P2W', 'P1M', 'P3M', 'P1Y', 'P1M2W', 'P1W3D'].map(A.playPeriodVi), ['7 ngày', '14 ngày', '7 ngày', '14 ngày', '1 tháng', '3 tháng', '1 năm', '1 tháng 14 ngày', '10 ngày'], 'đổi P7D/P1W/P2W/P1M/P1Y... sang "7 ngày", "14 ngày", "1 tháng", "1 năm"');
+  t.eq(['', null, undefined, 'P', 'abc', 'PT1H'].map(A.playPeriodVi), ['', '', '', '', '', ''], 'chuỗi lạ/rỗng → rỗng (không ném lỗi)');
+  t.eq(A.playTrialLabel({ period: 'P2W' }), 'Dùng thử miễn phí 14 ngày', 'nhãn "Dùng thử miễn phí 14 ngày"');
+  // 4) hiển thị
+  A.billingProducts = [
+    { identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: 'dung-thu', ...price('Miễn phí', 0), title: 'G1', pricingPhases: [{ ...price('Miễn phí', 0), billingPeriod: 'P14D' }, { ...price('199.000 đ', 199000), billingPeriod: 'P1M' }] },
+    { identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: null, ...price('199.000 đ', 199000), title: 'G1' },
+    { identifier: 'goi-6-thang', planIdentifier: 'goi_6_thang', offerId: null, ...price('999.000 đ', 999000), title: 'G6' },
+    { identifier: 'goi-12-thang', planIdentifier: 'goi_12_thang', offerId: null, ...price('1.999.000 đ', 1999000), title: 'G12' }];
+  let html = A.vSubscriptionPlay(); await new Promise(r => setTimeout(r, 30)); html = A.vSubscriptionPlay();
+  const btn1 = html.slice(html.indexOf('data-id="goi_1_thang"'), html.indexOf('data-id="goi_6_thang"'));
+  t.ok(btn1.includes('Dùng thử miễn phí 14 ngày') && btn1.includes('Sau đó 199.000 đ/1 tháng'), 'gói 1 tháng: nhãn "Dùng thử miễn phí 14 ngày" + "Sau đó 199.000 đ/1 tháng"');
+  t.ok(btn1.includes('>Dùng thử miễn phí<'), 'nút mua của gói có dùng thử ghi rõ "Dùng thử miễn phí"');
+  const btn6 = html.slice(html.indexOf('data-id="goi_6_thang"'), html.indexOf('data-id="goi_12_thang"'));
+  t.ok(!btn6.includes('Dùng thử') && btn6.includes('999.000 đ'), 'gói 6 tháng (không có dùng thử) chỉ hiện giá');
+  t.ok(html.includes('Dùng thử miễn phí: Google chưa tính tiền trong thời gian dùng thử. Hãy huỷ gói trong Google Play trước khi hết dùng thử nếu không muốn bị tính tiền.'), 'có đoạn thông báo bắt buộc khi có gói dùng thử');
+  A.billingProducts = [A.billingProducts[1], A.billingProducts[2], A.billingProducts[3]];
+  A.handleAct({ dataset: { act: 'c_playReload' } }); await A.until(() => A.playProducts && A.playProducts.length === 3 && !A.playProducts.some(p => p.trial), 3000);
+  html = A.vSubscriptionPlay();
+  t.ok(!html.includes('Dùng thử') && !html.includes('Google chưa tính tiền'), 'không gói nào có dùng thử (người dùng đã dùng thử rồi/Google không trả ưu đãi) → không hiện nhãn và không hiện thông báo');
+}
+
+t.group('34e. Vá plugin @capgo/native-purchases (scripts/patch-plugins.mjs): ưu tiên ưu đãi dùng thử khi mua, trả pricingPhases; idempotent; báo lỗi rõ khi plugin lạ');
+{
+  const { patchPluginSource, patchPluginFile, PLUGIN_JAVA, MARK_PURCHASE, MARK_PHASES } = await import('../scripts/patch-plugins.mjs');
+  // Đoạn mã gốc của plugin 7.19.3 (rút gọn, giữ nguyên các dòng làm mốc)
+  const ORIG = [
+    'public class NativePurchasesPlugin extends Plugin {',
+    '    private void buy() {',
+    '        for (ProductDetails.SubscriptionOfferDetails offerDetails : productDetailsItem.getSubscriptionOfferDetails()) {',
+    '            Log.d(TAG, "Checking offer: " + offerDetails.getBasePlanId());',
+    '            if (offerDetails.getBasePlanId().equals(planIdentifier)) {',
+    '                selectedOfferDetails = offerDetails;',
+    '                Log.d(TAG, "Found matching plan: " + planIdentifier);',
+    '                break;',
+    '            }',
+    '        }',
+    '        if (selectedOfferDetails == null) { selectedOfferDetails = productDetailsItem.getSubscriptionOfferDetails().get(0); }',
+    '    }',
+    '    private void query() {',
+    '        for (ProductDetails.SubscriptionOfferDetails offerDetails : offerDetailsList) {',
+    '            product.put("offerToken", offerDetails.getOfferToken());',
+    '            product.put("offerId", offerDetails.getOfferId());',
+    '            ProductDetails.PricingPhase firstPricingPhase = offerDetails.getPricingPhases().getPricingPhaseList().get(0);',
+    '        }',
+    '    }',
+    '}', ''].join('\n');
+  const r1 = patchPluginSource(ORIG);
+  t.eq(r1.applied, ['purchase', 'phases'], 'lần đầu: áp dụng cả hai bản vá');
+  t.ok(r1.src.includes(MARK_PURCHASE) && r1.src.includes(MARK_PHASES) && r1.src.includes('getPriceAmountMicros() == 0L'), 'đã chèn dấu // BEPO-PATCH và điều kiện giai đoạn giá 0 (ưu đãi dùng thử)');
+  t.ok(r1.src.includes('org.json.JSONArray bepoPhases') && ['priceString', 'price', 'billingPeriod', 'recurrenceMode'].every(k => r1.src.includes(`bepoPhase.put("${k}"`)) && r1.src.includes('product.put("pricingPhases", bepoPhases)'), 'getProducts trả pricingPhases = {priceString, price, billingPeriod, recurrenceMode} (dùng tên đầy đủ org.json.JSONArray, không cần import)');
+  t.ok(r1.src.indexOf('Found matching plan') < r1.src.indexOf('using free-trial offer') && r1.src.includes('if (selectedOfferDetails == null) {\n                    selectedOfferDetails = offerDetails;'), 'vẫn giữ ưu đãi đầu tiên khớp base plan làm phương án dự phòng, rồi mới ưu tiên ưu đãi giá 0');
+  const count = (s, sub) => s.split(sub).length - 1;
+  t.eq(count(r1.src, '{'), count(r1.src, '}'), 'dấu ngoặc nhọn cân bằng sau khi vá');
+  const r2 = patchPluginSource(r1.src);
+  t.ok(r2.applied.length === 0 && r2.already.length === 2 && r2.src === r1.src, 'chạy lần hai: không đổi gì (idempotent)');
+  t.eq(count(r2.src, MARK_PURCHASE), 1, 'dấu vá không bị nhân đôi');
+  const crlf = patchPluginSource(ORIG.replace(/\n/g, '\r\n'));
+  t.ok(!/[^\r]\n/.test(crlf.src) && crlf.applied.length === 2, 'tệp xuống dòng CRLF vẫn vá được và giữ CRLF');
+  await t.rejects(async () => patchPluginSource('public class NativePurchasesPlugin { /* plugin phiên bản khác */ }'), /Không tìm thấy/, 'plugin đổi cấu trúc → BÁO LỖI rõ (không im lặng)');
+  await t.rejects(async () => patchPluginSource(ORIG.replace('product.put("offerId", offerDetails.getOfferId());', '')), /Không tìm thấy dòng product\.put\("offerId"/, 'thiếu đoạn getProducts → báo lỗi nêu đúng đoạn');
+  // trên đĩa
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'patchplug-')); const f = path.join(dir, 'NativePurchasesPlugin.java');
+  fs.writeFileSync(f, ORIG, 'utf8');
+  t.eq(patchPluginFile(f).applied, ['purchase', 'phases'], 'patchPluginFile: vá tệp trên đĩa');
+  const once = fs.readFileSync(f, 'utf8'); patchPluginFile(f);
+  t.ok(fs.readFileSync(f, 'utf8') === once, 'vá lần hai trên đĩa không đổi tệp');
+  fs.writeFileSync(f, 'class X {}', 'utf8');
+  await t.rejects(async () => patchPluginFile(f), /Không tìm thấy/, 'tệp lạ trên đĩa → báo lỗi');
+  await t.rejects(async () => patchPluginFile(path.join(dir, 'khong-co.java')), /Không thấy tệp plugin/, 'thiếu tệp → báo lỗi');
+  fs.rmSync(dir, { recursive: true, force: true });
+  // chạy bằng dòng lệnh: mã thoát khác 0 khi lỗi — thử trong bản sao dự án giả (không đụng node_modules thật)
+  {
+    const { spawnSync } = await import('node:child_process');
+    const fake = fs.mkdtempSync(path.join(os.tmpdir(), 'patchcli-'));
+    fs.mkdirSync(path.join(fake, 'scripts'), { recursive: true });
+    for (const n of ['patch-plugins.mjs', 'assemble.mjs']) fs.copyFileSync(new URL('../scripts/' + n, import.meta.url), path.join(fake, 'scripts', n));
+    const run = () => spawnSync(process.execPath, [path.join(fake, 'scripts', 'patch-plugins.mjs')], { encoding: 'utf8' });
+    let r = run();
+    t.ok(r.status === 0 && /CẢNH BÁO/.test(r.stderr), 'postinstall (không cờ) khi chưa có plugin → chỉ cảnh báo, thoát 0 (không làm hỏng npm install)');
+    r = spawnSync(process.execPath, [path.join(fake, 'scripts', 'patch-plugins.mjs'), '--strict'], { encoding: 'utf8' });
+    t.ok(r.status !== 0 && /LỖI/.test(r.stderr) && /Không thấy tệp plugin/.test(r.stderr), 'npm run sync (--strict) khi chưa có plugin → thoát mã khác 0 và nêu lỗi');
+    const jf = path.join(fake, PLUGIN_JAVA); fs.mkdirSync(path.dirname(jf), { recursive: true }); fs.writeFileSync(jf, ORIG, 'utf8');
+    r = run(); t.ok(r.status === 0 && /đã vá/.test(r.stdout), 'chạy bằng dòng lệnh: vá thành công, mã thoát 0');
+    r = run(); t.ok(r.status === 0 && /đã được vá từ trước/.test(r.stdout), 'chạy lần hai: mã thoát 0, báo đã vá từ trước');
+    fs.writeFileSync(jf, 'class X {}', 'utf8'); r = run();
+    t.ok(r.status !== 0 && /Không tìm thấy/.test(r.stderr), 'tệp lạ: mã thoát khác 0');
+    fs.rmSync(fake, { recursive: true, force: true });
+  }
+  // plugin THẬT trong node_modules (nếu đã cài) phải vá được và cân bằng ngoặc
+  const real = new URL('../' + PLUGIN_JAVA, import.meta.url);
+  if (fs.existsSync(real)) {
+    const rs = patchPluginSource(fs.readFileSync(real, 'utf8'));
+    t.ok(rs.applied.length + rs.already.length === 2 && count(rs.src, '{') === count(rs.src, '}'), 'plugin thật 7.19.3 trong node_modules: vá được (hoặc đã vá), ngoặc cân bằng');
+  } else t.ok(true, '(node_modules chưa cài plugin — bỏ qua phần kiểm tra bản thật)');
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  t.eq(pkg.scripts.postinstall, 'node scripts/patch-plugins.mjs', 'npm install tự vá plugin (postinstall)');
+  t.ok(pkg.scripts.sync.includes('scripts/patch-plugins.mjs --strict') && pkg.scripts.sync.indexOf('cap sync') < pkg.scripts.sync.indexOf('patch-plugins'), 'npm run sync gọi vá plugin (--strict) sau cap sync');
+}
+
+t.group('34g. Danh sách gói Google Play không bị giữ cũ: làm mới ngầm sau 5 phút, sau khi mua/khôi phục, và kiểm tra lại NGAY trước khi mua (ưu đãi dùng thử đã hết → dừng, không tính giá gốc oan)');
+{
+  const w = newWorld(); w.central.trialDays = 0;
+  const A = await newDevice(w, 'trial-stale', { billingMode: 'play' });
+  await A.Cloud.ownerSignUp('s@y.vn', 'matkhau1', 'S'); await A.License.refresh(true);
+  await A.createStore({ shopName: 'Quán S', ownerName: 'Chị Hoa', username: 'chuquan', appPassword: 'abcdef', sample: true });
+  await A.Cloud.saveCfg({ role: 'owner', local: true, acct: true }); await A.Persist.flush(); await A.login('chuquan', 'abcdef');
+  const px = (s, p) => ({ priceString: s, price: p });
+  const base = [
+    { identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: null, ...px('199.000 đ', 199000), title: 'G1' },
+    { identifier: 'goi-6-thang', planIdentifier: 'goi_6_thang', offerId: null, ...px('999.000 đ', 999000), title: 'G6' },
+    { identifier: 'goi-12-thang', planIdentifier: 'goi_12_thang', offerId: null, ...px('1.999.000 đ', 1999000), title: 'G12' }];
+  const withTrial = [{ identifier: 'goi-1-thang', planIdentifier: 'goi_1_thang', offerId: 'dung-thu', ...px('Miễn phí', 0), title: 'G1', pricingPhases: [{ ...px('Miễn phí', 0), billingPeriod: 'P14D' }, { ...px('199.000 đ', 199000), billingPeriod: 'P1M' }] }, ...base];
+  const hasTrial = () => !!(A.playProducts || []).some(p => p.trial);
+  A.fetchImpl = async () => ({ ok: true, json: async () => ({ ok: true }) });
+  const reload = async (list, wantTrial) => { A.billingProducts = list; A.handleAct({ dataset: { act: 'c_playReload' } }); await A.until(() => (A.playProducts || []).length === 3 && hasTrial() === wantTrial, 3000); };
+  A.route = { name: 'subscription', params: {} };
+
+  // 1) Làm mới ngầm khi cache quá 5 phút (không xoá danh sách đang hiện, không cần bấm gì)
+  await reload(withTrial, true);
+  t.ok(hasTrial() && A.vSubscriptionPlay().includes('Dùng thử miễn phí 14 ngày'), 'có ưu đãi dùng thử → màn hiện "Dùng thử miễn phí 14 ngày"');
+  A.billingProducts = base;                                      // Google đã hết ưu đãi cho tài khoản này
+  A.vSubscriptionPlay(); await new Promise(r => setTimeout(r, 40));
+  t.ok(hasTrial(), 'cache còn mới (< 5 phút) → chưa hỏi lại Google');
+  A.clockOffset = 6 * 60000;
+  A.vSubscriptionPlay(); await A.until(() => !hasTrial(), 3000);
+  t.ok(!hasTrial() && !A.vSubscriptionPlay().includes('Dùng thử miễn phí'), 'cache quá 5 phút → mở màn Gói cước tự làm mới ngầm: nhãn dùng thử biến mất');
+  t.ok((A.playProducts || []).length === 3, 'trong lúc làm mới danh sách không bị xoá (không nháy màn)');
+
+  // 2) Trước khi mua: cache còn "mới" nhưng Google đã bỏ ưu đãi → DỪNG, vẽ lại, báo
+  await reload(withTrial, true);
+  A.billingProducts = base; A.lastPurchaseCall = null; A.lastToast = null;
+  await A.playPurchase('goi_1_thang');
+  t.ok(!A.lastPurchaseCall, 'ưu đãi dùng thử đã hết → KHÔNG gọi Google mua (tránh tính giá gốc khi người dùng tưởng miễn phí)');
+  t.ok(/Ưu đãi dùng thử không còn áp dụng/.test(A.lastToast || ''), 'báo "Ưu đãi dùng thử không còn áp dụng cho tài khoản Google này…"');
+  t.ok(!hasTrial() && A.playBusy === false && !A.vSubscriptionPlay().includes('Dùng thử miễn phí'), 'màn được cập nhật theo giá thật, trạng thái đang xử lý được tắt');
+
+  // 3) Còn ưu đãi thì mua vẫn đi qua; mua xong danh sách tự làm mới (ưu đãi vừa dùng)
+  await reload(withTrial, true);
+  A.billingPurchaseImpl = async (id) => { A.billingProducts = base; return { purchaseToken: 'tok-' + id, productId: id }; };   // Google bỏ ưu đãi ngay sau khi dùng
+  A.lastPurchaseCall = null;
+  await A.playPurchase('goi_1_thang');
+  t.eq(A.lastPurchaseCall && A.lastPurchaseCall.productId, 'goi_1_thang', 'còn ưu đãi dùng thử → vẫn mua bình thường');
+  await A.until(() => !hasTrial(), 3000);
+  t.ok(!hasTrial(), 'sau khi mua xong danh sách gói được tải lại → không còn hiện dùng thử');
+
+  // 4) Khôi phục giao dịch cũng làm mới
+  await reload(withTrial, true);
+  A.billingPurchaseImpl = null; A.billingProducts = base;
+  await A.playRestore();
+  await A.until(() => !hasTrial(), 3000);
+  t.ok(!hasTrial(), 'sau khi khôi phục giao dịch danh sách gói được tải lại');
+
+  // 5) Đang có lượt làm mới nền (đã đọc danh sách CŨ) mà vừa mua xong → lượt ép (force) vẫn phải chạy và kết quả cũ bị bỏ
+  await reload(withTrial, true);
+  A.clockOffset += 6 * 60000;                                       // cache quá hạn → lượt nền chạy
+  let reads = 0; Object.defineProperty(A, 'billingProducts', { configurable: true, get() { return reads++ === 0 ? withTrial : base; } });
+  const p1 = A.refreshPlayProductsQuiet(false);                     // lượt nền: đọc bản cũ (có dùng thử)
+  const p2 = A.refreshPlayProductsQuiet(true);                      // vừa mua xong: ép làm mới, Google đã bỏ ưu đãi
+  await Promise.all([p1, p2]); await new Promise(r => setTimeout(r, 30));
+  t.ok(!hasTrial(), 'force trong lúc lượt nền đang chạy: dùng kết quả mới, không bị bản nền cũ (còn dùng thử) ghi đè');
+}
+
+t.group('34h. Màn thông tin quán: điền sẵn tên quán, mật khẩu app khác mật khẩu tài khoản, mất mạng ≠ chưa có tài khoản, mua gói giữa chừng thì không khoá; khoá mềm khi chưa từng có bản ghi gói');
+{
+  const w = newWorld(); w.central.trialDays = 0;
+  const A = await newDevice(w, 'qs-chitiet', { billingMode: 'play' });
+  A.setInput('oa_email', 'q@y.vn'); A.setInput('oa_pass', 'matkhau1'); A.setInput('oa_shop', 'Quán Hoa Sen');
+  A.handleAct({ dataset: { act: 'c_ownerAuthGo', mode: 'signup' } }); await A.until(() => A.route.name === 'quickStart', 8000);
+  t.ok(A.VIEWS.quickStart().includes('value="Quán Hoa Sen"'), 'tên quán nhập lúc tạo tài khoản được điền sẵn ở màn thông tin quán');
+  const fill = (pw) => { A.setInput('qs_shop', 'Quán Hoa Sen'); A.setInput('qs_pass', pw); A.setInput('qs_pass2', pw); A.setInput('qs_name', 'Hoa'); };
+  const go = async () => { A.lastToast = null; A.handleAct({ dataset: { act: 'c_quickStartGo' } }); await A.until(() => A.ME || A.lastToast, 8000); await new Promise(r => setTimeout(r, 30)); };
+  fill('matkhau1'); await go();
+  t.ok(!A.Cloud.role && /Không dùng chung mật khẩu/.test(A.lastToast || ''), 'mật khẩu đăng nhập app trùng mật khẩu tài khoản BEPO → từ chối');
+  // mất mạng: không đá về màn tài khoản
+  const au = A.Cloud.central().auth, getUser0 = au.getUser;
+  au.getUser = async () => ({ data: { user: null }, error: { name: 'AuthRetryableFetchError', message: 'Failed to fetch', status: 0 } });
+  fill('abcdef'); await go();
+  t.ok(!A.Cloud.role && /Không kết nối được mạng/.test(A.lastToast || '') && A.route.name === 'quickStart', 'mất mạng lúc kiểm tra tài khoản → báo "Không kết nối được mạng", ở lại màn, KHÔNG đá về màn tài khoản');
+  au.getUser = getUser0;
+  // mua gói (ở máy khác/Google) giữa lúc tạo tài khoản và bấm Bắt đầu → License.refresh trong c_quickStartGo phải lấy gói mới, không vào màn khoá
+  t.ok(A.License.locked(), 'trước khi bấm Bắt đầu: tài khoản chưa có gói → khoá');
+  w.central.adminExtend([...w.central.subs.keys()][0], 1);
+  fill('abcdef'); await go();
+  t.ok(A.ME && A.Cloud.role === 'owner' && !A.License.locked() && A.route.name !== 'subscription', 'Bắt đầu: hỏi lại gói của tài khoản → đã có gói thì vào thẳng app, không bị đưa vào màn chọn gói');
+
+  // khoá mềm khi chưa từng có bản ghi gói (bản Google Play, đã có tài khoản)
+  const mkLocal = async (name, opts, acct) => {
+    const D2 = await newDevice(w, name, opts);
+    await D2.createStore({ shopName: 'Q', ownerName: 'H', username: 'chuquan', appPassword: 'abcdef', sample: false });
+    await D2.Cloud.saveCfg(acct ? { role: 'owner', local: true, acct: true } : { role: 'owner', local: true });
+    await D2.Persist.flush(); return D2;
+  };
+  const P = await mkLocal('khoa-mem-play', { billingMode: 'play' }, true);
+  t.ok(P.License.status().locked && P.License.describe() === 'Chưa đăng ký gói cước', 'bản Google Play, đã có tài khoản, chưa từng có bản ghi gói → khoá mềm (không mở miễn phí)');
+  const M = await mkLocal('khoa-mem-tay', {}, true);
+  t.ok(!M.License.status().locked, 'bản chuyển khoản tay: không đổi hành vi');
+  const L = await mkLocal('khoa-mem-cu', { billingMode: 'play' }, false);
+  t.ok(!L.License.status().locked, 'người dùng cũ chưa có tài khoản, chưa có bản ghi gói: không khoá');
+  const w2 = newWorld(); const O = await setupOwner(w2);
+  const S = await newDevice(w2, 'nv-1', { billingMode: 'play' }); await S.Cloud.joinAsStaff((await O.Cloud.createInvite()).payload, 'nv-1'); await S.sync();
+  S.D.license = null;
+  t.ok(!S.License.status().locked, 'máy nhân viên chưa nhận được bản ghi gói: KHÔNG bị khoá oan');
+
+  // Chủ quán khôi phục sang máy mới (bản Google Play) khi hỏi gói bị lỗi mạng: dùng bản đã đồng bộ từ kho, không khoá oan
+  await O.sync();
+  t.ok(O.D.license && O.D.license.expires_at > Date.now(), 'máy gốc đã có bản gói công khai trong dữ liệu kho');
+  const N = await newDevice(w2, 'khoi-phuc-loi-mang', { billingMode: 'play' });
+  await N.Cloud.ownerSignIn('chu@quan.vn', 'matkhau1');
+  const c = N.Cloud.central(), rpc0 = c.rpc.bind(c);
+  c.rpc = (name, ...a) => name === 'get_my_subscription' ? Promise.resolve({ data: null, error: { message: 'Failed to fetch' } }) : rpc0(name, ...a);
+  await N.Cloud.restoreOwner({ email: 'chu@quan.vn', password: 'matkhau1' }); await N.sync();
+  t.ok(N.Persist.getMeta('license', null) == null && N.D.license && N.D.license.expires_at > Date.now(), 'khôi phục lúc hỏi gói lỗi mạng: chưa có bản máy chủ nhưng đã có bản công khai từ kho');
+  t.ok(!N.License.status().locked && N.License.status().state !== 'unknown', 'own rỗng + D.license còn hạn → dùng D.license, KHÔNG khoá mềm');
+  N.D.license = null;
+  t.ok(N.License.status().locked, 'own rỗng và D.license rỗng + có tài khoản bản Google Play → vẫn khoá mềm');
+  // mạng bình thường: restoreOwner tự hỏi gói của máy chủ
+  const N2 = await newDevice(w2, 'khoi-phuc-ok', { billingMode: 'play' });
+  await N2.Cloud.ownerSignIn('chu@quan.vn', 'matkhau1');
+  await N2.Cloud.restoreOwner({ email: 'chu@quan.vn', password: 'matkhau1' });
+  t.ok(N2.Persist.getMeta('license', null) && N2.Persist.getMeta('license', null).expires_at > Date.now(), 'restoreOwner gọi License.refresh: máy mới có ngay bản gói của máy chủ');
+}
+
+t.group('34f. Bỏ hẳn dùng thử cục bộ 14 ngày và luồng "không cần tài khoản"; Supabase trung tâm mặc định trial_days = 0');
+{
+  const srcDir = new URL('../src/', import.meta.url);
+  const walk = (u) => fs.readdirSync(u, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(new URL(e.name + '/', u)) : [new URL(e.name, u)]);
+  const files = walk(srcDir).filter(u => /\.js$/.test(u.pathname) && !/i18n-en/.test(u.pathname));
+  const all = files.map(u => [u.pathname, fs.readFileSync(u, 'utf8')]);
+  t.eq(all.filter(([, s]) => /startLocalTrial|bepo_trial_start/.test(s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ''))).map(x => x[0]), [], 'mã nguồn không còn startLocalTrial / khoá localStorage bepo_trial_start');
+  t.eq(all.filter(([p, s]) => !/guide-app/.test(p) && /không cần email|Bắt đầu dùng ngay|dùng thử 14 ngày/i.test(s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ''))).map(x => x[0]), [], 'giao diện không còn chữ "không cần email" / "Bắt đầu dùng ngay" / "dùng thử 14 ngày"');
+  const guide = fs.readFileSync(new URL('../src/web/guide-app.js', import.meta.url), 'utf8');
+  t.ok(!/không cần email|Bắt đầu dùng ngay|14-day|14 ngày/.test(guide.replace(/\/\*[\s\S]*?\*\//g, '')), 'hướng dẫn trong app không còn nhắc dùng thử 14 ngày / không cần email');
+  t.ok(guide.includes('tài khoản BEPO') && guide.includes('dùng thử miễn phí'), 'hướng dẫn trong app mô tả luồng mới: tài khoản BEPO + gói 1 tháng dùng thử miễn phí');
+  const sql = fs.readFileSync(new URL('../supabase/central-setup.sql', import.meta.url), 'utf8');
+  t.ok(/values \('trial_days', '0'\)/.test(sql) && !/values \('trial_days', '14'\)/.test(sql), 'central-setup.sql: trial_days mặc định là 0');
+  t.ok(/'trial_days'\), 0\);/.test(sql) && /Google Play/.test(sql.split('trial_days')[0] + sql.split('trial_days')[1]), 'giá trị dự phòng của hàm handle_new_user cũng là 0 và chú thích nói dùng thử do Google Play cấp');
+  // tài khoản mới ở máy chủ trung tâm đúng cấu hình mới → hết hạn ngay, mô tả "Chưa đăng ký"
+  const w = newWorld(); w.central.trialDays = 0; const A = await newDevice(w, 'tk-moi');
+  await A.Cloud.ownerSignUp('x@y.vn', 'matkhau1', 'X'); await A.License.refresh(true);
+  t.ok(A.License.locked() && A.License.describe() === 'Chưa đăng ký gói cước', 'tài khoản mới (trial_days = 0) → khoá, "Chưa đăng ký gói cước"');
+  const w2 = newWorld(); const B = await newDevice(w2, 'tk-cu');
+  await B.Cloud.ownerSignUp('x@y.vn', 'matkhau1', 'X'); await B.License.refresh(true);
+  t.ok(!B.License.locked() && B.License.describe().startsWith('Dùng thử — còn'), 'máy chủ vẫn cấp dùng thử (trial_days > 0) thì mô tả như cũ: "Dùng thử — còn N ngày"');
+  await B.License.refresh(true); B.clockOffset = 400 * 86400000;
+  t.eq(B.License.describe(), 'Dùng thử — đã hết hạn', 'dùng thử máy chủ hết hạn → "Dùng thử — đã hết hạn" (không phải "Chưa đăng ký")');
 }
 
 t.group('35. Đồng bộ không treo mãi ở "Đang đồng bộ…" khi mạng yếu/máy chủ không trả lời');
@@ -2686,7 +3122,7 @@ t.group('37. Trang Hướng dẫn sử dụng trong app: song ngữ, ảnh thậ
   const VI = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
   t.eq((vi.match(/class="card gd-step"/g) || []).length, 10, 'có đủ 10 bước đánh số (giống trang hướng dẫn Supabase)');
   t.ok((vi.match(/<details class="card gd-det"/g) || []).length >= 8, 'có mục "Gặp lỗi?" bấm để mở (' + (vi.match(/<details class="card gd-det"/g) || []).length + ' mục)');
-  t.ok(vi.includes('Bắt đầu dùng ngay') && vi.includes('Gửi xuống bếp') && vi.includes('Xác nhận đã nhận tiền') && vi.includes('Chẩn đoán'), 'nội dung tiếng Việt nêu đúng tên nút trong app');
+  t.ok(vi.includes('Tạo tài khoản và quán') && vi.includes('Gửi xuống bếp') && vi.includes('Xác nhận đã nhận tiền') && vi.includes('Chẩn đoán'), 'nội dung tiếng Việt nêu đúng tên nút trong app');
   // ảnh có thật trong gói app + khung đỏ nằm trong ảnh
   const imgs = [...new Set([...vi.matchAll(/src="guide\/([^"]+)"/g)].map(m => m[1]))];
   t.ok(imgs.length >= 6 && imgs.every(f => fs.existsSync(new URL('../src/assets/guide/' + f, import.meta.url))), 'mọi ảnh minh hoạ (' + imgs.length + ') đều có trong src/assets/guide → được đóng vào app');

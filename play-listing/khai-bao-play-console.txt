@@ -16,7 +16,7 @@ Chọn: **"Một số hoặc tất cả chức năng bị hạn chế"** → th�
 
 ```
 Ứng dụng có HAI lớp đăng nhập:
-1) Màn hình đầu tiên: chọn "Tôi là chủ quán" → "Đăng nhập".
+1) Màn hình đầu tiên: chọn "Tôi đã có tài khoản BEPO" → nhập email và mật khẩu → "Đăng nhập" (tài khoản này phải còn GÓI ĐANG HOẠT ĐỘNG: vì trial_days = 0 nên tài khoản mới hết hạn ngay — hãy cấp gói bằng admin_extend trên Supabase trung tâm hoặc mua thử bằng tài khoản License tester trước khi gửi duyệt, nếu không người duyệt sẽ bị khoá ở màn Gói cước).
    Email: <EMAIL TÀI KHOẢN DÙNG THỬ>   Mật khẩu lưu trữ: <MẬT KHẨU>
 2) Sau đó nhập tài khoản đăng nhập vào app.
    Tên đăng nhập: <TÊN>   Mật khẩu đăng nhập app: <MẬT KHẨU>
@@ -85,9 +85,9 @@ App **không** cung cấp dịch vụ tài chính (không cho vay, không giữ 
 
 ## 10. Gói đăng ký (Subscriptions) — các điểm Google kiểm tra
 - Giá, chu kỳ gia hạn và cách huỷ phải hiển thị rõ **trước khi** mua: màn *Gói cước* hiện giá lấy trực tiếp từ Google Play và có nút **Quản lý gói trên Google Play**. ✔
-- Mô tả trên trang cửa hàng đã nêu: dùng thử 14 ngày, sau đó theo tháng/6 tháng/12 tháng, huỷ trong Google Play. ✔
+- Mô tả trên trang cửa hàng đã nêu: gói 1 tháng có dùng thử miễn phí, đăng ký theo tháng/6 tháng/12 tháng, huỷ trong Google Play. ✔
 - Gói cơ bản đặt **tự động gia hạn**, mã gói cơ bản `goi-1-thang`, `goi-6-thang`, `goi-12-thang` (khớp với mã trong app).
-- Nên **không** tạo ưu đãi dùng thử miễn phí trong Play Console (app đã có 14 ngày dùng thử riêng).
+- Dùng thử miễn phí được cấp bằng **ưu đãi (offer) dùng thử miễn phí trong gói 1 tháng** trên Play Console (app không còn dùng thử 14 ngày riêng; Supabase trung tâm đặt `trial_days = 0`). Màn *Gói cước* hiện "Dùng thử miễn phí N ngày", "Sau đó <giá>/1 tháng" và dòng nhắc huỷ trước khi hết dùng thử — đúng yêu cầu hiển thị của Google. Cần plugin đã vá (`npm install` tự chạy `scripts/patch-plugins.mjs`).
 
 ## 11. Việc cần làm trước khi gửi duyệt (checklist nhanh)
 - [ ] Đăng chính sách bảo mật + trang xoá tài khoản lên GitHub Pages và mở thử hai địa chỉ

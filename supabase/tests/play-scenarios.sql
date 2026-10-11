@@ -1,6 +1,6 @@
 -- Kịch bản kiểm tra record_play_purchase (đăng ký / gia hạn / huỷ / hết hạn / thu hồi / hai gói…) trên Supabase TRUNG TÂM.
 -- Chạy bằng play-scenarios.ps1 (nó chèn bản mới nhất của hàm vào dòng đánh dấu bên dưới, chạy trong một giao dịch rồi ROLLBACK
--- nên không để lại tài khoản/giao dịch giả nào). Mỗi kịch bản dùng một tài khoản giả riêng (trigger tự cấp dùng thử 14 ngày).
+-- nên không để lại tài khoản/giao dịch giả nào). Mỗi kịch bản dùng một tài khoản giả riêng; mkuser() TỰ đặt rõ gói dùng thử 14 ngày (không phụ thuộc app_config.trial_days của dự án — mặc định nay là 0).
 begin;
 @@FUNCTION@@
 
@@ -9,6 +9,9 @@ create function pg_temp.mkuser() returns uuid language plpgsql as $f$
 declare u uuid := gen_random_uuid();
 begin
   insert into auth.users (id, aud, role, email) values (u, 'authenticated', 'authenticated', u::text || '@test.invalid');
+  -- trigger handle_new_user cấp số ngày theo app_config.trial_days (nay mặc định 0) → ghi đè rõ ràng: dùng thử máy chủ 14 ngày, nguồn manual
+  insert into public.subscriptions (owner_id, plan_months, status, source, expires_at) values (u, 0, 'trial', 'manual', now() + interval '14 days')
+    on conflict (owner_id) do update set plan_months = 0, status = 'trial', source = 'manual', started_at = now(), expires_at = excluded.expires_at;
   return u;
 end $f$;
 create function pg_temp.sub(u uuid) returns public.subscriptions language sql as $f$ select * from public.subscriptions where owner_id = u $f$;

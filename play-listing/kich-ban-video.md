@@ -29,9 +29,9 @@ Nhạc nền vui, nhịp vừa (không lời), hạ nhỏ khi có lời đọc. 
 | 7 | 0:46–0:54 | Cảnh quét mã QR để thêm máy nhân viên; hai điện thoại cùng hiện một đơn. | “Thêm máy nhân viên chỉ bằng một mã QR. Các máy trong quán luôn khớp nhau.” | “Thêm nhân viên bằng mã QR” |
 | 8 | 0:54–1:02 | Lướt nhanh: **Kho** (nhập/xuất), **Khuyến mãi**, **Báo cáo** (biểu đồ + xuất Excel). | “Kho, khuyến mãi, báo cáo doanh thu – tất cả trong một app, xuất Excel khi cần.” | “Kho · Khuyến mãi · Báo cáo” |
 | 9 | 1:02–1:08 | Đổi ngôn ngữ sang English (chip *Tiếng Việt / English*). | “Có cả tiếng Việt và tiếng Anh cho khách nước ngoài.” | “Tiếng Việt · English” |
-| 10 | 1:08–1:15 | **Kêu gọi hành động:** logo + biểu tượng Google Play + màn hình “Bắt đầu dùng ngay”. | “Tải BEPO trên Google Play. Dùng thử 14 ngày, không cần đăng ký email.” | “Tải ngay trên Google Play · Dùng thử 14 ngày” |
+| 10 | 1:08–1:15 | **Kêu gọi hành động:** logo + biểu tượng Google Play + màn hình “Bắt đầu”. | “Tải BEPO trên Google Play. Gói 1 tháng dùng thử miễn phí.” | “Tải ngay trên Google Play · Dùng thử miễn phí” |
 
-**Tóm tắt 15 giây (cho quảng cáo ngắn/Story):** cảnh 3 → 5 → 6 → 10, lời: *“Gọi món, bếp, thu ngân, VietQR – mất mạng vẫn chạy. BEPO, dùng thử 14 ngày.”*
+**Tóm tắt 15 giây (cho quảng cáo ngắn/Story):** cảnh 3 → 5 → 6 → 10, lời: *“Gọi món, bếp, thu ngân, VietQR – mất mạng vẫn chạy. BEPO, dùng thử miễn phí.”*
 
 ---
 
@@ -39,12 +39,12 @@ Nhạc nền vui, nhịp vừa (không lời), hạ nhỏ khi có lời đọc. 
 
 Mỗi chương quay màn hình dọc, có chữ lớn tóm tắt từng bước, lời đọc bình tĩnh, **không quá 2 phút**. Mở đầu mỗi chương 3 giây: tên chương + biểu tượng BEPO. Cuối chương: “Xem chương tiếp theo ở danh sách phát”.
 
-### Chương 1 – Cài đặt và bắt đầu dùng ngay (1:30)
+### Chương 1 – Cài đặt và bắt đầu (1:30)
 1. Tải app từ Google Play, mở lần đầu → màn **chọn ngôn ngữ** (Tiếng Việt/English).
-2. Chọn **Bắt đầu dùng ngay** (không cần email).
-3. Nhập *tên nhà hàng, tên bạn, mật khẩu* (tick “Nạp dữ liệu mẫu” để thử).
-4. Vào thẳng màn **Sơ đồ bàn**. Nói: “Dữ liệu lưu ngay trên điện thoại, không cần mạng.”
-5. Lưu ý: dùng thử 14 ngày; muốn thêm máy nhân viên thì bật đồng bộ (chương 9).
+2. Chọn **Bắt đầu** → nhập email + mật khẩu để tạo **tài khoản BEPO**.
+3. Nhập *tên nhà hàng, tên bạn, mật khẩu app* (tick “Nạp dữ liệu mẫu” để thử).
+4. Màn **Gói cước** hiện ra: chọn **gói 1 tháng** (dùng thử miễn phí) trên Google Play → vào màn **Sơ đồ bàn**. Nói: “Dữ liệu lưu ngay trên điện thoại, không cần mạng.”
+5. Lưu ý: dùng thử miễn phí do Google Play cấp (huỷ trước khi hết dùng thử nếu không muốn bị tính tiền); muốn thêm máy nhân viên thì bật đồng bộ (chương 9).
 
 ### Chương 2 – Thiết lập bàn, khu vực và thực đơn (2:00)
 1. **Quản lý → Quản lý bàn & mã QR**: thêm khu vực, thêm bàn (tên, số ghế tối đa 8, hướng bố trí ghế).
@@ -130,7 +130,7 @@ Nền cam, chữ lớn “**Quản lý nhà hàng bằng điện thoại**” + 
 ### 6. Danh sách cảnh cần quay (shot list)
 | Mã | Cảnh | Chương/Video |
 |---|---|---|
-| S1 | Màn chọn ngôn ngữ → Bắt đầu dùng ngay → nhập tên quán | A10, B1 |
+| S1 | Màn chọn ngôn ngữ → Bắt đầu → tạo tài khoản → nhập tên quán | A10, B1 |
 | S2 | Sơ đồ bàn (4 màu trạng thái), chạm ghế | A2–A3, B3 |
 | S3 | Gọi món → ghi chú → Gửi bếp | A3, B3 |
 | S4 | Màn Bếp: vé mới, Bắt đầu làm, Hoàn tất | A4, B4 |
@@ -143,7 +143,7 @@ Nền cam, chữ lớn “**Quản lý nhà hàng bằng điện thoại**” + 
 | S11 | In hoá đơn nhiệt (khi đã thử thật) / Lưu PDF | B5 |
 
 ### 7. Lưu ý về độ chính xác (để video không hứa quá)
-- Nói “**dùng thử 14 ngày**” (đúng với chế độ Bắt đầu dùng ngay).
+- Nói “**gói 1 tháng dùng thử miễn phí**” (đúng với ưu đãi trên Google Play; số ngày theo ưu đãi bạn đặt).
 - “**Mất mạng vẫn chạy**”: đúng cho gọi món, gửi bếp, thu tiền và mã VietQR; đồng bộ giữa các máy cần có mạng.
 - “**Đồng bộ nhiều máy**”: cần bật đồng bộ (tạo tài khoản), không phải mặc định.
 - ⚠ **In nhiệt Bluetooth:** chưa thử với máy in thật; chỉ đưa vào video khi đã thử.
@@ -190,7 +190,7 @@ Có cả tiếng Việt và tiếng Anh cho khách nước ngoài.
 
 10
 00:01:08,000 --> 00:01:15,000
-Tải BEPO trên Google Play. Dùng thử 14 ngày, không cần đăng ký email.
+Tải BEPO trên Google Play. Gói 1 tháng dùng thử miễn phí.
 ```
 
 ### 9. Danh sách kiểm tra trước khi đăng

@@ -9,7 +9,7 @@ const FREE_ROUTES = ['setup', 'quickStart', 'ownerAuth', 'ownerInit', 'ownerLink
 /** Khi gói cước hết hạn (khoá mềm): chủ quán vẫn xem được báo cáo và gia hạn */
 // Khi khoá vì hết hạn chủ quán PHẢI vào được các bước tạo/đăng nhập tài khoản và liên kết kho (nếu không: bấm gia hạn/tạo tài khoản bị đá ngược về màn hết hạn)
 const LOCK_OK_OWNER = ['locked', 'subscription', 'cloud', 'admin', 'reports', 'history', 'historyDetail', 'exportHub', 'login',
-                       'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'supabaseGuide', 'restoring', 'userGuide'];
+                       'quickStart', 'ownerAuth', 'ownerInit', 'ownerLink', 'ownerRestore', 'supabaseGuide', 'restoring', 'userGuide'];
 const LOCK_OK_STAFF = ['locked', 'login', 'userGuide'];
 
 const fmtTime = ts => ts ? new Date(ts).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—';
@@ -42,13 +42,13 @@ function vSetup() {
       <div class="t-xs" style="margin-top:4px">Thiết lập thiết bị này</div>
     </div>
     ${notice ? `<div class="card" style="background:var(--amber-soft);border-color:var(--amber)"><div class="t-sm" style="color:var(--amber);line-height:1.6">${esc(notice)}</div></div>` : ''}
-    <button class="card col" data-go="quickStart" style="gap:6px;align-items:flex-start;text-align:left;border-color:var(--accent)">
-      <span class="t-md">Bắt đầu dùng ngay</span>
-      <span class="t-xs" style="line-height:1.5">Quán mới: chỉ cần nhập tên quán và mật khẩu là dùng được ngay, <b>không cần email hay tài khoản</b>. Dùng thử 14 ngày. Muốn đồng bộ nhiều máy hoặc sao lưu thì bật sau.</span>
+    <button class="card col" data-go="ownerAuth" data-mode="signup" style="gap:6px;align-items:flex-start;text-align:left;border-color:var(--accent)">
+      <span class="t-md">Bắt đầu</span>
+      <span class="t-xs" style="line-height:1.5">Tạo tài khoản BEPO bằng email, chọn gói trên Google Play (gói 1 tháng có thể được dùng thử miễn phí nếu tài khoản Google của bạn đủ điều kiện). Dữ liệu quán lưu ngay trên điện thoại; liên kết Supabase để đồng bộ nhiều máy và sao lưu sau nếu muốn.</span>
     </button>
-    <button class="card col" data-go="ownerAuth" style="gap:6px;align-items:flex-start;text-align:left">
+    <button class="card col" data-go="ownerAuth" data-mode="login" style="gap:6px;align-items:flex-start;text-align:left">
       <span class="t-md">Tôi đã có tài khoản BEPO</span>
-      <span class="t-xs" style="line-height:1.5">Đăng nhập <b>tài khoản lưu trữ dữ liệu</b> (bằng email) để khôi phục quán trên máy mới, hoặc tạo tài khoản mới. Máy này sẽ là máy gốc, có toàn quyền.</span>
+      <span class="t-xs" style="line-height:1.5">Đăng nhập tài khoản BEPO (bằng email) để khôi phục quán trên máy mới. Máy này sẽ là máy gốc, có toàn quyền.</span>
     </button>
     <button class="card col" data-go="staffJoin" style="gap:6px;align-items:flex-start;text-align:left">
       <span class="t-md">Đây là máy nhân viên</span>
@@ -57,18 +57,18 @@ function vSetup() {
   </div></div>`;
 }
 
-/* ---------- 1b. Bắt đầu dùng ngay (không cần email/tài khoản; dữ liệu lưu trên máy) ---------- */
+/* ---------- 1b. Thông tin quán (sau khi đã có tài khoản BEPO; dữ liệu quán lưu trên máy, chưa cần Supabase của quán) ---------- */
 function vQuickStart() {
   return `<div class="screen">
-    ${hdr('Bắt đầu dùng ngay')}
+    ${hdr('Thông tin quán')}
     <div class="body">
-      <div class="field"><label class="f">Tên nhà hàng</label><input class="input" id="qs_shop" placeholder="vd. Nhà Hàng Sen Vàng" value="${esc(window._qsShop || '')}"></div>
+      <div class="field"><label class="f">Tên nhà hàng</label><input class="input" id="qs_shop" placeholder="vd. Nhà Hàng Sen Vàng" value="${esc(window._qsShop || window._shopName || '')}"></div>
       <div class="field"><label class="f">Tên của bạn</label><input class="input" id="qs_name" placeholder="vd. Trần Thu Hà"></div>
       <div class="field"><label class="f">Mật khẩu đăng nhập app (tối thiểu 6 ký tự)</label><input class="input" id="qs_pass" type="password" autocomplete="new-password"></div>
       <div class="field"><label class="f">Nhập lại mật khẩu</label><input class="input" id="qs_pass2" type="password" autocomplete="new-password"></div>
       <label class="card between"><div style="flex:1"><div class="t-md">Nạp dữ liệu mẫu</div><div class="t-xs">Vài bàn, thực đơn và kho để thử ngay. Có thể xoá sau.</div></div>
         <input type="checkbox" class="switch" id="qs_sample" checked aria-label="Nạp dữ liệu mẫu"></label>
-      <div class="t-xs" style="line-height:1.7">Tên đăng nhập là <b>chuquan</b> (đổi được sau trong mục Nhân viên). Dữ liệu lưu ngay trên điện thoại này và dùng được cả khi không có mạng. Khi cần <b>thêm máy nhân viên</b> hoặc <b>sao lưu lên mạng</b>, vào Quản lý → Đồng bộ dữ liệu để bật (miễn phí, giữ nguyên dữ liệu đang có).</div>
+      <div class="t-xs" style="line-height:1.7">Tên đăng nhập là <b>chuquan</b> (đổi được sau trong mục Nhân viên). Dữ liệu quán lưu trên điện thoại này và dùng được cả khi không có mạng. Khi cần <b>thêm máy nhân viên</b> hoặc <b>sao lưu lên mạng</b>, vào Quản lý → Đồng bộ dữ liệu để liên kết Supabase của quán (miễn phí, giữ nguyên dữ liệu đang có).</div>
       <button class="btn pri" data-act="c_quickStartGo">Bắt đầu</button>
     </div>
   </div>`;
@@ -84,11 +84,11 @@ function vOwnerAuth() {
         <button class="btn sm ${mode === 'login' ? 'pri' : ''}" data-go="ownerAuth" data-mode="login" style="flex:1">Đăng nhập</button>
         <button class="btn sm ${mode === 'signup' ? 'pri' : ''}" data-go="ownerAuth" data-mode="signup" style="flex:1">Tạo tài khoản</button>
       </div>
-      ${Cloud.localMode ? `<div class="card" style="background:var(--blue-soft);border-color:var(--blue)"><div class="t-sm" style="color:var(--blue);line-height:1.6">Bật đồng bộ cho quán đang dùng: <b>toàn bộ dữ liệu hiện có trên máy này sẽ được giữ nguyên</b> và đưa lên mạng để thêm máy nhân viên hoặc khôi phục khi đổi máy.</div></div>` : ''}
+      ${Cloud.localMode ? `<div class="card" style="background:var(--blue-soft);border-color:var(--blue)"><div class="t-sm" style="color:var(--blue);line-height:1.6">Tạo tài khoản BEPO để mua gói cước cho quán đang dùng: <b>toàn bộ dữ liệu hiện có trên máy này sẽ được giữ nguyên</b>.</div></div>` : ''}
       ${mode === 'signup' ? `<div class="field"><label class="f">Tên nhà hàng</label><input class="input" id="oa_shop" placeholder="vd. Nhà Hàng Sen Vàng" value="${esc(Cloud.localMode ? (DB.restaurant.name || '') : '')}"></div>` : ''}
       <div class="field"><label class="f">Email tài khoản lưu trữ</label><input class="input" id="oa_email" type="email" autocomplete="email" autocapitalize="none" value="${esc(window._ownerEmail || '')}"></div>
       <div class="field"><label class="f">Mật khẩu lưu trữ (tối thiểu 6 ký tự)</label><input class="input" id="oa_pass" type="password" autocomplete="current-password"></div>
-      <div class="t-xs" style="line-height:1.6"><b>Tài khoản lưu trữ</b> dùng để lưu dữ liệu quán trên Supabase, quản lý gói cước và khôi phục dữ liệu khi đổi máy. Đây <b>không phải</b> tài khoản đăng nhập vào app bán hàng — tài khoản đó bạn đặt ở bước sau.</div>
+      <div class="t-xs" style="line-height:1.6"><b>Tài khoản BEPO</b> (tài khoản lưu trữ dữ liệu) dùng để mua và quản lý gói cước, liên kết Supabase của quán và khôi phục dữ liệu khi đổi máy. Đây <b>không phải</b> tài khoản đăng nhập vào app bán hàng — tài khoản đó bạn đặt ở bước sau.</div>
       <button class="btn pri" data-act="c_ownerAuthGo" data-mode="${mode}">${mode === 'signup' ? 'Tạo tài khoản' : 'Đăng nhập'}</button>
     </div>
   </div>`;
@@ -273,13 +273,28 @@ async function loadDevices() {
   if (route.name === 'cloud') render();
 }
 
-/** Thẻ mời bật đồng bộ (chế độ dùng ngay): thêm máy nhân viên + sao lưu, giữ nguyên dữ liệu đang có */
+/** Thẻ mời bật đồng bộ (dữ liệu quán chỉ trên máy này): thêm máy nhân viên + sao lưu, giữ nguyên dữ liệu đang có.
+    Đã có tài khoản BEPO → liên kết Supabase của quán; người dùng cũ chưa có tài khoản → tạo tài khoản BEPO để mua gói trước. */
 function upgradeCardHtml() {
+  if (!Cloud.hasAccount) return `<div class="card" style="background:var(--blue-soft);border-color:var(--blue);gap:8px">
+    <div class="t-md" style="color:var(--blue)">Tạo tài khoản BEPO</div>
+    <div class="t-xs" style="line-height:1.7;color:var(--blue)">Hiện dữ liệu quán chỉ nằm trên điện thoại này. Tạo tài khoản BEPO để <b>mua gói cước</b> qua Google Play; sau đó có thể liên kết Supabase của quán để <b>thêm máy nhân viên</b>, <b>sao lưu</b> và <b>khôi phục khi đổi máy</b>. Toàn bộ dữ liệu đang có được giữ nguyên.</div>
+    <button class="btn pri" data-act="c_upgradeStart" style="margin-top:6px">Tạo tài khoản BEPO để mua gói</button>
+  </div>`;
   return `<div class="card" style="background:var(--blue-soft);border-color:var(--blue);gap:8px">
     <div class="t-md" style="color:var(--blue)">Bật đồng bộ &amp; sao lưu (miễn phí)</div>
-    <div class="t-xs" style="line-height:1.7;color:var(--blue)">Hiện dữ liệu quán chỉ nằm trên điện thoại này — mất máy là mất dữ liệu, và chưa thêm được máy nhân viên. Tạo tài khoản BEPO và liên kết kho dữ liệu để <b>thêm máy nhân viên</b>, <b>sao lưu</b>, <b>khôi phục khi đổi máy</b> và <b>mua gói cước</b>. Toàn bộ dữ liệu đang có được giữ nguyên.</div>
-    <button class="btn pri" data-act="c_upgradeStart" style="margin-top:6px">Tạo tài khoản &amp; bật đồng bộ</button>
+    <div class="t-xs" style="line-height:1.7;color:var(--blue)">Hiện dữ liệu quán chỉ nằm trên điện thoại này — mất máy là mất dữ liệu, và chưa thêm được máy nhân viên. Liên kết Supabase của quán để <b>thêm máy nhân viên</b>, <b>sao lưu</b> và <b>khôi phục khi đổi máy</b>. Toàn bộ dữ liệu đang có được giữ nguyên.</div>
+    <button class="btn pri" data-act="c_upgradeStart" style="margin-top:6px">Bật đồng bộ</button>
   </div>`;
+}
+/** Hộp chọn khi tài khoản BEPO đã có sẵn một kho dữ liệu quán nhưng máy này đang có dữ liệu riêng: KHÔNG tự ghi đè bên nào */
+function accountHasStoreSheet() {
+  sheet('Tài khoản này đã có quán', `<div class="t-sm" style="line-height:1.7;margin-bottom:14px">Tài khoản <b>${esc(window._ownerEmail || '')}</b> đang liên kết với một kho dữ liệu quán khác. Chọn cách xử lý:</div>
+    <button class="btn pri" data-act="c_upgradeRestore">Dùng quán cũ trên tài khoản này</button>
+    <div class="t-xs" style="margin:6px 2px 14px;line-height:1.6">Tải dữ liệu quán cũ về máy này. <b>Dữ liệu đang có trên máy này sẽ bị thay thế</b>. Nên chọn nếu máy này chỉ mới dùng thử.</div>
+    <button class="btn danger" data-act="c_upgradeNewStore">Giữ dữ liệu máy này, bỏ liên kết quán cũ</button>
+    <div class="t-xs" style="margin:6px 2px 14px;line-height:1.6">Đưa dữ liệu trên máy này lên một kho mới. Quán cũ <b>không bị xoá</b> trên Supabase nhưng app sẽ không đọc nó nữa.</div>
+    <button class="btn ghost" data-act="closeSheet">Huỷ</button>`);
 }
 
 /* ---------- Chẩn đoán đồng bộ & gói cước ----------
@@ -376,7 +391,7 @@ function startPairTimer() {
 
 /* ---------- 9. Gói cước ---------- */
 function vSubscription() {
-  if (Cloud.localMode) return vSubscriptionLocal();
+  if (Cloud.localMode && !Cloud.hasAccount) return vSubscriptionLocal();   // đã có tài khoản BEPO (kể cả khi dữ liệu chỉ trên máy) thì dùng luồng mua gói bình thường
   // Bản "Google Play" (xem HUONG-DAN-GOOGLE-PLAY.md) dùng hẳn luồng mua qua Play Billing —
   // bản chuyển khoản tay giữ nguyên như cũ, không đổi gì ở phần dưới của hàm này.
   if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.billingMode === 'play') return vSubscriptionPlay();
@@ -411,7 +426,7 @@ async function loadRequests() {
   if (route.name === 'subscription') render();
 }
 
-/** Gói cước khi dùng ngay chưa có tài khoản: xem hạn dùng thử, cần tạo tài khoản BEPO mới mua/gia hạn được */
+/** Người dùng cũ (bản trước có dùng thử 14 ngày trên máy, chưa có tài khoản BEPO): xem hạn dùng thử cũ, cần tạo tài khoản BEPO mới mua gói được */
 function vSubscriptionLocal() {
   const st = License.status();
   const tone = st.state === 'expired' ? 'var(--red)' : st.state === 'expiring' ? 'var(--amber)' : 'var(--green)';
@@ -420,8 +435,8 @@ function vSubscriptionLocal() {
     <div class="body">
       <div class="card" style="border-color:${tone}"><div class="t-md" style="color:${tone}">${esc(License.describe())}</div>
         <div class="t-xs" style="margin-top:6px">Dùng thử tính trên máy này.</div></div>
-      <div class="card" style="line-height:1.7"><div class="t-sm">Để <b>mua hoặc gia hạn gói</b>, cần tạo tài khoản BEPO (bằng email) — dữ liệu quán trên máy này được giữ nguyên.</div></div>
-      <button class="btn pri" data-act="c_upgradeStart">Tạo tài khoản &amp; bật đồng bộ</button>
+      <div class="card" style="line-height:1.7"><div class="t-sm">Để <b>mua gói</b> qua Google Play, cần tạo tài khoản BEPO (bằng email) — dữ liệu quán trên máy này được giữ nguyên.</div></div>
+      <button class="btn pri" data-act="c_upgradeStart">Tạo tài khoản BEPO để mua gói</button>
     </div>
     ${navBar('admin')}
   </div>`;
@@ -430,13 +445,14 @@ function vSubscriptionLocal() {
 /* ---------- 10. Khoá do hết hạn ---------- */
 function vLocked() {
   const owner = Cloud.role !== 'staff';
+  const never = !License.status().plan;      // chưa từng mua gói nào (tài khoản mới / dùng thử cũ trên máy)
   return `<div class="screen"><div class="body" style="justify-content:center;align-items:center;text-align:center;padding:30px 24px;gap:14px">
     <div style="font-size:44px">🔒</div>
-    <div class="t-lg">Gói cước đã hết hạn</div>
-    <div class="t-sm muted" style="line-height:1.7">${owner ? 'Bạn vẫn xem và xuất được báo cáo. Gia hạn để tiếp tục gọi món, thanh toán và các thao tác khác.' : 'Vui lòng liên hệ chủ quán để gia hạn.'}</div>
-    ${owner ? (Cloud.localMode
-      ? `<button class="btn pri" data-act="c_upgradeStart">Tạo tài khoản &amp; gia hạn</button><button class="btn ghost" data-go="reports">Xem báo cáo</button>`
-      : `<button class="btn pri" data-go="subscription">Gia hạn gói cước</button><button class="btn ghost" data-go="reports">Xem báo cáo</button>`) : ''}
+    <div class="t-lg">${never ? 'Chưa đăng ký gói cước' : 'Gói cước đã hết hạn'}</div>
+    <div class="t-sm muted" style="line-height:1.7">${owner ? (never ? 'Chọn gói trên Google Play để bắt đầu — gói 1 tháng có thể được dùng thử miễn phí (nếu tài khoản Google của bạn đủ điều kiện). Bạn vẫn xem và xuất được báo cáo.' : 'Bạn vẫn xem và xuất được báo cáo. Gia hạn để tiếp tục gọi món, thanh toán và các thao tác khác.') : 'Vui lòng liên hệ chủ quán để gia hạn.'}</div>
+    ${owner ? (Cloud.localMode && !Cloud.hasAccount
+      ? `<button class="btn pri" data-act="c_upgradeStart">Tạo tài khoản BEPO để mua gói</button><button class="btn ghost" data-go="reports">Xem báo cáo</button>`
+      : `<button class="btn pri" data-go="subscription">${never ? 'Chọn gói cước' : 'Gia hạn gói cước'}</button><button class="btn ghost" data-go="reports">Xem báo cáo</button>`) : ''}
     <button class="btn ghost" data-act="logout">Đăng xuất</button>
   </div></div>`;
 }
@@ -449,7 +465,7 @@ const isOwnerDevice = () => Cloud.role === 'owner' && !!ME && ME.role === 'Chủ
     • Mọi tài khoản (kể cả máy nhân viên) được "ngắt liên kết, xoá dữ liệu trên máy này" — chỉ ảnh hưởng máy đang cầm.
     • Gỡ liên kết kho khỏi tài khoản lưu trữ và XOÁ TÀI KHOẢN lưu trữ (ảnh hưởng cả quán, gói cước) chỉ dành cho tài khoản Chủ quán
       trên máy chủ quán. Riêng gỡ liên kết còn cho phép lúc chưa đăng nhập vào app (màn "Đang tải dữ liệu quán" khi khôi phục). */
-const canDeleteAccount = () => isOwnerDevice();
+const canDeleteAccount = () => isOwnerDevice() && (!Cloud.localMode || Cloud.hasAccount);   // người dùng cũ chưa có tài khoản BEPO thì không có gì để xoá ở máy chủ
 /** Thêm / thu hồi / xoá thiết bị nhân viên: chỉ tài khoản Chủ quán trên máy chủ quán (cùng điều kiện với Gói cước) */
 const canManageDevices = () => isOwnerDevice();
 const DEVICES_OWNER_ONLY = 'Chỉ tài khoản Chủ quán trên máy chủ quán mới quản lý được thiết bị nhân viên';
@@ -511,39 +527,42 @@ function cloudAct(el) {
       } else {
         await Cloud.ownerSignIn(email, pass);
       }
+      const firstAccount = Cloud.localMode && !Cloud.hasAccount;   // người dùng cũ (dùng thử cục bộ, chưa có tài khoản) tạo tài khoản lần đầu
       await License.refresh(true);
       const link = await Cloud.getStoreLink();
-      if (Cloud.localMode) {                 // đang nâng cấp từ chế độ dùng ngay: GIỮ dữ liệu trên máy, chỉ liên kết kho đám mây
-        if (link) {                          // tài khoản đã có kho dữ liệu: để người dùng CHỌN, không tự ghi đè bên nào
-          sheet('Tài khoản này đã có quán', `<div class="t-sm" style="line-height:1.7;margin-bottom:14px">Tài khoản <b>${esc(window._ownerEmail || '')}</b> đang liên kết với một kho dữ liệu quán khác. Chọn cách xử lý:</div>
-            <button class="btn pri" data-act="c_upgradeRestore">Dùng quán cũ trên tài khoản này</button>
-            <div class="t-xs" style="margin:6px 2px 14px;line-height:1.6">Tải dữ liệu quán cũ về máy này. <b>Dữ liệu đang có trên máy này (dùng thử) sẽ bị thay thế</b>. Nên chọn nếu máy này chỉ mới dùng thử.</div>
-            <button class="btn danger" data-act="c_upgradeNewStore">Giữ dữ liệu máy này, bỏ liên kết quán cũ</button>
-            <div class="t-xs" style="margin:6px 2px 14px;line-height:1.6">Đưa dữ liệu trên máy này lên một kho mới. Quán cũ <b>không bị xoá</b> trên Supabase nhưng app sẽ không đọc nó nữa.</div>
-            <button class="btn ghost" data-act="closeSheet">Huỷ</button>`);
-          return;
-        }
+      if (Cloud.localMode) {                 // đã có quán trên máy (dữ liệu chỉ trên máy): GIỮ dữ liệu, chỉ gắn tài khoản BEPO
+        await Cloud.saveCfg({ acct: true });
+        if (link) { accountHasStoreSheet(); return; }     // tài khoản đã có kho dữ liệu: để người dùng CHỌN, không tự ghi đè bên nào
+        if (firstAccount) { toast('Đã có tài khoản — chọn gói để tiếp tục'); go('subscription'); return; }   // không ép liên kết kho nữa
         go('ownerLink'); return;
       }
-      go(link ? 'ownerRestore' : 'ownerInit');
+      if (link) { go('ownerRestore'); return; }    // tài khoản đã có quán trên Supabase: khôi phục về máy này
+      window._acctOk = true;                       // cài mới: đã có tài khoản BEPO → nhập thông tin quán (dữ liệu lưu trên máy, chưa cần Supabase của quán)
+      go('quickStart');
     }); return true;
 
     case 'c_quickStartGo': busy(async () => {
+      // Phải có phiên tài khoản BEPO (Supabase trung tâm) — gói cước và dùng thử Google Play gắn với tài khoản này
+      const cs = await Cloud.centralEmailState();
+      if (cs.offline) throw new Error('Không kết nối được mạng');      // mất mạng ≠ chưa có tài khoản: không đá về màn tài khoản
+      if (!cs.email) { go('ownerAuth', { mode: 'signup' }); throw new Error('Hãy tạo hoặc đăng nhập tài khoản BEPO trước'); }
       const shop = val('qs_shop').trim(), p1 = val('qs_pass'), p2 = val('qs_pass2');
       if (!shop) throw new Error('Nhập tên nhà hàng');
       if (p1.length < 6) throw new Error('Mật khẩu tối thiểu 6 ký tự');
       if (p1 !== p2) throw new Error('Hai mật khẩu không khớp');
+      if (Cloud.ownerPw && p1 === Cloud.ownerPw) throw new Error('Không dùng chung mật khẩu đăng nhập app với mật khẩu lưu trữ');
       window._qsShop = shop;
       await createStore({ shopName: shop, phone: '', ownerName: val('qs_name'), username: 'chuquan', appPassword: p1, sample: !!document.getElementById('qs_sample')?.checked });
-      await Cloud.saveCfg({ role: 'owner', local: true });
-      License.startLocalTrial(14);
+      await Cloud.saveCfg({ role: 'owner', local: true, acct: true });
       await Persist.flush();
-      // Vào thẳng app (đăng nhập luôn bằng tài khoản vừa tạo) — không bắt đăng nhập lại
+      await License.refresh(true);        // gói cước của tài khoản (chưa mua → hết hạn ngay → khoá cho tới khi mua gói)
+      // Đăng nhập luôn bằng tài khoản vừa tạo (engine vẫn cho đăng nhập khi đang khoá) — không bắt đăng nhập lại
       const r = await api('/auth/login', { method: 'POST', body: { username: 'chuquan', password: p1, device: navigator.userAgent.slice(0, 80) } });
       TOKEN = r.token; try { localStorage.setItem(TOKEN_KEY, TOKEN); } catch (e) {}
       ME = r.staff; await refresh(); connectWs();
-      histStack.length = 0; route = { name: homeScreen(), params: {} }; render();
-      toast('Đã sẵn sàng — dùng thử 14 ngày');
+      histStack.length = 0;
+      if (License.locked()) { route = { name: 'subscription', params: {} }; render(); toast('Chọn gói để bắt đầu — gói 1 tháng có thể được dùng thử miễn phí (nếu đủ điều kiện)'); }
+      else { route = { name: homeScreen(), params: {} }; render(); toast('Đã sẵn sàng'); }
     }); return true;
 
     case 'c_upgradeRestore': { if (!ownerOnlyUpgrade()) { toast('Chỉ tài khoản Chủ quán mới thực hiện được'); return true; } closeSheet(); go('ownerRestore'); return true; }
@@ -554,7 +573,17 @@ function cloudAct(el) {
       toast('Đã bỏ liên kết quán cũ — liên kết kho mới cho quán đang dùng');
       go('ownerLink');
     }); return true;
-    case 'c_upgradeStart': { if (!ownerOnlyUpgrade()) { toast('Chỉ tài khoản Chủ quán mới thực hiện được'); return true; } go('ownerAuth', { mode: 'signup' }); return true; }
+    case 'c_upgradeStart': {
+      if (!ownerOnlyUpgrade()) { toast('Chỉ tài khoản Chủ quán mới thực hiện được'); return true; }
+      if (!Cloud.hasAccount) { go('ownerAuth', { mode: 'signup' }); return true; }      // người dùng cũ chưa có tài khoản: tạo tài khoản BEPO trước
+      busy(async () => {                          // đã có tài khoản: bật đồng bộ = liên kết Supabase của quán
+        let email = null; try { email = await Cloud.centralEmail(); } catch (e) { email = null; }
+        if (!email) { window._ownerEmail = ''; go('ownerAuth', { mode: 'login' }); throw new Error('Hãy đăng nhập lại tài khoản BEPO'); }
+        window._ownerEmail = email;
+        if (await Cloud.getStoreLink()) { accountHasStoreSheet(); return; }
+        go('ownerLink');
+      }); return true;
+    }
 
     case 'c_ownerInitGo': busy(async () => {
       const shop = val('oi_shop').trim(), user = val('oi_user').trim(), p1 = val('oi_pass'), p2 = val('oi_pass2');

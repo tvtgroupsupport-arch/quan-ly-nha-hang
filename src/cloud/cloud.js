@@ -88,6 +88,16 @@ const Cloud = (() => {
     const { data } = await central().auth.getUser();
     return data && data.user ? data.user.email : null;
   }
+  /** Như centralEmail() nhưng phân biệt "chưa đăng nhập" với "không hỏi được vì mất mạng": { email, offline }. */
+  async function centralEmailState() {
+    const isNet = m => /Failed to fetch|NetworkError|Load failed|fetch failed/i.test(String(m || ''));
+    try {
+      const { data, error } = await central().auth.getUser();
+      if (data && data.user) return { email: data.user.email || null, offline: false };
+      const net = !!error && (error.name === 'AuthRetryableFetchError' || error.status === 0 || isNet(error.message));
+      return { email: null, offline: net };
+    } catch (e) { return { email: null, offline: isNet(e && e.message) }; }
+  }
   async function getStoreLink() {
     const { data, error } = await central().rpc('get_store_link');
     if (error) throw new Error(friendly(error));
@@ -173,6 +183,7 @@ const Cloud = (() => {
     // Kéo dữ liệu THẬT về trước — tuyệt đối không để bất cứ gì có cơ hội đẩy D rỗng này lên
     // trước khi kéo xong, kẻo đè mất tên quán/cài đặt/dữ liệu thật đang có trên Supabase.
     await Sync.pullOnly();
+    try { await License.refresh(true); } catch (e) { /* mạng lỗi: không làm hỏng khôi phục; D.license đã đồng bộ về vẫn được dùng */ }   // máy mới chưa có bản gói cước của máy chủ
     Sync.start();
     return { ok: true };
   }
@@ -365,8 +376,11 @@ const Cloud = (() => {
     get linked() { return !!(C.store && C.role); },
     /** Chế độ dùng ngay: máy chủ quán chạy hoàn toàn trên máy, chưa có tài khoản BEPO và chưa đồng bộ đám mây */
     get localMode() { return !!(C.role === 'owner' && C.cfg.local && !C.store); },
+    /** Đã có tài khoản BEPO (Supabase trung tâm): cờ cfg.acct do luồng tạo quán/đăng nhập đặt; máy đã liên kết kho thì chắc chắn có tài khoản.
+        Người dùng cũ ở chế độ dùng ngay (cài bản trước, dùng thử trên máy) chưa có cờ này → chưa có tài khoản. */
+    get hasAccount() { return !!(C.cfg.acct || C.store); },
     init, saveCfg, central, friendly,
-    ownerSignUp, ownerSignIn, centralEmail, getStoreLink, discardStoreLink,
+    ownerSignUp, ownerSignIn, centralEmail, centralEmailState, getStoreLink, discardStoreLink,
     linkStoreAsOwner, restoreOwner, createInvite, parseInvite, joinAsStaff,
     reloginStore, hasStoreSession, sessionState, rejoinAsStaff, listDevices, revokeDevice, deleteDevice, unlinkAll, unlinkAndDetach, deleteAccount, onRevoked
   };

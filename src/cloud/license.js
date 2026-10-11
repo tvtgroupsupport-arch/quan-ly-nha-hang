@@ -31,11 +31,20 @@ const License = (() => {
   }
   function current() {
     if (typeof Cloud !== 'undefined' && Cloud.role === 'staff') return (typeof D !== 'undefined' && D && D.license) || null;
+    // Chủ quán chưa có bản hỏi máy chủ (meta `license` mất, hoặc vừa khôi phục sang máy mới lúc mạng lỗi): dùng bản công khai đã đồng bộ từ kho trước khi tính khoá mềm
+    if (!own && typeof D !== 'undefined' && D && D.license && D.license.expires_at) return D.license;
     return own;
   }
   function status() {
     const lic = current();
-    if (!lic || !lic.expires_at) return { state: 'unknown', locked: false };
+    if (!lic || !lic.expires_at) {
+      // Chủ quán đã có tài khoản BEPO (bản Google Play) mà chưa từng nhận được bản ghi gói (vd. mất mạng ngay sau khi tạo quán): coi là CHƯA đăng ký → khoá mềm,
+      // không để dùng miễn phí cho tới lần hỏi máy chủ sau. Máy nhân viên (không có role owner) và người dùng cũ chưa có tài khoản vẫn như trước.
+      if (typeof Cloud !== 'undefined' && Cloud.role === 'owner' && Cloud.hasAccount && typeof APP_CONFIG !== 'undefined' && APP_CONFIG.billingMode === 'play') {
+        return { state: 'expired', locked: true, daysLeft: 0, plan: 0, kind: 'none', expiresAt: 0, checkedAt: 0 };
+      }
+      return { state: 'unknown', locked: false };
+    }
     const left = lic.expires_at - now();
     const state = left <= 0 ? 'expired' : left < 7 * DAY ? 'expiring' : 'ok';
     return { state, locked: state === 'expired', daysLeft: Math.max(0, Math.ceil(left / DAY)),
@@ -53,8 +62,11 @@ const License = (() => {
       if (data) {
         const serverNow = Date.parse(data.server_now);
         if (serverNow > clockHw) clockHw = serverNow;
-        own = { plan_months: data.plan_months, status: data.status, expires_at: Date.parse(data.expires_at),
-                started_at: Date.parse(data.started_at), checked_at: Date.now() };
+        const srv = { plan_months: data.plan_months, status: data.status, expires_at: Date.parse(data.expires_at),
+                      started_at: Date.parse(data.started_at), checked_at: Date.now() };
+        // Người dùng cũ còn dùng thử cục bộ (own.local) vừa tạo/đăng nhập tài khoản: GIỮ hạn cục bộ tới khi nó hết (hạn hiệu lực = lớn hơn của hai hạn).
+        // Khi gói mua của tài khoản có hạn lớn hơn → dùng bản máy chủ (bỏ cờ local).
+        own = (own && own.local && own.expires_at > srv.expires_at) ? { ...own, checked_at: srv.checked_at } : srv;
         Persist.setMeta('license', own); Persist.setMeta('clock_hw', clockHw);
         // Chia sẻ cho máy nhân viên qua dữ liệu đồng bộ
         const pub = { plan_months: own.plan_months, status: own.status, expires_at: own.expires_at, checked_at: own.checked_at };
@@ -66,20 +78,13 @@ const License = (() => {
   function describe() {
     const s = status();
     if (s.state === 'unknown') return 'Chưa có thông tin gói cước';
+    // Tài khoản mới chưa từng mua gói (plan_months = 0) mà đã hết hạn: không phải "hết hạn" mà là CHƯA đăng ký (dùng thử do Google Play cấp khi mua gói)
+    if (s.state === 'expired' && !s.plan && s.kind !== 'trial') return 'Chưa đăng ký gói cước';
     const kind = s.kind === 'trial' ? 'Dùng thử' : s.plan ? `Gói ${s.plan} tháng` : 'Gói cước';
     if (s.state === 'expired') return `${kind} — đã hết hạn`;
     return `${kind} — còn ${s.daysLeft} ngày (hết hạn ${new Date(s.expiresAt).toLocaleDateString('vi-VN')})`;
   }
-  /** Dùng ngay không cần tài khoản: gói dùng thử 14 ngày TÍNH TRÊN MÁY. Mốc bắt đầu nhớ riêng ngoài bộ nhớ dữ liệu app nên xoá dữ liệu/làm lại quán
-      không "làm mới" được 14 ngày (chỉ xoá hẳn dữ liệu ứng dụng hoặc cài lại mới mất mốc — đây là rào cản cơ bản, không chống crack). */
-  function startLocalTrial(days) {
-    const t = Date.now(); let start = t;
-    try { const s = Number(localStorage.getItem('bepo_trial_start')); if (s > 0 && s <= t) start = s; else localStorage.setItem('bepo_trial_start', String(t)); } catch (e) {}
-    own = { plan_months: 0, status: 'trial', expires_at: start + (days || 14) * DAY, started_at: start, checked_at: t, local: true };
-    Persist.setMeta('license', own);
-    const pub = { plan_months: 0, status: 'trial', expires_at: own.expires_at, checked_at: t };
-    if (typeof D !== 'undefined' && D) { D.license = pub; saveD(); }
-    return status();
-  }
-  return { load, now, status, locked, refresh, describe, current, startLocalTrial };
+  // (Đã bỏ dùng thử cục bộ 14 ngày: dùng thử nay do Google Play cấp qua ưu đãi của gói. Người dùng cũ đang có bản `license` trial cục bộ trong
+  //  bộ nhớ (own.local) vẫn dùng tới hết hạn — status() đọc bản đó như thường.)
+  return { load, now, status, locked, refresh, describe, current };
 })();

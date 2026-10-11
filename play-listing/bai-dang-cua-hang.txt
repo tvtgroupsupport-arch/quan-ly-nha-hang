@@ -60,8 +60,8 @@ Dán mã QR lên từng ghế; khách quét để xem thực đơn, gọi món h
 Dữ liệu bán hàng nằm trên máy của bạn và trong kho Supabase riêng do chính bạn sở hữu. Nhà phát triển không truy cập được. Ứng dụng tự hướng dẫn tạo kho dữ liệu từng bước.
 
 ★ GÓI CƯỚC RÕ RÀNG
-• Dùng thử miễn phí 14 ngày khi tạo tài khoản
-• Sau đó đăng ký theo tháng, 6 tháng hoặc 12 tháng ngay trong ứng dụng qua Google Play; huỷ bất cứ lúc nào trong Google Play
+• Gói 1 tháng có dùng thử miễn phí (do Google Play cấp, huỷ trước khi hết dùng thử thì không bị tính tiền)
+• Đăng ký theo tháng, 6 tháng hoặc 12 tháng ngay trong ứng dụng qua Google Play; huỷ bất cứ lúc nào trong Google Play
 • Hết hạn gói, bạn vẫn xem và xuất được báo cáo; chỉ tạm khoá thao tác bán hàng mới
 
 Tải về, tạo tài khoản và mở quán trong vài phút. Cần hỗ trợ? Liên hệ: tvtgroup.support@gmail.com
@@ -99,7 +99,7 @@ Restaurant Manager is an all-in-one point-of-sale app for restaurants and cafés
 • QR menu for guests at each seat — no app install needed
 • Your data stays yours: stored on your device and in your own Supabase project, which the developer cannot access
 
-14-day free trial, then monthly, 6-month or 12-month subscriptions through Google Play (cancel anytime). Support: tvtgroup.support@gmail.com
+Monthly, 6-month or 12-month subscriptions through Google Play; the 1-month plan may include a free trial if your Google account is eligible (cancel anytime in Google Play). Support: tvtgroup.support@gmail.com
 ```
 
 ## Thông tin khác của trang cửa hàng

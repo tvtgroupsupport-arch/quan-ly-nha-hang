@@ -12,14 +12,15 @@
 --        select id from auth.users where email = 'email-cua-ban@example.com';
 --      (đăng ký tài khoản đó trong app hoặc trang admin/index.html trước)
 --   4. Chép Project URL + anon key vào app.config.json (trường centralUrl, centralAnonKey).
---   5. Số ngày dùng thử cho tài khoản mới: sửa dòng trial_days bên dưới (0 = không dùng thử).
+--   5. trial_days = số ngày dùng thử do máy chủ cấp cho tài khoản mới. Mặc định 0 = KHÔNG dùng thử: tài khoản mới hết hạn ngay và app khoá tới khi mua gói;
+--      dùng thử miễn phí do Google Play cấp qua ưu đãi (offer) của gói 1 tháng trên Play Console. (Muốn tặng thêm ngày dùng thử từ máy chủ: đổi số này.)
 -- ============================================================================
 
 create table if not exists public.app_config (
   key   text primary key,
   value text not null
 );
-insert into public.app_config (key, value) values ('trial_days', '14')
+insert into public.app_config (key, value) values ('trial_days', '0')
   on conflict (key) do nothing;
 
 create table if not exists public.profiles (
@@ -210,7 +211,7 @@ revoke all on public.provision_jobs from anon, authenticated;
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-  v_days int := coalesce((select value::int from public.app_config where key = 'trial_days'), 14);
+  v_days int := coalesce((select value::int from public.app_config where key = 'trial_days'), 0);
 begin
   insert into public.profiles (id, email, shop_name)
   values (new.id, new.email, left(coalesce(new.raw_user_meta_data ->> 'shop_name', ''), 120))

@@ -22,7 +22,7 @@ export const ANON = 'sb_publishable_' + 'x'.repeat(30);
 export const GUEST_PAGE_URL = 'https://tvtgroupsupport-arch.github.io/quan-ly-nha-hang/';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qlnh-'));
-let SCRIPT = null;
+const SCRIPTS = {};   // theo chế độ thanh toán: '' (chuyển khoản tay, mặc định) | 'play' (Google Play)
 const tail = `
 ;return {
   get D() { return D; }, set D(v) { D = v; },
@@ -34,7 +34,7 @@ const tail = `
   QR, VietQR, Persist, Records, Sync, Cloud, License, AuthLocal, apiLocal, refresh, render, createStore, emptyD, VIEWS, handleAct, tableChairsSvg, guestUrl,
   hasNewStaffCall, hasNewKitchenTicket, playChime, alertStaff, diagnoseAll, diagText, loadDevices, printerCfg, setPrinterCfg, printBill, receiptModel, modelFromOrder, modelFromDetail, RECEIPT, QRPDF, repTr, exportExcelLocal, openQrSheet, recheckLicense, licenseWatch, trText, getLang, setLang, hasLangChoice, LANGS, vLang, vibratePhone, devicePref, setDevicePref, ensureKeepAlive, newStaffCallLabel, get chimeCalls() { return _chimeCalls; }, get toneCalls() { return _toneCalls; },
   openQrZoom, closeQrZoom, get qrZoomOpen() { return !!qrZoomEl; }, uploadMenuImage,
-  playPurchase, playRestore, playSyncPurchases, refreshLicenseWithPlay, ownedPlayPurchases, vSubscriptionPlay, normalizePlayProducts, playProductId,
+  playPurchase, playRestore, playSyncPurchases, refreshLicenseWithPlay, ownedPlayPurchases, vSubscriptionPlay, normalizePlayProducts, playProductId, playPeriodVi, playTrialLabel, playTrialOf, refreshPlayProductsQuiet,
   AutoProv, autoProvCard, vSupabaseGuide, guideGallery, GUIDE_FIGS,
   get playBusy() { return _playBusy; }, get playProducts() { return _playProducts; },
   buildMenuPageHtml, exportMenuPage, addLog, engineGuard, can, INVITE_PREFIX, restoreSessionFrom, clearOrphanCalls, staffOutranks, canGrantPerm
@@ -47,7 +47,8 @@ export function newWorld() {
 }
 
 export async function newDevice(world, name, opts = {}) {
-  if (!SCRIPT) SCRIPT = assembleScript({ centralUrl: CENTRAL_URL, centralAnonKey: ANON, supportText: '', guestPageUrl: GUEST_PAGE_URL });
+  const billingMode = opts.billingMode || '';   // opts.billingMode = 'play' dựng bản Google Play (APP_CONFIG.billingMode === 'play')
+  const SCRIPT = SCRIPTS[billingMode] || (SCRIPTS[billingMode] = assembleScript({ centralUrl: CENTRAL_URL, centralAnonKey: ANON, supportText: '', guestPageUrl: GUEST_PAGE_URL, ...(billingMode ? { billingMode } : {}) }));
   const file = opts.dbFile || path.join(tmp, `${name}-${Math.random().toString(36).slice(2)}.db`);
   const dev = { name, file, online: true, saved: [], scanResult: null, clip: '', timers: [], sessions: opts.sessions || {}, inputs: {}, netCb: null, clockOffset: 0 };
 

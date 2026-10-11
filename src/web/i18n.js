@@ -51,12 +51,12 @@ function _adaptCase(src, out) {
 /** Sửa số ít/số nhiều sau khi dịch: "Seats 3" → "Seat 3" (nhãn + số), "1 seats" → "1 seat" */
 const _SING = { seats: 'seat', dishes: 'dish', bills: 'bill', tables: 'table', orders: 'order', guests: 'guest', portions: 'portion', changes: 'change', rows: 'row',
   records: 'record', labels: 'label', items: 'item', movements: 'movement', categories: 'category', devices: 'device', reservations: 'reservation',
-  ingredients: 'ingredient', months: 'month', days: 'day', bookings: 'booking', areas: 'area' };
+  ingredients: 'ingredient', months: 'month', days: 'day', years: 'year', bookings: 'booking', areas: 'area' };
 function _enGrammar(s) {
   return s
     .replace(/(\d)VND\b/g, '$1 VND')
     .replace(/\b(Seats|seats) (?=\d)/g, (m, w) => (w === 'Seats' ? 'Seat ' : 'seat '))
-    .replace(/(^|[^\d.,])1 (seats|dishes|bills|tables|orders|guests|portions|changes|rows|records|labels|items|movements|categories|devices|reservations|ingredients|months|days|bookings|areas)\b/g,
+    .replace(/(^|[^\d.,])1 (seats|dishes|bills|tables|orders|guests|portions|changes|rows|records|labels|items|movements|categories|devices|reservations|ingredients|months|days|years|bookings|areas)\b/g,
       (m, pre, w) => `${pre}1 ${_SING[w]}`);
 }
 /** Dịch một đoạn chữ. lang không có bảng dịch (vi) → trả nguyên văn. */

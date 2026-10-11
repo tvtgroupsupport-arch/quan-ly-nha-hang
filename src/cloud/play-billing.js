@@ -9,24 +9,65 @@ const PLAY_MONTHS = { goi_1_thang: 1, goi_6_thang: 6, goi_12_thang: 12 };
 // ID base plan của từng gói trên Play Console (chỉ chữ thường, số, gạch ngang) — plugin bắt buộc truyền khi mua gói đăng ký.
 const PLAY_BASE_PLANS = { goi_1_thang: 'goi-1-thang', goi_6_thang: 'goi-6-thang', goi_12_thang: 'goi-12-thang' };
 
-let _playProducts = null, _playLoading = false, _playBusy = false, _playError = '', _playTries = 0;
+let _playProducts = null, _playLoading = false, _playBusy = false, _playError = '', _playTries = 0, _playLoadedAt = 0, _playQuiet = false, _playGen = 0, _playQuietTok = 0;
+const PLAY_PRODUCTS_TTL = 5 * 60000;   // danh sách gói (kèm ưu đãi dùng thử) cũ hơn mức này thì làm mới ngầm khi mở màn Gói cước
 
 /** Mã sản phẩm thật của một dòng plugin trả về. Android gói đăng ký: plugin trả MỖI base plan/ưu đãi một dòng, trong đó
     `identifier` là mã base plan (goi-1-thang) còn `planIdentifier` mới là mã sản phẩm (goi_1_thang) — dùng nhầm sẽ
     không tra ra base plan và mua báo "planIdentifier cannot be empty". iOS/bản cũ không có planIdentifier thì dùng identifier. */
 function playProductId(p) { return (p && (p.planIdentifier || p.identifier)) || ''; }
 
-/** Mỗi gói chỉ giữ MỘT dòng (ưu tiên giá gốc, bỏ dòng ưu đãi/dùng thử miễn phí trùng mã), đúng thứ tự 1 → 6 → 12 tháng. */
+/** Đổi chu kỳ ISO 8601 Google trả về (P7D, P2W, P1M, P1Y, P1M2W...) sang tiếng Việt: "7 ngày", "14 ngày", "1 tháng", "1 năm".
+    Tuần quy ra ngày (P2W → "14 ngày"). Không đọc được → chuỗi rỗng. */
+function playPeriodVi(iso) {
+  const m = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?$/.exec(String(iso || '').trim());
+  if (!m) return '';
+  const y = +m[1] || 0, mo = +m[2] || 0, days = (+m[3] || 0) * 7 + (+m[4] || 0);
+  if (!y && !mo && !days) return '';
+  const parts = [];
+  if (y) parts.push(y + ' năm');
+  if (mo) parts.push(mo + ' tháng');
+  if (days) parts.push(days + ' ngày');
+  return parts.join(' ');
+}
+
+/** Ưu đãi dùng thử miễn phí của một dòng ưu đãi (offerId != null) hoặc null.
+    CHỈ khi có `pricingPhases` (bằng chứng plugin đã được vá bởi scripts/patch-plugins.mjs) và giai đoạn ĐẦU giá 0 mới là dùng thử → lấy thời hạn của nó
+    và giá giai đoạn kế tiếp. Plugin chưa vá (không có pricingPhases) thì KHÔNG đoán: lúc mua nó cũng không chọn đúng ưu đãi dùng thử, nên hiện "dùng thử" là sai. */
+function playTrialOf(row, baseRow) {
+  if (!row || row.offerId == null) return null;
+  const ph = Array.isArray(row.pricingPhases) ? row.pricingPhases : null;
+  if (ph && ph.length) {
+    if (Number(ph[0].price) !== 0) return null;
+    const next = ph[1] || null;
+    return { period: String(ph[0].billingPeriod || ''), thenPrice: String((next && next.priceString) || (baseRow && baseRow.priceString) || '') };
+  }
+  return null;
+}
+/** Nhãn dùng thử hiển thị: "Dùng thử miễn phí 14 ngày" (không biết thời hạn thì chỉ "Dùng thử miễn phí") */
+function playTrialLabel(tr) {
+  const d = playPeriodVi(tr && tr.period);
+  return d ? 'Dùng thử miễn phí ' + d : 'Dùng thử miễn phí';
+}
+
+/** Mỗi gói chỉ giữ MỘT dòng = dòng giá gốc (để hiện giá và lấy base plan), đúng thứ tự 1 → 6 → 12 tháng. Dòng ưu đãi dùng thử miễn phí cùng mã gói
+    không hiện thành dòng riêng mà được gắn vào dòng giá gốc dưới thuộc tính `trial` ({ period: ISO 8601 | '', thenPrice }). */
 function normalizePlayProducts(list) {
-  const byId = new Map();
-  for (const p of (list || [])) {
+  const byId = new Map(), trials = new Map();
+  const rows = (list || []).filter(p => PLAY_PRODUCT_IDS.includes(playProductId(p)));
+  for (const p of rows) {
     const id = playProductId(p);
-    if (!PLAY_PRODUCT_IDS.includes(id)) continue;
     const isBase = p.offerId == null;
     const cur = byId.get(id);
     if (!cur || (isBase && cur.offerId != null)) byId.set(id, p);
   }
-  return PLAY_PRODUCT_IDS.filter(id => byId.has(id)).map(id => byId.get(id));
+  for (const p of rows) {
+    const id = playProductId(p);
+    if (trials.has(id)) continue;
+    const tr = playTrialOf(p, byId.get(id));
+    if (tr) trials.set(id, tr);
+  }
+  return PLAY_PRODUCT_IDS.filter(id => byId.has(id)).map(id => trials.has(id) ? { ...byId.get(id), trial: trials.get(id) } : byId.get(id));
 }
 
 /** Tải danh sách gói từ Google Play. Lỗi/rỗng KHÔNG còn bị nhớ mãi: tự thử lại tối đa 3 lần (cách nhau 4 giây — dịch vụ thanh toán đôi khi chưa kịp kết nối
@@ -35,12 +76,12 @@ async function loadPlayProducts(force) {
   if (_playLoading) return;
   if (force) { _playProducts = null; _playTries = 0; }
   if (_playProducts) return;
-  _playLoading = true; _playError = '';
+  _playLoading = true; _playError = ''; _playGen++;      // đánh dấu lượt tải đầy đủ mới: kết quả làm mới ngầm đang bay (cũ hơn) bị bỏ
   try {
     const ok = await NativeBridge.billing.isSupported();
     if (!ok) { _playProducts = []; _playError = 'Google Play Billing không khả dụng — hãy cài app từ Google Play (kênh thử nghiệm), không cài tệp APK trực tiếp.'; return; }
     const raw = await NativeBridge.billing.getProducts(PLAY_PRODUCT_IDS);
-    _playProducts = normalizePlayProducts(raw);
+    _playProducts = normalizePlayProducts(raw); _playLoadedAt = Date.now();
     if (!_playProducts.length) _playError = `Google Play trả về ${(raw || []).length} gói nhưng không khớp mã gói cước của app (kiểm tra gói đã được kích hoạt trên Play Console và tài khoản Google là người thử nghiệm).`;
   } catch (e) { _playProducts = []; _playError = String((e && e.message) || e || ''); }
   finally {
@@ -48,6 +89,32 @@ async function loadPlayProducts(force) {
     if (_playProducts && !_playProducts.length && _playTries < 3) { _playTries++; setTimeout(() => { if (_playProducts && !_playProducts.length) { _playProducts = null; loadPlayProducts(); } }, 4000); }
     if (route.name === 'subscription') render();
   }
+}
+
+/** Hỏi Google Play danh sách gói hiện tại (không đụng trạng thái màn hình). Trả mảng đã chuẩn hoá hoặc null nếu không hỏi được. */
+async function fetchPlayProducts() {
+  try {
+    if (!(await NativeBridge.billing.isSupported())) return null;
+    return normalizePlayProducts(await NativeBridge.billing.getProducts(PLAY_PRODUCT_IDS));
+  } catch (e) { return null; }
+}
+/** Làm mới ngầm danh sách gói (không xoá danh sách đang hiện, không nháy màn): ưu đãi dùng thử có thể đã hết điều kiện sau khi người dùng dùng hết.
+    Chỉ vẽ lại khi nội dung đổi. force=true bỏ qua hạn 5 phút (sau khi mua/khôi phục). */
+async function refreshPlayProductsQuiet(force) {
+  if (_playLoading) return;
+  if (_playQuiet && !force) return;       // force (sau khi mua/khôi phục): KHÔNG thoát dù đang có lượt nền — lượt cũ có thể đã đọc danh sách trước khi mua
+  if (!force && Date.now() - _playLoadedAt < PLAY_PRODUCTS_TTL) return;
+  const tok = ++_playQuietTok;            // lượt mới vô hiệu hoá lượt nền cũ đang bay (kết quả cũ bị bỏ)
+  _playQuiet = true; _playLoadedAt = Date.now();      // đặt mốc ngay: lỗi mạng cũng không bị hỏi dồn, thử lại sau 5 phút
+  const gen = _playGen;
+  try {
+    const fresh = await fetchPlayProducts();
+    if (fresh && fresh.length && gen === _playGen && tok === _playQuietTok && !_playLoading) {
+      const changed = JSON.stringify(fresh) !== JSON.stringify(_playProducts);
+      _playProducts = fresh;
+      if (changed && route.name === 'subscription') render();
+    }
+  } finally { if (tok === _playQuietTok) _playQuiet = false; }
 }
 
 /** Gọi Edge Function verify-purchase bằng chính phiên đăng nhập Supabase trung tâm hiện tại. */
@@ -96,7 +163,7 @@ async function playSyncPurchases(force) {
 
 /** Làm mới gói cước: đồng bộ giao dịch Google Play (bản Google Play) rồi hỏi lại hạn từ máy chủ. */
 async function refreshLicenseWithPlay(force) {
-  if (typeof Cloud !== 'undefined' && Cloud.localMode) return License.status();   // chưa có tài khoản BEPO: gói dùng thử tính trên máy, không hỏi máy chủ
+  if (typeof Cloud !== 'undefined' && Cloud.localMode && !Cloud.hasAccount) return License.status();   // người dùng cũ chưa có tài khoản BEPO: gói dùng thử tính trên máy, không hỏi máy chủ
   if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.billingMode === 'play') await playSyncPurchases(force);
   await License.refresh(!!force);
 }
@@ -130,6 +197,20 @@ async function playPurchase(productId, force) {
       }
     }
 
+    // Trước khi gọi Google: hỏi lại danh sách gói. Nếu màn đang hiện "Dùng thử miễn phí" mà Google không còn ưu đãi đó cho tài khoản này
+    // (đã dùng hết), DỪNG — nếu không người dùng bấm tưởng miễn phí nhưng bị tính giá gốc.
+    {
+      const shown = (_playProducts || []).find(p => playProductId(p) === productId);
+      const fresh = await fetchPlayProducts();
+      if (fresh && fresh.length) {
+        const now = fresh.find(p => playProductId(p) === productId);
+        _playProducts = fresh; _playLoadedAt = Date.now();
+        if (shown && shown.trial && !(now && now.trial)) {
+          toast('Ưu đãi dùng thử không còn áp dụng cho tài khoản Google này — kiểm tra giá rồi bấm mua lại');
+          return;      // finally vẽ lại màn với giá thật
+        }
+      }
+    }
     // Ưu tiên base plan do chính Google trả về cho gói này; không có thì dùng bảng quy ước PLAY_BASE_PLANS.
     const prod = (_playProducts || []).find(p => playProductId(p) === productId);
     const basePlan = (prod && prod.planIdentifier && prod.identifier) || PLAY_BASE_PLANS[productId];
@@ -142,6 +223,7 @@ async function playPurchase(productId, force) {
     const res = await verifyPlayPurchase(purchaseToken, productId);
     await License.refresh(true);
     toast(res?.pending ? 'Đang chờ Google xác nhận thanh toán — gói sẽ tự kích hoạt khi xong' : 'Đã kích hoạt gói cước thành công');
+    refreshPlayProductsQuiet(true);       // ưu đãi dùng thử vừa dùng → danh sách gói phải cập nhật
   } catch (e) {
     const msg = String(e?.message || e || '');
     if (/user.*cancel|cancelled|canceled/i.test(msg)) toast('Đã huỷ');
@@ -159,6 +241,7 @@ async function playRestore() {
     // Gửi từng lượt mua còn trên tài khoản Google lên server xác minh (cài lại app trước khi verify xong vẫn không mất gói).
     await playSyncPurchases(true);
     await License.refresh(true);
+    refreshPlayProductsQuiet(true);
     toast('Đã kiểm tra xong');
   } catch (e) { toast('Khôi phục giao dịch không thành công'); }
   finally { _playBusy = false; render(); }
@@ -169,6 +252,7 @@ function vSubscriptionPlay() {
   const st = License.status();
   const tone = st.state === 'expired' ? 'var(--red)' : st.state === 'expiring' ? 'var(--amber)' : 'var(--green)';
   if (!_playProducts && !_playLoading) loadPlayProducts();
+  else if (_playProducts && _playProducts.length) refreshPlayProductsQuiet(false);     // cache quá 5 phút → làm mới ngầm
   if (!_playSyncing && Date.now() - _playSyncAt > 10 * 60000) playSyncPurchases(false).then(n => { if (n && route.name === 'subscription') License.refresh(true).then(() => render()); });
 
   const labelOf = _playLabel;
@@ -191,11 +275,15 @@ function vSubscriptionPlay() {
             ${_playError ? `<div class="t-xs" style="color:var(--amber);margin-top:6px;word-break:break-word">Chi tiết: ${esc(_playError)}</div>` : ''}
             <button class="btn sm ghost" data-act="c_playReload" style="margin-top:8px">Thử tải lại</button></div>
         </div>` : ''}
-      ${(_playProducts || []).map(p => `
+      ${(_playProducts || []).map(p => { const tr = p.trial; return `
         <button class="card between" data-act="c_playBuy" data-id="${esc(playProductId(p))}" ${_playBusy ? 'disabled' : ''} style="width:100%;text-align:left">
-          <div><div class="t-md">${esc(labelOf(playProductId(p)))}</div><div class="t-xs">${esc(p.title || '')}</div></div>
-          <div class="t-md" style="color:var(--accent)">${esc(p.priceString || '')}</div>
-        </button>`).join('')}
+          <div><div class="t-md">${esc(labelOf(playProductId(p)))}</div><div class="t-xs">${esc(p.title || '')}</div>
+            ${tr ? `<div class="t-sm" style="color:var(--green);font-weight:700;margin-top:6px">${esc(playTrialLabel(tr))}</div>
+            <div class="t-xs">Sau đó ${esc(tr.thenPrice || p.priceString || '')}/${esc(labelOf(playProductId(p)))}</div>` : ''}</div>
+          ${tr ? `<div class="t-sm" style="color:var(--green);font-weight:700;max-width:38%;text-align:right">Dùng thử miễn phí</div>`
+               : `<div class="t-md" style="color:var(--accent)">${esc(p.priceString || '')}</div>`}
+        </button>`; }).join('')}
+      ${(_playProducts || []).some(p => p.trial) ? `<div class="card" style="background:var(--amber-soft);border-color:var(--amber)"><div class="t-xs" style="line-height:1.6;color:var(--amber)">Dùng thử miễn phí: Google chưa tính tiền trong thời gian dùng thử. Hãy huỷ gói trong Google Play trước khi hết dùng thử nếu không muốn bị tính tiền.</div></div>` : ''}
 
       <button class="btn ghost" data-act="c_playRestore" ${_playBusy ? 'disabled' : ''} style="margin-top:14px">Khôi phục giao dịch đã mua trước đó</button>
       <div class="t-xs" style="margin-top:10px;line-height:1.6">Thanh toán và quản lý gói cước (huỷ, đổi gói) đều thực hiện qua Google Play — đúng theo chính sách của Google, ứng dụng không tự xử lý tiền.</div>
