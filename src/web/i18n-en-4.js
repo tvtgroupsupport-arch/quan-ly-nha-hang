@@ -162,5 +162,7 @@ const I18N_EN_4 = [
   ['lưu vào máy', 'saved to device'],
   ['chia sẻ/tải về', 'shared/downloaded'],
   ['dòng ·', 'rows ·'],
+  ['Mở', 'Open'], ['Máy chưa có app mở được file này — chọn app để mở hoặc gửi đi', 'No app on this phone can open this file — pick an app to open or send it'], ['Không mở được báo cáo', 'Could not open the report'],
+  ['Mở báo cáo bằng…', 'Open report with…'],
   ['Thêm:', 'Add:'], ['Xoá:', 'Delete:'], ['Bật:', 'Turn on:'], ['Sửa:', 'Edit:'],
 ];

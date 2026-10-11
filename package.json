@@ -11,6 +11,7 @@
     "test": "node --experimental-sqlite --no-warnings test/run-tests.mjs && node --experimental-sqlite --no-warnings test/run-tests-guest.mjs"
   },
   "dependencies": {
+    "@capacitor-community/file-opener": "^7.0.1",
     "@capacitor-community/screen-brightness": "^7.0.0",
     "@capacitor-community/sqlite": "^7.0.0",
     "@capacitor-mlkit/barcode-scanning": "^7.0.0",

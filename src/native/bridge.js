@@ -9,6 +9,7 @@ import { App } from '@capacitor/app';
 import { Network } from '@capacitor/network';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { FileOpener } from '@capacitor-community/file-opener';
 import { Clipboard } from '@capacitor/clipboard';
 import { Browser } from '@capacitor/browser';
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
@@ -133,6 +134,14 @@ const savedReports = {
   async share(name) {
     const { uri } = await Filesystem.getUri({ path: REPORT_DIR + '/' + name, directory: Directory.External });
     await Share.share({ title: name, url: uri, dialogTitle: 'Gửi báo cáo' });
+  },
+  /** Mở file bằng app xem trên điện thoại (Excel/Sheets/WPS cho .xlsx, trình xem cho .csv). Máy chưa có app phù hợp → rơi về hộp thoại chia sẻ; trả 'shared'. */
+  async open(name) {
+    const { uri } = await Filesystem.getUri({ path: REPORT_DIR + '/' + name, directory: Directory.External });
+    const ext = String(name).split('.').pop().toLowerCase();
+    const contentType = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', csv: 'text/csv', pdf: 'application/pdf', html: 'text/html' }[ext] || '*/*';
+    try { await FileOpener.open({ filePath: uri, contentType }); return 'opened'; }
+    catch (e) { await Share.share({ title: name, url: uri, dialogTitle: 'Mở báo cáo bằng…' }); return 'shared'; }
   },
   async remove(name) { await Filesystem.deleteFile({ path: REPORT_DIR + '/' + name, directory: Directory.External }); },
   where: 'Android/data/vn.quanly.nhahang.play/files/BaoCao'

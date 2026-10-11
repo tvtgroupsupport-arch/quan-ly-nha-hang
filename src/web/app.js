@@ -1070,11 +1070,12 @@ function handleAct(el, ev) {
       const files = await NativeBridge.savedReports.list();
       sheet('Báo cáo đã lưu', files.length
         ? `<div class="t-xs muted" style="margin-bottom:10px;line-height:1.6">Thư mục: ${esc(NativeBridge.savedReports.where)}</div>` + files.map(f => `<div class="card between" style="margin-bottom:8px"><div style="flex:1;min-width:0;word-break:break-all" class="t-sm">${esc(f.name)}</div>
-            <div class="row" style="gap:6px"><button class="btn sm ghost" data-act="expShare" data-f="${esc(f.name)}" style="width:auto">Gửi</button><button class="btn sm danger" data-act="expDel" data-f="${esc(f.name)}" style="width:auto">Xoá</button></div></div>`).join('')
+            <div class="row" style="gap:6px"><button class="btn sm pri" data-act="expOpen" data-f="${esc(f.name)}" style="width:auto">Mở</button><button class="btn sm ghost" data-act="expShare" data-f="${esc(f.name)}" style="width:auto">Gửi</button><button class="btn sm danger" data-act="expDel" data-f="${esc(f.name)}" style="width:auto">Xoá</button></div></div>`).join('')
         : '<div class="t-sm muted">Chưa có báo cáo nào được lưu trong máy.</div>');
     })();
     return;
   }
+  case 'expOpen': { NativeBridge.savedReports.open(d.f).then(r => { if (r === 'shared') toast('Máy chưa có app mở được file này — chọn app để mở hoặc gửi đi'); }).catch(e => toast(e.message || 'Không mở được báo cáo')); return; }
   case 'expShare': { NativeBridge.savedReports.share(d.f).catch(e => toast(e.message || 'Không gửi được')); return; }
   case 'expDel': { NativeBridge.savedReports.remove(d.f).then(() => { toast('Đã xoá báo cáo'); }).catch(e => toast(e.message || 'Không xoá được')); closeSheet(); return; }
   case 'noPerm': { toast('Bạn không có quyền vào mục này'); return; }
