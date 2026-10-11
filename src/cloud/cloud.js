@@ -168,6 +168,7 @@ const Cloud = (() => {
     D = emptyD();
     await saveCfg({ role: 'owner', storeUrl: link.url, storeAnon: link.anon_key, local: false });
     Records.codeTag = '';
+    await Persist.setMeta('initialPullPending', 1);   // chưa kéo xong lần đầu thì mọi lượt đồng bộ phải kéo trước, không đẩy mặc định lên
     // Kéo dữ liệu THẬT về trước — tuyệt đối không để bất cứ gì có cơ hội đẩy D rỗng này lên
     // trước khi kéo xong, kẻo đè mất tên quán/cài đặt/dữ liệu thật đang có trên Supabase.
     await Sync.pullOnly();
@@ -210,6 +211,7 @@ const Cloud = (() => {
     await saveCfg({ role: 'staff', storeUrl: inv.u, storeAnon: inv.k, deviceId: uid,
                     deviceName: deviceName || 'Máy nhân viên', deviceTag: uid.replace(/-/g, '').slice(-2).toUpperCase() });
     Records.codeTag = C.cfg.deviceTag;
+    await Persist.setMeta('initialPullPending', 1);
     // Kéo dữ liệu THẬT về trước, cùng lý do như restoreOwner() — xem chú thích ở đó.
     await Sync.pullOnly();
     Sync.start();
@@ -264,17 +266,23 @@ const Cloud = (() => {
     if (C.role === 'staff') throw new Error('Chỉ máy chủ quán (tài khoản Chủ quán) mới xoá được tài khoản lưu trữ');
     const { error } = await central().rpc('delete_my_account');
     if (error) throw new Error(friendly(error));
-    await unlinkAll();
+    await unlinkAll({ global: true });   // xoá hẳn tài khoản: thu hồi phiên ở mọi máy
   }
 
   /* ---------- thoát / thu hồi ---------- */
   /** Gỡ liên kết kho khỏi tài khoản (máy chủ trung tâm) RỒI mới xoá dữ liệu trên máy. Gỡ lỗi thì KHÔNG xoá gì — tránh mất dữ liệu
       trên máy mà máy chủ vẫn còn liên kết. */
   async function unlinkAndDetach() { await discardStoreLink(); await unlinkAll(); }
-  async function unlinkAll() {
+  /** Xoá liên kết + dữ liệu TRÊN MÁY NÀY. Đăng xuất chỉ phạm vi máy này (scope 'local') để các máy chủ quán khác của cùng tài khoản không bị mất phiên;
+      dừng tự làm mới của client cũ để nó không tranh refresh token với client mới đăng nhập lại. */
+  async function unlinkAll(opts) {
     Sync.stop();
-    try { if (C.store) await C.store.auth.signOut(); } catch (e) {}
-    try { if (C.central) await C.central.auth.signOut(); } catch (e) {}
+    const scope = opts && opts.global ? 'global' : 'local';
+    for (const cl of [C.store, C.central]) {
+      if (!cl) continue;
+      try { cl.auth.stopAutoRefresh(); } catch (e) {}
+      try { await cl.auth.signOut({ scope }); } catch (e) {}
+    }
     await Persist.wipe();
     D = emptyD();
     C.role = null; C.store = null; C.central = null; C.cfg = {}; C.ownerPw = null;

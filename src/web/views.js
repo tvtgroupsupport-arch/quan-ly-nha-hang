@@ -32,7 +32,7 @@ function icon(name){
 function hdr(title, sub, opts){
   opts = opts||{};
   const left = opts.noBack ? '' : `<button class="iconbtn" data-act="back" aria-label="Quay lại">${icon('back')}</button>`;
-  return `<div class="hdr">${left}<div class="hdr-title"><h1>${esc(title)}</h1>${sub?`<div class="sub">${sub}</div>`:''}</div><div class="spacer"></div>${opts.right||''}</div>`;
+  return `<div class="hdr">${left}<div class="hdr-title"><h1${title==='Quản lý'?' data-en="Manage"':''}>${esc(title)}</h1>${sub?`<div class="sub">${sub}</div>`:''}</div><div class="spacer"></div>${opts.right||''}</div>`;
 }
 
 
@@ -112,7 +112,7 @@ const VIETQR_BANKS = [
 function navBar(active){
   const kdsPending = DB.orders.filter(o=>o.status==='open' && o.items.some(i=>i.status!=='served')).length;
   const calls = Object.values(DB.seatsState).filter(s=>s.calling).length;
-  const item=(n,ic,lb,dot)=>`<a data-go="${n}" class="${active===n?'on':''}">${icon(ic)}<span>${lb}</span>${dot?'<i class="dot"></i>':''}</a>`;
+  const item=(n,ic,lb,dot)=>`<a data-go="${n}" class="${active===n?'on':''}">${icon(ic)}<span${lb==='Quản lý'?' data-en="Manage"':''}>${lb}</span>${dot?'<i class="dot"></i>':''}</a>`;
   const pay = DB.orders.filter(o => o.status === 'open' && o.items.length
     && o.items.every(i => i.status === 'served')).length;
   return `<nav class="nav">
@@ -330,8 +330,8 @@ function tableChairsSvg(t) {
 function menuThumb(m, size){
   size = size || 46;
   if (m.image) return `<div class="thumb" style="width:${size}px;height:${size}px;min-width:${size}px;padding:0;overflow:hidden">
-    <img src="${m.image}" alt="${esc(m.name)}" style="width:100%;height:100%;object-fit:cover;display:block"></div>`;
-  return `<div class="thumb" style="width:${size}px;height:${size}px;min-width:${size}px;font-size:${Math.round(size*0.45)}px">${m.emoji||'🍽️'}</div>`;
+    <img src="${esc(m.image)}" alt="${esc(m.name)}" style="width:100%;height:100%;object-fit:cover;display:block"></div>`;
+  return `<div class="thumb" style="width:${size}px;height:${size}px;min-width:${size}px;font-size:${Math.round(size*0.45)}px">${esc(m.emoji||'🍽️')}</div>`;
 }
 
 function seatLabel(k){
@@ -430,7 +430,7 @@ function vOrder(){
   const seatList = (o.seats||[]).map(x=>{const tb=tableById(x.tableId); return {...x, label:`${tb?tb.name:'Bàn'} · Ghế ${x.seatNo}`};});
   return `<div class="screen">
     ${hdr(merged?`Hoá đơn gộp · ${seatList.length} ghế`:(t?`${t.name} · Ghế ${o.seatNo}`:'Đơn giao hàng'),
-      `${esc(o.code||o.id)} · ${o.customer.name?esc(o.customer.name)+' · ':''}${hhmm(o.createdAt)}`)}
+      `${esc(o.code||o.id)} · ${o.customer.name?usr(o.customer.name)+' · ':''}${hhmm(o.createdAt)}`)}
     <div class="body">
       ${waiting.length?`<div class="card" style="background:var(--amber-soft);border-color:var(--amber)">
         <div class="row" style="align-items:flex-start"><span style="color:var(--amber)">${icon('bell')}</span>
@@ -470,9 +470,9 @@ function vOrder(){
 
         const pendingHtml = pending.map(i=>`<div class="card between">
           <div style="flex:1">
-            <div class="t-md">${i.emoji} ${esc(i.name)}</div>
+            <div class="t-md">${esc(i.emoji)} ${esc(i.name)}</div>
             ${merged&&i.originSeat?`<div class="t-xs">Ghế ${i.originSeat}${(()=>{const tb=tableById(i.originTable);return tb&&tb.id!==o.tableId?' · '+esc(tb.name):'';})()} gọi</div>`:''}
-            ${i.note?`<div class="t-xs">Ghi chú: ${esc(i.note)}</div>`:''}
+            ${i.note?`<div class="t-xs">Ghi chú: ${usr(i.note)}</div>`:''}
             <div class="row" style="margin-top:6px;gap:8px">
               <div class="step"><button class="minus" data-act="it-" data-o="${o.id}" data-l="${i.lid}" aria-label="Giảm">−</button><span class="n">${i.qty}</span><button class="plus" data-act="it+" data-o="${o.id}" data-l="${i.lid}" aria-label="Tăng">+</button></div>
               <span class="mono t-xs">${fmt(i.price)}</span>
@@ -487,7 +487,7 @@ function vOrder(){
 
         const servedHtml = [...servedGroups.values()].map(g=>`<div class="card between" style="opacity:.9">
           <div style="flex:1">
-            <div class="t-md">${g.emoji} ${esc(g.name)} <span class="muted">×${g.qty}</span></div>
+            <div class="t-md">${esc(g.emoji)} ${esc(g.name)} <span class="muted">×${g.qty}</span></div>
             ${g.seats.size?`<div class="t-xs">${[...g.seats].map(esc).join(', ')}</div>`:''}
           </div>
           <div class="col" style="align-items:flex-end;gap:8px">
@@ -679,14 +679,14 @@ function kdsByTicket(tickets, k){
     const late = mins(o.createdAt)>15 && items.some(i=>i.status!=='served');
     const done = items.every(i=>i.status==='served');
     const t = o.tableId==='delivery'?null:tableById(o.tableId);
-    const label = t?`${t.name} · Ghế ${o.seatNo}`:`Giao hàng · ${esc(o.customer.name||'App')}`;
+    const label = t?`${esc(t.name)} · Ghế ${o.seatNo}`:`Giao hàng · ${esc(o.customer.name||'App')}`;
     return `<div class="ticket ${late?'late':''} ${done?'done':''}">
       <div class="th"><span style="font-size:14px;font-weight:700">${label}</span>
       <span class="mono" style="font-size:13px;font-weight:700;color:${done?'#6FBB92':late?'#E08276':'#D8B24C'}">${done?'✓ Xong':elapsed(o.createdAt)}</span></div>
       <div class="tb">
         ${items.map(i=>`<button class="li ${i.status==='served'?'x':''}" data-act="kdsToggle" data-o="${o.id}" data-l="${i.lid}" style="text-align:left;width:100%">
           <span style="font-size:15px">${i.status==='served'?'☑':i.status==='ready'?'🍽':i.status==='cooking'?'🔥':'☐'}</span>
-          <span style="flex:1">${esc(i.name)} ×${i.qty}${i.note?` <span style="color:#8C8071">(${esc(i.note)})</span>`:''}</span>
+          <span style="flex:1">${esc(i.name)} ×${i.qty}${i.note?` <span style="color:#8C8071">(${usr(i.note)})</span>`:''}</span>
           <span style="font-size:11px;color:#8C8071">${esc(i.kitchen)}</span>
         </button>`).join('')}
       </div>
@@ -720,7 +720,7 @@ function kdsByItem(tickets, k){
     });
     return `<div class="ticket ${late?'late':''} ${waiting?'':'done'}">
       <div class="th">
-        <span style="font-size:14px;font-weight:700">${r.emoji||''} ${esc(r.name)}</span>
+        <span style="font-size:14px;font-weight:700">${esc(r.emoji||'')} ${esc(r.name)}</span>
         <span class="mono" style="font-size:13px;font-weight:700;color:${waiting?(late?'#E08276':'#D8B24C'):'#6FBB92'}">${waiting?elapsed(r.oldest):'✓ xong'}</span>
       </div>
       <div class="tb">
@@ -840,7 +840,7 @@ function vCashier(){
       <div class="sec">Hoá đơn vừa thu</div>
       ${todayPays.slice(0,5).map(p=>`<div class="card between">
         <div><div class="t-md">${esc(p.label)}</div>
-        <div class="t-xs mono">${hhmm(p.ts)} · ${esc(p.method)} · ${esc(p.by)}</div></div>
+        <div class="t-xs mono">${hhmm(p.ts)} · ${esc(payMethodLabel(p.method))} · ${esc(p.by)}</div></div>
         <span class="mono t-md" style="color:var(--green)">${fmt(p.total)}</span>
       </div>`).join('') || '<div class="t-xs" style="text-align:center;padding:8px">Hôm nay chưa thu hoá đơn nào</div>'}
     </div>
@@ -895,7 +895,9 @@ function vCashierTable(){
 /* ============ ĐẶT BÀN ============ */
 function vReservations(){
   const st = {pending:['Chờ xác nhận','b-amber'],confirmed:['Đã xác nhận','b-blue'],arrived:['Đã đến','b-green'],noshow:['Không đến','b-red'],cancelled:['Đã huỷ','b-gray']};
-  const list = [...DB.reservations].sort((a,b)=>a.time.localeCompare(b.time));
+  const dayAgo = now() - 86400000;
+  // lịch đã xử lý xong từ hôm qua trở về trước thì ẩn; còn lại xếp theo NGÀY GIỜ hẹn
+  const list = DB.reservations.filter(r => !(['arrived','noshow','cancelled'].includes(r.status) && r.startAt < dayAgo)).sort((a,b)=>a.startAt-b.startAt);
   return `<div class="screen">
     ${hdr('Đặt bàn trước', `${list.filter(r=>r.status==='pending').length} lịch chờ xác nhận`, {right:`<button class="iconbtn" data-act="newResv" aria-label="Thêm đặt bàn" style="background:var(--accent);color:#fff">${icon('plus')}</button>`})}
     <div class="body">
@@ -904,9 +906,9 @@ function vReservations(){
         const [lb,cls]=st[r.status];
         const dim = ['arrived','noshow','cancelled'].includes(r.status);
         return `<div class="card ${r.status==='pending'?'sel':''}" style="${dim?'opacity:.65':''}">
-          <div class="between"><span class="mono t-md">${esc(r.time)}</span><span class="badge ${cls}">${lb}</span></div>
-          <div class="t-md" style="margin-top:8px">${esc(r.name)} · ${esc(r.phone)}</div>
-          <div class="t-xs">${r.guests} khách${t?` · ${esc(t.name)}`:''}${r.seatNos&&r.seatNos.length?` · ghế ${r.seatNos.join(', ')}`:(t?' · cả bàn':'')}${r.note?` · ${esc(r.note)}`:''}</div>
+          <div class="between"><span class="mono t-md">${esc(r.time)} · ${String(new Date(r.startAt).getDate()).padStart(2,'0')}/${String(new Date(r.startAt).getMonth()+1).padStart(2,'0')}</span><span class="badge ${cls}">${lb}</span></div>
+          <div class="t-md" style="margin-top:8px">${usr(r.name)} · ${usr(r.phone)}</div>
+          <div class="t-xs">${r.guests} khách${t?` · ${esc(t.name)}`:''}${r.seatNos&&r.seatNos.length?` · ghế ${r.seatNos.join(', ')}`:(t?' · cả bàn':'')}${r.note?` · ${usr(r.note)}`:''}</div>
         ${['pending','confirmed'].includes(r.status)?(()=>{
           const from = r.startAt - 30*60000;
           if (now() < from) return `<div class="t-xs" style="color:var(--faint)">Bắt đầu giữ chỗ lúc ${hhmm(from)}</div>`;
@@ -958,7 +960,7 @@ function vPromos(){
     <div class="body">
       ${DB.promos.map(p=>{
         const exhausted = p.limit>0 && p.used>=p.limit;
-        const expired = new Date(p.expire) < new Date();
+        const expired = p.expire < localYmd();
         const dead = exhausted||expired||!p.active;
         const lb = !p.active?['Tạm tắt','b-gray']:expired?['Hết hạn','b-gray']:exhausted?['Hết lượt','b-gray']:['Đang chạy','b-green'];
         return `<div class="card" style="${dead?'opacity:.6':''}">
@@ -1030,16 +1032,31 @@ function periodBar(routeName, params) {
 }
 
 
+/** Số liệu báo cáo theo khoảng ngày lấy từ TOÀN BỘ dữ liệu (bản chụp màn hình chỉ giữ 200 hoá đơn gần nhất). Chưa tải xong thì trả null và vẽ tạm theo bản chụp. */
+function reportData(range){
+  const key = range.from + '-' + range.to, R = window._rep;
+  if (R && R.key === key && !R.stale) return R;
+  if (window._repLoading !== key) {
+    window._repLoading = key;
+    api('/report-range?from=' + range.from + '&to=' + range.to)
+      .then(r => { window._rep = { key, payments: r.payments, top: r.top, stale: false }; })
+      .catch(() => {})
+      .finally(() => { if (window._repLoading === key) window._repLoading = null; if (route.name === 'reports' && (typeof safeToRender !== 'function' || safeToRender())) render(); });
+  }
+  return R && R.key === key ? R : null;
+}
 function vReports(){
   const range = periodRange(route.params);
-  const pays = DB.payments.filter(p=>p.ts>=range.from && p.ts<range.to);
+  const rd = reportData(range);
+  const pays = rd ? rd.payments : DB.payments.filter(p=>p.ts>=range.from && p.ts<range.to);
   const rev = pays.reduce((s,p)=>s+p.total,0);
   const buckets = reportBuckets(range.from, range.to);
   const daily = buckets.map(b=>pays.filter(p=>p.ts>=b.start&&p.ts<b.end).reduce((s,p)=>s+p.total,0));
   const maxD = Math.max(1,...daily);
   // món bán chạy trong khoảng đã chọn
   const cnt={};
-  DB.orders.filter(o=>o.createdAt>=range.from && o.createdAt<range.to)
+  if (rd) Object.assign(cnt, rd.top);
+  else DB.orders.filter(o=>o.createdAt>=range.from && o.createdAt<range.to)
     .forEach(o=>o.items.forEach(i=>{cnt[i.name]=(cnt[i.name]||0)+i.qty}));
   const top = Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,5);
   // theo thu ngân trong khoảng đã chọn
@@ -1074,7 +1091,7 @@ function vReports(){
       <div class="sec">Doanh thu theo thu ngân</div>
       <div class="card"><table class="mini">${staffRows.length?staffRows.map(([n,v])=>`<tr><td>${esc(n)}</td><td>${fmt(v)}</td></tr>`).join(''):'<tr><td class="muted">Chưa có hoá đơn nào</td><td></td></tr>'}</table></div>
       <div class="sec">Hoá đơn trong khoảng đã chọn</div>
-      <div class="card"><table class="mini">${pays.slice(0,8).map(p=>`<tr><td>${esc(p.label)} · <span class="mono t-xs">${hhmm(p.ts)}</span><br><span class="t-xs">${esc(p.method)}</span></td><td>${fmt(p.total)}</td></tr>`).join('') || '<tr><td class="muted">Chưa có hoá đơn</td><td></td></tr>'}</table></div>
+      <div class="card"><table class="mini">${pays.slice(0,8).map(p=>`<tr><td>${esc(p.label)} · <span class="mono t-xs">${hhmm(p.ts)}</span><br><span class="t-xs">${esc(payMethodLabel(p.method))}</span></td><td>${fmt(p.total)}</td></tr>`).join('') || '<tr><td class="muted">Chưa có hoá đơn</td><td></td></tr>'}</table></div>
     </div>
     ${navBar('admin')}
   </div>`;

@@ -10,10 +10,14 @@
    ============================================================ */
 
 const Sync = (() => {
-  const LOOKBACK = 100;       // kéo lùi một đoạn để không sót bản ghi commit muộn
+  const REVOKED_RE = /bị thu hồi|chưa được liên kết/;
+  const PUSH_BATCH = 200;
+  const LOOKBACK = PUSH_BATCH * 2;   // kéo lùi một đoạn (≥ 2 lô đẩy) để không sót bản ghi commit muộn / commit đảo thứ tự
   const S = { status: 'off', lastSyncAt: 0, lastError: '', pending: 0, conflicts: [], online: true,
               running: false, revoked: false };
   let timer = null, periodic = null, channel = null, again = false, fails = 0, lastTouch = 0, lastAccessCheck = 0;
+  let gen = 0;   // số thế hệ của lượt đồng bộ: lượt cũ đã quá hạn bị 'huỷ' (các vòng lặp kiểm tra gen) để không chạy chồng lượt mới
+  const stale = my => { if (my !== gen) throw Object.assign(new Error('cancelled'), { cancelled: true }); };
   let runStart = 0, timeoutMs = 60000;   // một lượt đồng bộ quá 60 giây (mạng yếu/máy chủ treo) bị coi là hỏng và thử lại — trước đây có thể treo mãi ở "Đang đồng bộ…"
   const withTimeout = (p, ms) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(Object.assign(new Error('Hết thời gian chờ máy chủ — mạng yếu, sẽ tự thử lại'), { timeout: true })), ms); })]).finally(() => clearTimeout(t)); };
 
@@ -33,10 +37,11 @@ const Sync = (() => {
     if (!enabled() || S.revoked) return;
     if (!S.online) { S.status = 'offline'; notify(); return; }
     if (S.running) {
-      if (Date.now() - runStart > timeoutMs * 1.5) S.running = false;   // lượt cũ đã treo quá lâu: bỏ qua, chạy lượt mới
+      if (Date.now() - runStart > timeoutMs * 1.5) { S.running = false; gen++; }   // lượt cũ đã treo quá lâu: huỷ nó, chạy lượt mới
       else { again = true; return; }
     }
     S.running = true; runStart = Date.now(); S.status = 'syncing'; S.progress = 0; notify();
+    const my = ++gen;
     try {
      await withTimeout((async () => {
       // checkAccess() tốn một vòng round-trip mạng riêng (dò xem máy còn quyền hay đã bị thu hồi).
@@ -46,11 +51,16 @@ const Sync = (() => {
       // vd. ngay sau khi chủ quán thu hồi một thiết bị) luôn kiểm tra đủ, không bớt bước nào — để phát
       // hiện thu hồi/mất quyền nhanh như trước, không đánh đổi bảo mật lấy tốc độ.
       if (!opts?.quick || Date.now() - lastAccessCheck > 60000) { lastAccessCheck = Date.now(); await checkAccess(); }
-      await pushAll();
-      await pullAll();
+      // Máy vừa khôi phục/liên kết (đã xoá sạch dữ liệu cục bộ): kéo dữ liệu THẬT về và để nó thắng, TRƯỚC KHI đẩy bất cứ gì —
+      // nếu lần kéo đầu bị lỗi mạng, các bản ghi mặc định mới tạo (tên quán, cài đặt...) không được đè lên dữ liệu thật trên kho.
+      if (Persist.getMeta('initialPullPending', 0)) { await pullAll(my, { force: true }); await Persist.setMeta('initialPullPending', 0); }
+      stale(my);
+      await pushAll(my);
+      await pullAll(my);
      })(), timeoutMs);
       S.status = 'ok'; S.lastSyncAt = Date.now(); S.lastError = ''; fails = 0; S.progress = 0;
     } catch (e) {
+      if (e && e.timeout) gen++;     // lượt này quá hạn: các vòng lặp của nó dừng ở lần kiểm tra kế tiếp
       await handleError(e);
     } finally {
       S.running = false;
@@ -62,8 +72,8 @@ const Sync = (() => {
 
   /** Xác nhận máy này còn quyền; phát hiện máy bị thu hồi */
   async function checkAccess() {
-    if (Cloud.role === 'owner' && !(await Cloud.hasStoreSession())) {      // mất phiên đăng nhập vào kho: báo rõ thay vì để mọi hàm bị "permission denied"
-      const e = new Error('Phiên đăng nhập vào kho đã hết — nhập lại mật khẩu lưu trữ để đồng bộ tiếp'); e.authLost = true; throw e;
+    if (!(await Cloud.hasStoreSession())) {      // mất phiên đăng nhập vào kho (cả chủ quán lẫn máy nhân viên): báo rõ, KHÔNG coi là bị thu hồi, KHÔNG xoá dữ liệu
+      const e = new Error('Phiên đăng nhập vào kho đã hết'); e.authLost = true; throw e;
     }
     const { data, error } = await Cloud.store.rpc('store_status');
     if (error) throw error;
@@ -93,12 +103,14 @@ const Sync = (() => {
     } catch (e) { /* không chặn đồng bộ vì việc dọn dẹp lỗi — thử lại vào lần sau */ }
   }
 
-  async function pushAll() {
+  async function pushAll(my) {
     for (let guard = 0; guard < 500; guard++) {
-      const batch = Records.dirtyBatch(200, 800000);
+      if (my !== undefined) stale(my);
+      const batch = Records.dirtyBatch(PUSH_BATCH, 800000);
       if (!batch.length) return;
       const { data, error } = await Cloud.store.rpc('push_records', { p_recs: batch });
       if (error) throw error;
+      if (my !== undefined) stale(my);
       const sent = new Map(batch.map(b => [b.collection + '|' + b.id, b]));
       const rows = [], removed = [], refetch = [];
       for (const r of (data || [])) {
@@ -165,17 +177,20 @@ const Sync = (() => {
     else if (list.length) { Records.finalize(D, []); notifyChange(); }
   }
 
-  async function pullAll() {
+  async function pullAll(my, opts) {
+    const force = !!(opts && opts.force);
     let cursor = Persist.getMeta('cursor', 0);
     let from = Math.max(0, cursor - LOOKBACK);
     let max = cursor, got = 0;
     for (let guard = 0; guard < 2000; guard++) {
+      if (my !== undefined) stale(my);
       const { data, error } = await Cloud.store.from('records')
         .select('collection,id,data,updated_at,deleted,seq').gt('seq', from)
         .order('seq', { ascending: true }).limit(500);
       if (error) throw error;
       if (!data || !data.length) break;
-      await applyRemote(data, {});
+      if (my !== undefined) stale(my);
+      await applyRemote(data, force ? { force: true } : {});
       got += data.length; S.progress = got;          // hiện tiến độ tải dữ liệu để biết không bị treo (kho cũ có thể rất nhiều bản ghi)
       notify();
       from = data[data.length - 1].seq;
@@ -195,17 +210,22 @@ const Sync = (() => {
   function notifyChange(touched) { try { if (Sync.onChange) Sync.onChange(touched); } catch (e) {} }
 
   async function handleError(e) {
+    if (e && e.cancelled) return;      // lượt cũ đã bị lượt mới thay thế: bỏ qua, không báo lỗi
     const msg = (e && (e.message || e.msg)) || String(e);
-    if (e && (e.revoked || e.code === '42501' && Cloud.role === 'staff' || /bị thu hồi|chưa được liên kết/.test(msg))) {
+    // Mất phiên đăng nhập vào kho (lỗi 42501 "permission denied for function" do gọi bằng quyền ẩn danh): KHÔNG phải bị thu hồi — giữ nguyên dữ liệu chờ gửi
+    if (e && (e.authLost || (e.code === '42501' && /permission denied for function/i.test(msg)))) {
+      S.status = 'auth';
+      S.lastError = Cloud.role === 'owner'
+        ? 'Phiên đăng nhập vào kho đã hết — nhập lại mật khẩu lưu trữ để đồng bộ tiếp'
+        : 'Máy mất phiên đăng nhập vào kho — dữ liệu chưa gửi vẫn được giữ. Hãy mở lại app; nếu vẫn lỗi, nhờ chủ quán tạo mã QR mới để liên kết lại';
+      kick(60000); return;
+    }
+    if (e && (e.revoked || (e.code === '42501' && Cloud.role === 'staff') || REVOKED_RE.test(msg))) {
       S.revoked = true; S.status = 'revoked'; stop();
       // Trả về lời hứa để cycle() đợi xoá xong dữ liệu trước khi báo hoàn tất
       return Promise.resolve().then(() => Cloud.onRevoked()).catch(() => {});
     }
     if (e && e.fatal) { S.status = 'error'; S.lastError = msg; return; }
-    if (Cloud.role === 'owner' && e && (e.authLost || (e.code === '42501' && /permission denied for function/i.test(msg)))) {
-      S.status = 'auth'; S.lastError = 'Phiên đăng nhập vào kho đã hết — nhập lại mật khẩu lưu trữ để đồng bộ tiếp';
-      kick(60000); return;                                                  // dữ liệu chờ gửi vẫn giữ nguyên trên máy
-    }
     if (e && e.timeout) { S.status = 'error'; S.lastError = msg; fails++; kick(Math.min(60000, 4000 * Math.pow(2, Math.min(fails, 4)))); return; }
     if (/Failed to fetch|NetworkError|Load failed|network|fetch/i.test(msg) && !(e && e.code)) {
       S.status = 'offline'; S.lastError = ''; fails++;
@@ -248,7 +268,7 @@ const Sync = (() => {
 
   /** Chỉ kéo về, không đẩy lên — dùng ngay sau khi D vừa bị đặt rỗng (restoreOwner/joinAsStaff),
       để đảm bảo có dữ liệu THẬT trước khi bất cứ thứ gì có cơ hội đẩy bản rỗng đó lên đè mất dữ liệu gốc. */
-  async function pullOnly() { await checkAccess(); await pullAll(); }
+  async function pullOnly() { await checkAccess(); await pullAll(undefined, { force: true }); await Persist.setMeta('initialPullPending', 0); }
 
   return { state: S, start, stop, kick, syncNow, setOnline, cycle, pullOnly, setTimeoutMs: ms => { timeoutMs = ms; },
            onChange: null, onStatus: null };

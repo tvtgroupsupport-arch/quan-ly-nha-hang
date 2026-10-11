@@ -53,7 +53,7 @@ function reportRowsLocal(kind, from, to) {
   if (kind === 'orders') {
     const rows = [['Mã đơn', 'Thời gian', 'Bàn', 'Ghế', 'Nguồn', 'Trạng thái', 'Món', 'Số lượng', 'Đơn giá', 'Thành tiền']];
     D.orders.filter(o => inRange(o.created_at)).forEach(o => {
-      D.orderItems.filter(i => i.order_id === o.id).forEach(i => {
+      D.orderItems.filter(i => i.order_id === o.id && i.status !== 'cancelled').forEach(i => {
         rows.push([o.code, dt(o.created_at), tName(o.table_id), o.seat_no || '', repCode(o.source), repCode(o.status),
           i.name_snapshot, i.qty, i.price_snapshot, i.qty * i.price_snapshot]);
       });
@@ -117,7 +117,7 @@ async function saveFile(filename, blob, mime, mode){
 function exportCsvFallback(kind, rows) {
   const blob = new Blob(['\uFEFF' + rows.map(r => r.map(csvCell).join(',')).join('\r\n')],
                         { type: 'text/csv;charset=utf-8' });
-  return { blob, filename: `${kind}-${new Date().toISOString().slice(0, 10)}.csv` };
+  return { blob, filename: `${kind}-${repStamp()}.csv` };
 }
 
 const BRAND_ARGB = 'FFD9581F';
@@ -240,6 +240,12 @@ function buildStyledWorkbook(kind, rows, range) {
   return wb;
 }
 
+/** Dấu thời gian trong tên tệp theo GIỜ MÁY: báo cáo xuất nhiều lần/nhiều khoảng ngày không ghi đè nhau. Ví dụ 2026-10-01_2026-10-31-20261011-0930 */
+function repStamp(from, to) {
+  const t = new Date(), hm = String(t.getHours()).padStart(2, '0') + String(t.getMinutes()).padStart(2, '0');
+  const range = from != null && to != null ? `${localYmd(from)}_${localYmd(to - 1)}-` : '';
+  return `${range}${localYmd().replace(/-/g, '')}-${hm}`;
+}
 /** Xuất báo cáo. Ưu tiên Excel có trình bày (cần thư viện ExcelJS tải từ CDN xong);
     nếu vì lý do gì đó thư viện chưa sẵn sàng, rơi về CSV thuần để người dùng vẫn có dữ liệu. */
 async function exportExcelLocal(kind, from, to, mode) {
@@ -257,7 +263,7 @@ async function exportExcelLocal(kind, from, to, mode) {
       const wb = buildStyledWorkbook(kind, rows, { label: rangeLabel });
       const buf = await wb.xlsx.writeBuffer();
       blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      filename = `${kind}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      filename = `${kind}-${repStamp(REPORT_RANGED[kind] ? from : null, to)}.xlsx`;
     } catch (e) { console.warn('Dựng Excel thất bại, dùng CSV thay thế:', e); }
   }
   if (!blob) {
@@ -335,7 +341,7 @@ function buildMenuPageHtml() {
   ${cats.map((c, i) => `<div class="cat-block" id="cat${i}" style="${i === 0 ? '' : 'display:none'}">
     <h2>${esc2(c.name)}</h2>
     ${c.items.map(m => `<div class="item">
-      <div class="thumb">${m.image ? `<img src="${m.image}">` : (m.emoji || '🍽️')}</div>
+      <div class="thumb">${m.image ? `<img src="${esc2(m.image)}">` : esc2(m.emoji || '🍽️')}</div>
       <div class="body">
         <div class="name">${esc2(m.name)}</div>
         ${m.desc ? `<div class="desc">${esc2(m.desc)}</div>` : ''}
@@ -359,7 +365,7 @@ function buildMenuPageHtml() {
 async function exportMenuPage() {
   const html = buildMenuPageHtml();
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const filename = `thuc-don-${new Date().toISOString().slice(0, 10)}.html`;
+  const filename = `thuc-don-${localYmd()}.html`;
   const ok = await saveFile(filename, blob);
   if (!ok) { toast('Thiết bị không hỗ trợ tải tệp'); return; }
   addLog(ME ? ME.name : 'Hệ thống', 'Xuất trang thực đơn', `${DB.menu.filter(m => m.stock !== 'out').length} món`);

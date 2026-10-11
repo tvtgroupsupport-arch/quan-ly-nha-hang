@@ -10,6 +10,18 @@ let D = null;                       // kho dữ liệu đang dùng (nạp từ S
 
 const nowMs = () => Date.now();
 /** Ai đang thao tác — chịu được cả khi chưa đăng nhập (gọi API trực tiếp) */
+/** Khoá đăng nhập: sai 5 lần liên tiếp → khoá 15 phút (theo tên đăng nhập, lưu lại để khởi động lại app không xoá được) */
+const LOGIN_MAX_FAILS = 5, LOGIN_LOCK_MS = 15 * 60000, LOGIN_FAIL_KEY = 'bepo_login_fail';
+function _loginFailMap() { try { return JSON.parse(localStorage.getItem(LOGIN_FAIL_KEY) || '{}'); } catch (e) { return {}; } }
+function _loginFailSave(m) { try { localStorage.setItem(LOGIN_FAIL_KEY, JSON.stringify(m)); } catch (e) {} }
+function loginLockLeft(u) { const r = _loginFailMap()[String(u).toLowerCase()]; return r && r.until > Date.now() ? r.until - Date.now() : 0; }
+function loginFail(u) {
+  const m = _loginFailMap(), k = String(u).toLowerCase(), r = m[k] || { n: 0, until: 0 };
+  r.n = (r.until && r.until <= Date.now() ? 0 : r.n) + 1;
+  if (r.n >= LOGIN_MAX_FAILS) { r.until = Date.now() + LOGIN_LOCK_MS; r.n = 0; }
+  m[k] = r; _loginFailSave(m);
+}
+function loginOk(u) { const m = _loginFailMap(); delete m[String(u).toLowerCase()]; _loginFailSave(m); }
 const who = () => (typeof ME !== 'undefined' && ME) ? ME.name + (ME.role ? ' (' + ME.role + ')' : '') : 'Hệ thống';
 const whoId = () => (typeof ME !== 'undefined' && ME) ? ME.id : null;
 /** Mã ngẫu nhiên 12 ký tự từ bộ sinh số an toàn — nhiều máy cùng tạo bản ghi offline không được trùng id */
@@ -116,6 +128,9 @@ function addLog(actor, action, detail, level) {
   if (D.logs.length > 3000) D.logs.pop();   // chỉ cắt nhật ký cục bộ; máy chủ vẫn giữ
 }
 /** Mô tả vị trí/đơn/món cho nhật ký: "Bàn 3 · Ghế 2", "đơn #12", "Phở ×2 (ít hành)" — để đọc nhật ký biết chính xác thao tác ở đâu. */
+/** Ngày dương lịch theo GIỜ MÁY (không phải UTC): 'YYYY-MM-DD' */
+function localYmd(t) { const d = t == null ? new Date() : new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function startOfTodayMs() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
 const STATUS_VI = { pending: 'Chờ xác nhận', queued: 'Chờ bếp', cooking: 'Đang làm', ready: 'Đã làm xong', served: 'Đã phục vụ', cancelled: 'Đã huỷ' };
 const placeOf = (tid, sn) => { if (!tid) return 'Giao hàng'; const t = D.tables.find(x => x.id === tid); return (t ? t.name : 'Bàn đã xoá') + (sn ? ' · Ghế ' + sn : ''); };
 const orderPlace = o => placeOf(o.table_id, o.seat_no);
@@ -246,16 +261,23 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
 
   /* --- đăng nhập (mật khẩu băm PBKDF2, kiểm tra cục bộ nên dùng được khi offline) --- */
   if (M('POST', 'auth', 'login')) {
-    const s = D.staff.find(x => x.username === String(body?.username || '').trim() && x.active);
+    const uname = String(body?.username || '').trim();
+    const lockLeft = loginLockLeft(uname);
+    if (lockLeft > 0) throw err(429, 'Sai mật khẩu quá 5 lần — đăng nhập bị khoá ' + Math.ceil(lockLeft / 60000) + ' phút');
+    const s = D.staff.find(x => x.username === uname && x.active);
     const ok = s && await AuthLocal.verify(String(body?.password || ''), s.pw);
-    if (!ok) throw err(401, 'Sai tên đăng nhập app hoặc mật khẩu đăng nhập app');
+    if (!ok) { loginFail(uname); throw err(401, 'Sai tên đăng nhập app hoặc mật khẩu đăng nhập app'); }
+    loginOk(uname);
     addLog(s.name, 'Đăng nhập');
     saveD();
+    // Máy nhân viên (liên kết QR) không ghi được bản ghi tài khoản lên kho → không buộc đổi mật khẩu ở máy này (chủ quán cấp mật khẩu ở máy chủ quán)
+    const mustChange = !!s.must_change && !(typeof Cloud !== 'undefined' && Cloud.role === 'staff');
     return { token: 'local.' + btoa(JSON.stringify({ sub: s.id })) + '.x',
-             staff: { id: s.id, name: s.name, role: s.role, perms: s.perms, mustChange: !!s.must_change } };
+             staff: { id: s.id, name: s.name, role: s.role, perms: s.perms, mustChange } };
   }
   if (M('POST', 'auth', 'logout')) { if (ME) addLog(who(), 'Đăng xuất'); saveD(); return { ok: true }; }
   if (M('POST', 'auth', 'password')) {
+    if (typeof Cloud !== 'undefined' && Cloud.role === 'staff') throw err(403, 'Máy nhân viên không tự đổi được mật khẩu đăng nhập app — nhờ chủ quán cấp lại ở máy chủ quán');
     const s = D.staff.find(x => x.id === whoId());
     if (!s) throw err(401, 'Chưa đăng nhập');
     if (!(await AuthLocal.verify(String(body?.oldPassword || ''), s.pw))) throw err(400, 'Mật khẩu hiện tại không đúng');
@@ -278,8 +300,23 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       promos: D.promos, staff: D.staff, reservations: D.reservations,
       orders: snapOrders,
       orderItems: D.orderItems.filter(i => snapOrderIds.has(i.order_id)),
-      payments: D.payments.slice(0, 200), stockMoves: D.stockMoves.slice(0, 200), logs: D.logs.slice(0, 200)
+      payments: D.payments.filter((p, i) => i < 200 || (p.paid_at || p.created_at) >= startOfTodayMs()), stockMoves: D.stockMoves.slice(0, 200), logs: D.logs.slice(0, 200)
     };
+  }
+
+  /* --- số liệu báo cáo theo khoảng ngày (tính từ TOÀN BỘ dữ liệu, không phụ thuộc bản chụp bị cắt) --- */
+  if (M('GET', 'report-range')) {
+    const from = Number(q.from), to = Number(q.to);
+    const payments = D.payments.filter(p => p.state === 'paid' && (p.paid_at || p.created_at) >= from && (p.paid_at || p.created_at) < to).map(p => {
+      const o = D.orders.find(x => x.id === p.order_id);
+      const t = o && D.tables.find(x => x.id === o.table_id);
+      return { id: p.id, orderId: o ? o.code : p.order_id, total: p.total, method: p.method, ts: p.paid_at || p.created_at,
+               by: (D.staff.find(x => x.id === p.staff_id) || {}).name || '—', label: t ? t.name + ' · Ghế ' + o.seat_no : 'Giao hàng' };
+    });
+    const top = {};
+    const inRange = new Set(D.orders.filter(o => o.created_at >= from && o.created_at < to).map(o => o.id));
+    D.orderItems.forEach(i => { if (inRange.has(i.order_id) && i.status !== 'cancelled') top[i.name_snapshot] = (top[i.name_snapshot] || 0) + i.qty; });
+    return { payments, top };
   }
 
   /* --- bàn & khu vực --- */
@@ -306,6 +343,12 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     if (!t) throw err(404, 'Không tìm thấy bàn');
     const n = body?.seats === undefined ? t.seats : Number(body.seats);
     if (!Number.isInteger(n) || n < 1 || n > 8) throw err(400, 'Số ghế phải từ 1 đến 8');
+    if (body?.name !== undefined) {
+      const nm = String(body.name).trim();
+      if (!nm) throw err(400, 'Thiếu tên bàn');
+      if (D.tables.some(x => x.id !== t.id && x.active && x.name.toLowerCase() === nm.toLowerCase())) throw err(409, 'Tên bàn đã tồn tại');
+      body.name = nm;
+    }
     const busy = Math.max(0, ...D.orders.filter(o => o.table_id === t.id && o.status === 'open').map(o => o.seat_no || 0));
     if (busy && n < busy) throw err(409, `Ghế ${busy} đang có khách`);
     const layout = body.layout === undefined ? t.layout : (VALID_TABLE_LAYOUTS.includes(body.layout) ? body.layout : 'auto');
@@ -321,6 +364,8 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('DELETE', 'tables', '*')) {
     if (D.orders.some(o => o.table_id === seg[1] && o.status === 'open')) throw err(409, 'Bàn đang có khách');
     const t = D.tables.find(x => x.id === seg[1]); if (t) t.active = 0;
+    // khoá + đổi mã QR mọi ghế: tem cũ dán ở bàn đã xoá không còn gọi món được nữa
+    D.seats.filter(s => s.table_id === seg[1]).forEach(s => { s.locked = 1; s.qr_token = tok(); s.bound_order_id = null; s.updated_at = nowMs(); });
     addLog(who(), 'Xoá bàn', t?.name); saveD(); return { ok: true };
   }
 
@@ -366,6 +411,12 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     // Ghế phải có thật trong bàn — nếu không, đơn sẽ mồ côi và không màn nào hiển thị
     if (tableId && !D.seats.some(s => s.table_id === tableId && s.seat_no === Number(seatNo))) {
       throw err(400, 'Ghế không tồn tại trong bàn này');
+    }
+    // Kiểm tra MỌI dòng trước khi đụng tới dữ liệu — lỗi ở dòng sau không để lại đơn rỗng / món đã trừ kho
+    for (const ln of lines) {
+      const m = D.menu.find(x => x.id === ln.menuItemId && x.active);
+      if (!m) throw err(400, 'Món không tồn tại');
+      if (m.stock_state === 'out') throw err(409, `${m.name} đã hết hàng`);
     }
     let o = tableId ? openOrderD(tableId, seatNo) : null;
     const isNew = !o;
@@ -419,6 +470,9 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('DELETE', 'order-items', '*')) {
     const it = D.orderItems.find(i => i.id === seg[1]);
     if (!it) throw err(404, 'Không tìm thấy món');
+    if (it.status === 'cancelled') throw err(409, 'Món này đã được xoá khỏi đơn rồi');
+    const ordOf = D.orders.find(x => x.id === it.order_id);
+    if (ordOf && ordOf.status !== 'open') throw err(409, 'Đơn đã đóng, không xoá món được nữa');
     consume(it.menu_item_id, -it.qty, it.order_id);
     const prevSt = it.status;
     it.status = 'cancelled'; it.updated_at = nowMs();
@@ -534,6 +588,8 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     if (body?.promoId) {
       const p = D.promos.find(x => x.id === body.promoId);
       if (!p || !p.active) throw err(409, 'Chương trình không còn hiệu lực');
+      if (p.expires_on && p.expires_on < localYmd()) throw err(409, 'Chương trình đã hết hạn');
+      if (p.use_limit && (p.used_count || 0) >= p.use_limit && o.promo_id !== p.id) throw err(409, 'Chương trình đã hết lượt dùng');
       const sub = D.orderItems.filter(i => i.order_id === o.id && i.status !== 'cancelled')
         .reduce((s, i) => s + i.qty * i.price_snapshot, 0);
       if (sub < p.min_total) throw err(409, 'Đơn chưa đủ điều kiện tối thiểu');
@@ -591,6 +647,10 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     const map = { start: 'cooking', ready: 'ready', done: 'served', reset: 'queued' };
     const it = D.orderItems.find(i => i.id === seg[2]);
     if (!it) throw err(404, 'Không tìm thấy món');
+    if (it.status === 'cancelled') throw err(409, 'Món này đã bị xoá khỏi đơn');
+    if (it.status === 'pending') throw err(409, 'Món đang chờ nhân viên xác nhận, chưa chuyển cho bếp được');
+    const ordK = D.orders.find(x => x.id === it.order_id);
+    if (ordK && ordK.status !== 'open') throw err(409, 'Đơn đã đóng');
     const stOld = it.status;
     it.status = map[seg[3]] || it.status; it.updated_at = nowMs();
     if (stOld !== it.status) addLog(who(), 'Đổi trạng thái món', `${itemTxt(it)} — ${itemPlace(it)}: ${STATUS_VI[stOld] || stOld} → ${STATUS_VI[it.status] || it.status}`);
@@ -646,6 +706,9 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('PATCH', 'menu', '*')) {
     const m = D.menu.find(x => x.id === seg[1]);
     if (!m) throw err(404, 'Không tìm thấy món');
+    if (body.name !== undefined && !String(body.name).trim()) throw err(400, 'Nhập tên món');
+    if (body.price !== undefined && !(Number(body.price) > 0)) throw err(400, 'Giá phải lớn hơn 0');
+    if (body.name !== undefined) body.name = String(body.name).trim();
     const mBefore = snapOf(m, ['name', 'description', 'emoji', 'image', 'price', 'category_id', 'kitchen_id', 'stock_state']);
     Object.assign(m, { name: body.name ?? m.name, description: body.description ?? m.description,
       emoji: body.emoji ?? m.emoji, image: body.image !== undefined ? body.image : m.image,
@@ -710,15 +773,17 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('PATCH', 'promos', '*')) {
     const p = D.promos.find(x => x.id === seg[1]);
     if (!p) throw err(404, 'Không tìm thấy chương trình');
+    if (body.name !== undefined && !String(body.name).trim()) throw err(400, 'Nhập tên chương trình');
+    if (body.value !== undefined && !(Number(body.value) > 0)) throw err(400, 'Giá trị giảm phải lớn hơn 0');
     const pBefore = snapOf(p, ['name', 'type', 'value', 'min_total', 'use_limit', 'expires_on', 'active']);
     Object.assign(p, { name: body.name ?? p.name, type: body.type ?? p.type,
       value: body.value !== undefined ? Math.round(body.value) : p.value,
       min_total: body.minTotal !== undefined ? Number(body.minTotal) : p.min_total,
       use_limit: body.useLimit !== undefined ? Number(body.useLimit) : p.use_limit,
-      expires_on: body.expiresOn ?? p.expires_on,
+      expires_on: body.expiresOn !== undefined ? (body.expiresOn || null) : p.expires_on,
       active: body.active !== undefined ? (body.active ? 1 : 0) : p.active, updated_at: nowMs() });
     diffLog('Sửa khuyến mãi', pBefore.name, pBefore, snapOf(p, ['name', 'type', 'value', 'min_total', 'use_limit', 'expires_on', 'active']),
-      { name: ['Tên'], type: ['Loại', v => ({ percent: 'giảm %', amount: 'giảm tiền' }[v] || v)], value: ['Giá trị giảm'], min_total: ['Đơn tối thiểu'], use_limit: ['Giới hạn lượt dùng'], expires_on: ['Hết hạn'], active: ['Đang áp dụng', v => !!v] });
+      { name: ['Tên'], type: ['Loại', v => ({ pct: 'giảm %', amt: 'giảm tiền' }[v] || v)], value: ['Giá trị giảm'], min_total: ['Đơn tối thiểu'], use_limit: ['Giới hạn lượt dùng'], expires_on: ['Hết hạn'], active: ['Đang áp dụng', v => !!v] });
     saveD(); return { ok: true };
   }
   if (M('POST', 'staff')) {
@@ -743,6 +808,13 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     // vì đây là tài khoản duy nhất không ai khác mở lại được.
     if (s.role === 'Chủ quán' && body.active === false) throw err(403, 'Không thể tự khoá tài khoản chủ quán');
     const sBefore = { name: s.name, active: s.active, perms: Object.keys(s.perms || {}).filter(k => s.perms[k]).sort().join(', ') };
+    if (body.perms && typeof ME !== 'undefined' && ME && ME.role !== 'Chủ quán') {
+      // Người không phải Chủ quán không được tự nâng quyền: không sửa quyền của chính mình, không cấp quyền mà mình chưa có
+      if (s.id === whoId()) throw err(403, 'Không tự đổi quyền của chính mình — nhờ chủ quán');
+      const mine = ME.perms || {};
+      const over = Object.keys(body.perms).filter(k => body.perms[k] && !mine[k]);
+      if (over.length) throw err(403, 'Không thể cấp quyền mà bạn chưa có');
+    }
     if (body.perms) s.perms = body.perms;
     if (body.active !== undefined) s.active = body.active ? 1 : 0;
     if (body.name) s.name = body.name;
@@ -753,6 +825,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('POST', 'staff', '*', 'reset-password')) {
     const st = D.staff.find(x => x.id === seg[1]);
     if (!st) throw err(404, 'Không tìm thấy nhân viên');
+    if (st.role === 'Chủ quán' && whoId() !== st.id) throw err(403, 'Không thể cấp lại mật khẩu của tài khoản chủ quán');
     const temp = AuthLocal.tempPassword();
     st.pw = await AuthLocal.hash(temp); st.must_change = 1;
     addLog(who(), 'Cấp lại mật khẩu', st.name); saveD(); return { tempPassword: temp };

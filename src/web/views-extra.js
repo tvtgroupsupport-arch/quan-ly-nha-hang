@@ -275,7 +275,7 @@ function vHistoryDetail() {
     <div class="body">
       ${o.customer_name || o.customer_phone ? `<div class="card">
         <div class="t-xs">Khách đặt</div>
-        <div class="t-md">${esc(o.customer_name || '—')}${o.customer_phone ? ' · ' + esc(o.customer_phone) : ''}</div>
+        <div class="t-md">${usr(o.customer_name || '—')}${o.customer_phone ? ' · ' + esc(o.customer_phone) : ''}</div>
         <div class="t-xs">Nguồn: ${esc({ qr: 'Khách quét QR', staff: 'Nhân viên nhập', grab: 'Grab', shopee: 'ShopeeFood' }[o.source] || o.source)}</div>
       </div>` : ''}
 
@@ -285,7 +285,7 @@ function vHistoryDetail() {
           return `<div class="card between" style="${i.status === 'cancelled' ? 'opacity:.55' : ''}">
             <div style="flex:1">
               <div class="t-md" style="${i.status === 'cancelled' ? 'text-decoration:line-through' : ''}">${esc(i.name_snapshot)} <span class="muted">×${i.qty}</span></div>
-              ${i.note ? `<div class="t-xs">Ghi chú: ${esc(i.note)}</div>` : ''}
+              ${i.note ? `<div class="t-xs">Ghi chú: ${usr(i.note)}</div>` : ''}
               <div class="mono t-xs">${fmt(i.price_snapshot)} / phần</div>
             </div>
             <div class="col" style="align-items:flex-end;gap:6px">
@@ -308,7 +308,7 @@ function vHistoryDetail() {
       </div>
       ${o.payments.length ? `<div class="sec">Thanh toán</div>
         ${o.payments.map(p => `<div class="card between">
-          <div><div class="t-md">${esc(p.method)}</div>
+          <div><div class="t-md">${esc(payMethodLabel(p.method))}</div>
           <div class="t-xs mono">${p.paid_at ? dstr(p.paid_at) : 'chưa hoàn tất'}${p.ref_code ? ' · ' + esc(p.ref_code) : ''}</div></div>
           <div class="col" style="align-items:flex-end;gap:4px">
             <span class="badge ${p.state === 'paid' ? 'b-green' : 'b-amber'}">${p.state === 'paid' ? 'Đã thu' : 'Chờ'}</span>

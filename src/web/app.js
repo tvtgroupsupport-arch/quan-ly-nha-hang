@@ -319,7 +319,7 @@ function handleAct(el, ev) {
     window._layout = t ? (t.layout || 'auto') : 'auto';
     sheet(t ? 'Sửa bàn' : 'Thêm bàn mới', `
       <div class="field"><label class="f">Tên bàn</label><input class="input" id="tn" value="${t ? esc(t.name) : ''}" placeholder="vd. Bàn 22"></div>
-      <div class="field"><label class="f">Khu vực</label><select class="input" id="ta">${DB.areas.map(x => `<option ${t && t.area === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+      <div class="field"><label class="f">Khu vực</label><select class="input" id="ta">${DB.areas.map(x => `<option value="${esc(x)}" ${t && t.area === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
       <div class="field"><label class="f">Số ghế (tối đa 8)</label>
         <div id="tseats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
           ${[1,2,3,4,5,6,7,8].map(n => `<button class="chip ${(t ? t.seats : 4) === n ? 'on' : ''}" data-act="pickSeats" data-n="${n}" style="justify-content:center">${n}</button>`).join('')}
@@ -374,6 +374,7 @@ function handleAct(el, ev) {
     const seats = [...q.sel].sort((x, y) => x - y);
     run(async () => {
       for (const n of seats) await api(`/seats/${t.id}/${n}/rotate`, { method: 'POST' });
+      await refresh();      // lấy mã mới về TRƯỚC khi vẽ lại khung — nếu không khung vẫn hiện mã cũ đã vô hiệu
       showTableQr();
     }, 'Đã đổi mã QR — nhớ in lại tem');
     return;
@@ -489,13 +490,15 @@ function handleAct(el, ev) {
     if (!Object.keys(cart).length) { toast('Chưa chọn món nào'); return; }
     if (!route.params.t) { handleAct({ dataset: { act: 'pickTable' } }); toast('Chọn bàn trước khi gửi'); return; }
     const lines = Object.entries(cart).map(([menuItemId, qty]) => ({ menuItemId, qty }));
+    if (window._sending) return;   // đang gửi: bỏ qua lần bấm thứ hai (tránh tạo món/đơn trùng)
+    window._sending = true;
     const idem = uid('ord');
     run(async () => {
       const o = await api('/orders/items', { method: 'POST', idem,
         body: { tableId: route.params.t, seatNo: Number(route.params.s), lines } });
       window._cart = {};
       route = { name: 'order', params: { id: o.id } };
-    }, 'Đã gửi xuống bếp');
+    }, 'Đã gửi xuống bếp').catch(() => {}).finally(() => { window._sending = false; });
     return;
   }
 
@@ -538,7 +541,7 @@ function handleAct(el, ev) {
   }
   case 'pickPromo': {
     const o = orderById(d.o), { sub } = orderTotal(o);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localYmd();
     const avail = DB.promos.filter(p => p.active && p.expire >= today && !(p.limit > 0 && p.used >= p.limit));
     sheet('Chọn khuyến mãi', `${avail.map(p => {
       const ok = sub >= p.min;
@@ -656,7 +659,7 @@ function handleAct(el, ev) {
   }
   case 'kdsDone': {
     const o = orderById(d.o);
-    const list = o.items.filter(i => (d.k === 'all' || i.kitchen === d.k) && i.status !== 'served');
+    const list = o.items.filter(i => (d.k === 'all' || i.kitchen === d.k) && !['served', 'pending', 'cancelled'].includes(i.status));
     run(async () => { for (const i of list) await api(`/kds/items/${i.lid}/done`, { method: 'POST' }); }, 'Đã hoàn tất vé bếp');
     return;
   }
@@ -675,7 +678,7 @@ function handleAct(el, ev) {
     return;
   }
   case 'newResv': {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localYmd();
     window._resvSeats = new Set();
     sheet('Đặt bàn mới', `
       <div class="field"><label class="f">Tên khách</label><input class="input" id="rn" placeholder="vd. Chị Hương"></div>
@@ -743,7 +746,7 @@ function handleAct(el, ev) {
     sheet(m ? 'Sửa món' : 'Thêm món mới', `
       <div class="field"><label class="f">Hình ảnh món (không bắt buộc)</label>
         <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
-          <div id="miPreview" style="width:56px;height:56px;border-radius:10px;overflow:hidden;background:var(--chip);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0">${(m&&m.image)?`<img src="${m.image}" style="width:100%;height:100%;object-fit:cover">`:(m?esc(m.emoji):'🍽️')}</div>
+          <div id="miPreview" style="width:56px;height:56px;border-radius:10px;overflow:hidden;background:var(--chip);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0">${(m&&m.image)?`<img src="${esc(m.image)}" style="width:100%;height:100%;object-fit:cover">`:(m?esc(m.emoji):'🍽️')}</div>
           <input type="file" id="miFile" accept="image/*" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none">
           <button class="btn sm ghost" data-act="pickMenuImage" style="flex:1 1 100px" type="button">Chọn ảnh</button>
           <button class="btn sm danger" data-act="clearMenuImage" style="flex:1 1 100px" type="button">Xoá ảnh</button>
@@ -759,8 +762,8 @@ function handleAct(el, ev) {
       <div class="field"><label class="f">Tên món</label><input class="input" id="mn" value="${m ? esc(m.name) : ''}" placeholder="vd. Bún bò Huế"></div>
       <div class="field"><label class="f">Giá bán (đ)</label><input class="input" id="mp" type="number" value="${m ? m.price : ''}" placeholder="65000"></div>
       <div class="field"><label class="f">Mô tả</label><input class="input" id="md" value="${m ? esc(m.desc) : ''}"></div>
-      <div class="field"><label class="f">Danh mục</label><select class="input" id="mc">${DB.categories.map(c => `<option ${m && m.cat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
-      <div class="field"><label class="f">Khu bếp</label><select class="input" id="mk">${DB.kitchens.map(c => `<option ${m && m.kitchen === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+      <div class="field"><label class="f">Danh mục</label><select class="input" id="mc">${DB.categories.map(c => `<option value="${esc(c)}" ${m && m.cat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+      <div class="field"><label class="f">Khu bếp</label><select class="input" id="mk">${DB.kitchens.map(c => `<option value="${esc(c)}" ${m && m.kitchen === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
       <div class="field"><label class="f">Tình trạng</label><select class="input" id="ms">
         <option value="ok" ${m && m.stock === 'ok' ? 'selected' : ''}>Còn hàng</option>
         <option value="low" ${m && m.stock === 'low' ? 'selected' : ''}>Sắp hết</option>
@@ -773,13 +776,13 @@ function handleAct(el, ev) {
   case 'pickMenuImage': { document.getElementById('miFile')?.click(); return; }
   case 'useImageUrl': {
     const url = val('miUrl').trim();
-    if (!/^https?:\/\/.+\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(url)) {
+    if (!/^https?:\/\/[^\s"'<>`]+\.(jpe?g|png|webp|gif)(\?[^\s"'<>`]*)?$/i.test(url)) {
       toast('Cần link ảnh hợp lệ, kết thúc bằng .jpg .png .webp hoặc .gif');
       return;
     }
     window._miImage = url;
     const box = document.getElementById('miPreview');
-    if (box) box.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML='⚠'">`;
+    if (box) box.innerHTML = `<img src="${esc(url)}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML='⚠'">`;
     toast('Đã dùng ảnh từ liên kết');
     return;
   }
@@ -794,7 +797,7 @@ function handleAct(el, ev) {
       emoji: val('me') || '🍽️', categoryId: DB.categoryIds[val('mc')], kitchenId: DB.kitchenIds[val('mk')],
       stockState: val('ms'), image: window._miImage || null };
     run(async () => {
-      if (d.id) await api('/menu/' + d.id, { method: 'PATCH', body });
+      if (d.id) await api('/menu/' + d.id, { method: 'PATCH', body: Cloud.role === 'staff' ? { stockState: body.stockState } : body });   // máy nhân viên chỉ được đổi còn/hết
       else await api('/menu', { method: 'POST', body });
       closeSheet();
     }, 'Đã lưu');
@@ -965,7 +968,7 @@ function handleAct(el, ev) {
     sheet('Thêm nhân viên', `
       <div class="field"><label class="f">Họ và tên</label><input class="input" id="sn" placeholder="vd. Trần Thu Hà"></div>
       <div class="field"><label class="f">Vai trò</label><select class="input" id="sr2">
-        <option>Phục vụ</option><option>Thu ngân</option><option>Bếp</option><option>Quản lý</option></select></div>
+        <option value="Phục vụ">Phục vụ</option><option value="Thu ngân">Thu ngân</option><option value="Bếp">Bếp</option><option value="Quản lý">Quản lý</option></select></div>
       <div class="field"><label class="f">Tên đăng nhập</label><input class="input" id="su" placeholder="vd. ha.phucvu"></div>
       <button class="btn pri" data-act="saveStaff">Tạo tài khoản</button>`);
     return;
@@ -1068,8 +1071,9 @@ function handleAct(el, ev) {
   case 'expSaved': {
     (async () => {
       const files = await NativeBridge.savedReports.list();
+      const where = await NativeBridge.savedReports.where();
       sheet('Báo cáo đã lưu', files.length
-        ? `<div class="t-xs muted" style="margin-bottom:10px;line-height:1.6">Thư mục: ${esc(NativeBridge.savedReports.where)}</div>` + files.map(f => `<div class="card between" style="margin-bottom:8px"><div style="flex:1;min-width:0;word-break:break-all" class="t-sm">${esc(f.name)}</div>
+        ? `<div class="t-xs muted" style="margin-bottom:10px;line-height:1.6">Thư mục: ${esc(where)}</div>` + files.map(f => `<div class="card between" style="margin-bottom:8px"><div style="flex:1;min-width:0;word-break:break-all" class="t-sm">${esc(f.name)}</div>
             <div class="row" style="gap:6px"><button class="btn sm pri" data-act="expOpen" data-f="${esc(f.name)}" style="width:auto">Mở</button><button class="btn sm ghost" data-act="expShare" data-f="${esc(f.name)}" style="width:auto">Gửi</button><button class="btn sm danger" data-act="expDel" data-f="${esc(f.name)}" style="width:auto">Xoá</button></div></div>`).join('')
         : '<div class="t-sm muted">Chưa có báo cáo nào được lưu trong máy.</div>');
     })();
@@ -1655,6 +1659,7 @@ function wireCloud() {
   NativeBridge.network.onChange(on => Sync.setOnline(on));
   NativeBridge.network.get().then(on => Sync.setOnline(on));
   NativeBridge.app.onResume(() => {
+    try { NativeBridge.alerts && NativeBridge.alerts.resumed && NativeBridge.alerts.resumed(); } catch (e) {}
     Sync.kick(0);
     ensureKeepAlive();
     recheckLicense(License.status().state !== 'ok');   // sắp/đã quá hạn → hỏi lại ngay, không đợi chu kỳ 6 giờ
@@ -1667,6 +1672,7 @@ function wireCloud() {
     return false;
   });
   setInterval(() => recheckLicense(false), 6 * 3600000);
+  setInterval(ensureKeepAlive, 10 * 60000);   // kiểm tra định kỳ: dừng dịch vụ nền trước hạn 6 giờ của Android 15
   setInterval(licenseWatch, 30000);
 }
 
@@ -1690,6 +1696,9 @@ function wireCloud() {
         // xác định người đang đăng nhập từ token đã lưu
         const payload = JSON.parse(atob(TOKEN.split('.')[1]));
         ME = DB.staff.find(s => s.id === payload.sub) || null;
+        const rawS = D.staff.find(s => s.id === payload.sub);
+        // tài khoản bị khoá/xoá, hoặc đang bị buộc đổi mật khẩu → bắt đăng nhập lại
+        if (ME && (!ME.active || (rawS && rawS.must_change && Cloud.role !== 'staff'))) ME = null;
         if (ME) { DB.session.user = ME.id; connectWs(); route = { name: homeScreen(), params: {} }; }
       } catch (e) { TOKEN = null; try { localStorage.removeItem(TOKEN_KEY); } catch (e2) {} }
     }

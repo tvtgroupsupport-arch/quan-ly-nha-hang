@@ -128,8 +128,23 @@ function adapt(s) {
 async function refresh() {
   const snap = await api('/snapshot');
   DB = adapt(snap);
+  if (window._rep) window._rep.stale = true;   // số liệu báo cáo theo khoảng cần tính lại sau mỗi lần dữ liệu đổi
+  // Phiên đăng nhập luôn theo tài khoản MỚI NHẤT: bị khoá/xoá → thoát ngay; đổi quyền/vai trò → áp dụng ngay
+  if (ME && D && D.staff && D.staff.length) {
+    const fresh = DB.staff.find(s => s.id === ME.id);
+    if (!fresh || !fresh.active) { sessionRevoked(); return; }
+    ME = Object.assign({}, ME, { name: fresh.name, role: fresh.role, perms: fresh.perms });
+  }
   DB.session.user = ME ? ME.id : null;
 }
+function sessionRevoked() {
+  TOKEN = null; ME = null; try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  if (DB && DB.session) DB.session.user = null;
+  route = { name: 'login', params: {} };
+  try { toast('Tài khoản đã bị khoá hoặc xoá — hãy đăng nhập lại'); } catch (e) {}
+  try { render(); } catch (e) {}
+}
+const payMethodLabel = m => ({ cash: 'Tiền mặt', vietqr: 'VietQR', transfer: 'Chuyển khoản' }[m] || String(m || ''));
 
 /* ---------- Bản thật đẩy thay đổi qua WebSocket.
      Ở bản dùng thử chỉ có một máy nên không cần: mọi thao tác đã gọi refresh() ngay sau đó. */
@@ -264,6 +279,8 @@ const hhmm = ts => { const d = new Date(ts); return String(d.getHours()).padStar
 const elapsed = ts => { const m = Math.floor((now() - ts) / 60000); return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
 const mins = ts => Math.floor((now() - ts) / 60000);
 const dstr = ts => new Date(ts).toLocaleDateString('vi-VN') + ' ' + hhmm(ts);
+/** Chữ do NGƯỜI DÙNG nhập (ghi chú, tên khách...): hiển thị nguyên văn, không cho bộ dịch giao diện đụng tới */
+const usr = s => '<span data-notr>' + esc(s) + '</span>';
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const menuById = id => DB.menu.find(m => m.id === id);
 const tableById = id => DB.tables.find(t => t.id === id);
@@ -292,7 +309,7 @@ function orderTotal(o) {
   const sub = o.items.reduce((s, i) => s + i.price * i.qty, 0);
   const p = o.promoId ? DB.promos.find(x => x.id === o.promoId) : null;
   let disc = 0;
-  if (p && sub >= p.min) disc = Math.min(sub, p.type === 'pct' ? Math.round(sub * p.value / 100) : p.value);
+  if (p && p.active && sub >= p.min) disc = Math.min(sub, p.type === 'pct' ? Math.round(sub * p.value / 100) : p.value);
   return { sub, disc, total: sub - disc, promo: p };
 }
 function seatStatus(tableId, seatNo) {

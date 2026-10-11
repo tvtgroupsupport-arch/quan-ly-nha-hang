@@ -290,7 +290,10 @@ begin
           raise exception 'Máy nhân viên không được xoá dữ liệu' using errcode = '42501';
         end if;
         if r.collection = any (v_staff_rw) then
-          null;  -- được phép
+          -- Nhật ký chỉ được THÊM MỚI: máy phụ không ghi đè được dòng nhật ký đã có (xoá dấu vết)
+          if r.collection = 'logs' and exists (select 1 from public.records l where l.collection = 'logs' and l.id = r.id and l.data <> r.data) then
+            raise exception 'Nhật ký chỉ được thêm mới, không được sửa' using errcode = '42501';
+          end if;
         elsif r.collection = 'menu' then
           if not exists (select 1 from public.records m
                           where m.collection = 'menu' and m.id = r.id and not m.deleted
@@ -396,6 +399,7 @@ language plpgsql security definer set search_path = public as $$
 declare v_seat record; v_now bigint := (extract(epoch from now()) * 1000)::bigint;
 begin
   select * into v_seat from public._guest_seat(p_seat_token, true);
+  v_now := greatest(v_now, coalesce((v_seat.seat_data ->> 'updated_at')::bigint, 0) + 1);   -- máy chủ quán có đồng hồ nhanh thì mốc seat hiện có lớn hơn: vẫn phải ghi đè được
   insert into public.records (collection, id, data, updated_at, deleted)
   values ('seats', v_seat.seat_id, v_seat.seat_data || jsonb_build_object('calling', 1, 'updated_at', v_now), v_now, false)
   on conflict (collection, id) do update
@@ -421,6 +425,7 @@ begin
     raise exception 'Chưa chọn món' using errcode = '22023';
   end if;
   select * into v_seat from public._guest_seat(p_seat_token, true);
+  v_now := greatest(v_now, coalesce((v_seat.seat_data ->> 'updated_at')::bigint, 0) + 1);
 
   v_order_id := v_seat.seat_data ->> 'bound_order_id';
   if v_order_id is not null then
@@ -531,8 +536,8 @@ begin
 
   with del as (delete from public.records where collection = 'logs' and updated_at < v_logs_cutoff returning 1)
     select count(*) into v_purged_logs from del;
-  with del as (delete from public.records where collection = 'stockMoves' and updated_at < v_stock_cutoff returning 1)
-    select count(*) into v_purged_stock from del;
+  -- KHÔNG xoá phiếu kho (stockMoves): tồn kho mỗi máy = tồn đầu (qty0) + tổng phiếu; xoá phiếu cũ trên máy chủ làm máy mới/máy khôi phục ra tồn kho khác máy đang dùng.
+  v_purged_stock := 0;
 
   return jsonb_build_object('purged_tombstones', v_purged_deleted, 'purged_orders_rows', v_purged_orders,
     'purged_logs', v_purged_logs, 'purged_stock_moves', v_purged_stock, 'months_kept', greatest(p_months_keep, 6));

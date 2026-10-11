@@ -166,7 +166,7 @@ t.group('6. Đồng bộ hai chiều: gọi món offline → có mạng tự đ�
   await A.sync(); await S.sync();
   t.eq(S.D.staff.length, 3, 'tài khoản nhân viên mới tạo ở máy chủ quán xuất hiện ở máy nhân viên');
   const lg = await S.login('pv2', temp);
-  t.ok(lg.staff.mustChange, 'nhân viên đăng nhập ở máy phụ bằng mật khẩu tạm được cấp ở máy chủ');
+  t.ok(lg.staff && !lg.staff.mustChange, 'máy phụ không ghi được tài khoản lên kho nên không buộc đổi mật khẩu ở máy phụ (đổi ở máy chủ quán)');
 
   const boA0 = ing(A, 'Thịt bò').qty, bsA0 = ing(A, 'Bánh phở').qty;
   S.setOnline(false);                                       // máy nhân viên mất mạng
@@ -1601,6 +1601,62 @@ t.group('38. Trạng thái "đã làm xong" của bếp, nhật ký ghi giá tr�
   await A.loadDevices();
   t.ok(/permission denied/.test(A.window._devicesErr) && A.VIEWS.cloud().includes('c_devReload'), 'tải danh sách thiết bị lỗi → hiện lý do + nút tải lại (không im lặng để trống)');
   A.Cloud.listDevices = orig;
+}
+t.group('38b. Sửa lỗi từ đợt rà soát: phân quyền, phiên đăng nhập, báo cáo đủ số liệu, kiểm tra dữ liệu, đồng bộ không xoá oan');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  const ownerId = A.D.staff.find(s => s.role === 'Chủ quán').id;
+  // tài khoản Quản lý có quyền "Nhân viên"
+  const tmp = (await A.api('/staff', { method: 'POST', body: { name: 'QL', username: 'ql', role: 'Quản lý' } })).tempPassword;
+  const qlId = A.D.staff.find(s => s.username === 'ql').id;
+  await A.api('/staff/' + qlId, { method: 'PATCH', body: { perms: { ...A.D.staff.find(s => s.id === qlId).perms, staff: 1 } } });
+  await A.login('ql', tmp);
+  await t.rejects(() => A.api(`/staff/${ownerId}/reset-password`, { method: 'POST' }), /chủ quán/i, 'tài khoản Quản lý không cấp lại được mật khẩu của Chủ quán');
+  await t.rejects(() => A.api('/staff/' + qlId, { method: 'PATCH', body: { perms: { staff: 1, report: 1, adminAll: 1 } } }), /Không/, 'không tự nâng quyền cho chính mình');
+  // khoá tài khoản → phiên đang mở bị thoát ngay sau lần làm mới
+  A.D.staff.find(s => s.id === qlId).active = 0;
+  await A.refresh();
+  t.ok(!A.ME, 'tài khoản bị khoá → phiên đang đăng nhập bị thu hồi ngay');
+  // khoá sau 5 lần sai
+  for (let i = 0; i < 5; i++) await t.rejects(() => A.apiLocal('/auth/login', { method: 'POST', body: { username: 'chuquan', password: 'sai-' + i } }), /Sai tên đăng nhập/, 'sai lần ' + (i + 1));
+  await t.rejects(() => A.apiLocal('/auth/login', { method: 'POST', body: { username: 'chuquan', password: 'chuquan123' } }), /khoá/, 'sai quá 5 lần → bị khoá 15 phút, kể cả khi sau đó nhập đúng');
+  A.window.localStorage.removeItem('bepo_login_fail');
+  // gửi món nguyên tử: món sau hết hàng thì món trước không bị trừ kho / không tạo đơn rỗng
+  await A.login('chuquan', 'chuquan123');
+  const tb = A.D.tables[0], m1 = A.D.menu[0], m2 = A.D.menu[1];
+  m2.stock_state = 'out';
+  const nO = A.D.orders.length, nI = A.D.orderItems.length;
+  await t.rejects(() => A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: m1.id, qty: 1 }, { menuItemId: m2.id, qty: 1 }] } }), /hết hàng/, 'giỏ có món hết hàng → báo lỗi');
+  t.ok(A.D.orders.length === nO && A.D.orderItems.length === nI, 'lỗi giữa chừng KHÔNG để lại đơn rỗng hay món đã trừ kho');
+  m2.stock_state = 'ok';
+  // xoá món hai lần, bếp không làm sống lại món đã huỷ
+  const o = await A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: m1.id, qty: 1 }, { menuItemId: m2.id, qty: 1 }] } });
+  const it = A.D.orderItems.filter(i => i.order_id === o.id)[0];
+  await A.api('/order-items/' + it.id, { method: 'DELETE' });
+  await t.rejects(() => A.api('/order-items/' + it.id, { method: 'DELETE' }), /đã được xoá/, 'xoá món lần hai bị từ chối (không hoàn kho hai lần)');
+  await t.rejects(() => A.api(`/kds/items/${it.id}/start`, { method: 'POST' }), /đã bị xoá/, 'bếp không "làm sống lại" món đã huỷ');
+  // báo cáo: đủ số liệu dù hơn 200 hoá đơn
+  const now0 = Date.now();
+  for (let i = 0; i < 230; i++) A.D.payments.push({ id: 'px' + i, order_id: o.id, method: 'cash', subtotal: 1000, discount: 0, total: 1000, state: 'paid', staff_id: ownerId, created_at: now0 - 1000 * i, paid_at: now0 - 1000 * i });
+  const rr = await A.api(`/report-range?from=${now0 - 86400000}&to=${now0 + 1000}`);
+  t.ok(rr.payments.length >= 230 && rr.payments.reduce((s, p) => s + p.total, 0) >= 230000, 'báo cáo theo khoảng cộng đủ 230 hoá đơn (không bị cắt ở 200): ' + rr.payments.length);
+  // kiểm tra dữ liệu khi sửa
+  await t.rejects(() => A.api('/menu/' + m1.id, { method: 'PATCH', body: { price: 0 } }), /Giá/, 'sửa món giá 0 bị từ chối');
+  await t.rejects(() => A.api('/menu/' + m1.id, { method: 'PATCH', body: { name: '  ' } }), /tên/i, 'sửa món tên rỗng bị từ chối');
+  // xoá bàn: khoá QR + đổi mã
+  const tdel = (await A.api('/tables', { method: 'POST', body: { name: 'Bàn XOA', areaId: A.D.areas[0].id, seats: 2 } })).id;
+  const tok0 = A.D.seats.find(s => s.table_id === tdel && s.seat_no === 1).qr_token;
+  await A.api('/tables/' + tdel, { method: 'DELETE' });
+  const sd = A.D.seats.find(s => s.table_id === tdel && s.seat_no === 1);
+  t.ok(sd.locked === 1 && sd.qr_token !== tok0, 'xoá bàn → khoá và đổi mã QR các ghế (tem cũ không gọi món được nữa)');
+  t.ok(fs.readFileSync(new URL('../src/web/app.js', import.meta.url), 'utf8').includes('await refresh();      // lấy mã mới về TRƯỚC'), 'đổi mã QR: làm mới dữ liệu trước khi vẽ lại khung (không hiện mã cũ)');
+  // mất phiên đăng nhập kho: máy phụ KHÔNG bị coi là thu hồi / không xoá dữ liệu
+  const S = await addStaffDevice(w, A, 'pv2'); await S.sync();
+  const keep = S.D.orders.length;
+  S.Cloud.store.auth.getSession = async () => ({ data: { session: null } });   // phiên đăng nhập kho bị mất
+  await S.Sync.syncNow();
+  t.eq(S.Sync.state.status, 'auth', 'máy phụ mất phiên → trạng thái cần đăng nhập lại (không phải "bị thu hồi")');
+  t.eq(S.D.orders.length, keep, 'dữ liệu trên máy phụ KHÔNG bị xoá khi chỉ mất phiên');
 }
 t.group('37. Trang Hướng dẫn sử dụng trong app: song ngữ, ảnh thật + khung đỏ, mở được từ Quản lý (kể cả khi bị khoá)');
 {

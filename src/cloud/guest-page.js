@@ -113,6 +113,7 @@ async function load() {
 }
 /** Làm mới âm thầm — không phá giao diện nếu lỗi/mất mạng tạm thời */
 async function poll() {
+  if (document.hidden) return;   // tab/điện thoại đang tắt màn hình: không tải lại cả thực đơn, đỡ tốn băng thông
   try {
     const { data, error } = await sb.rpc('guest_menu', { p_seat_token: TOKEN });
     if (error || !data) return;
@@ -145,7 +146,7 @@ function renderMenu() {
       \${c.items.map(m => {
         const out = m.stock_state === 'out', qty = cart[m.id] || 0;
         return \`<div class="item">
-          <div class="thumb">\${m.image ? \`<img src="\${m.image}">\` : (m.emoji || '🍽️')}</div>
+          <div class="thumb">\${m.image ? \`<img src="\${esc(m.image)}">\` : esc(m.emoji || '🍽️')}</div>
           <div class="body">
             <div class="name">\${esc(m.name)}</div>
             \${m.description ? \`<div class="desc">\${esc(m.description)}</div>\` : ''}

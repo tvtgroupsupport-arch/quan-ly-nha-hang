@@ -109,7 +109,9 @@ function _trTextNode(n) {
   const cur = n.nodeValue;
   if (n.__en !== undefined && cur === n.__en) return;      // vừa do mình đặt
   n.__vi = cur;
-  const out = trText(cur);
+  // Nhãn cần dịch KHÁC theo ngữ cảnh (vd. tab "Quản lý" = Manage, còn vai trò "Quản lý" = Manager): phần tử gắn data-en quy định bản tiếng Anh
+  const pe = n.parentNode && n.parentNode.getAttribute ? n.parentNode.getAttribute('data-en') : null;
+  const out = (pe && _lang === 'en' && cur.trim()) ? cur.replace(cur.trim(), pe) : trText(cur);
   if (out !== cur) { n.__en = out; n.nodeValue = out; } else n.__en = undefined;
 }
 function _trAttrs(el) {

@@ -223,7 +223,7 @@ function vCloud() {
         <button class="btn pri" data-act="c_relogin">Đăng nhập lại</button></div>` : ''}
       ${s.conflicts.length ? `<div class="sec">Cần kiểm tra</div><div class="card">${s.conflicts.slice(0, 5).map(c =>
         `<div class="t-xs" style="margin-bottom:6px;color:var(--red)">⚠ ${esc(c.reason || 'Xung đột dữ liệu')} <span class="muted">(${esc(fmtTime(c.at))})</span></div>`).join('')}</div>` : ''}
-      ${isOwner && !linked ? (Cloud.localMode ? upgradeCardHtml() : `<button class="btn pri" data-go="ownerLink">Liên kết Supabase của quán</button>`) : ''}
+      ${isOwner && !linked && ownerOnlyUpgrade() ? (Cloud.localMode ? upgradeCardHtml() : `<button class="btn pri" data-go="ownerLink">Liên kết Supabase của quán</button>`) : ''}
       ${isOwnerDevice() && linked ? `
         <div class="sec">Thiết bị nhân viên</div>
         <button class="btn pri" data-act="c_inviteNew">Thêm thiết bị nhân viên (mã QR)</button>
@@ -431,6 +431,11 @@ const canDeleteAccount = () => isOwnerDevice();
 /** Thêm / thu hồi / xoá thiết bị nhân viên: chỉ tài khoản Chủ quán trên máy chủ quán (cùng điều kiện với Gói cước) */
 const canManageDevices = () => isOwnerDevice();
 const DEVICES_OWNER_ONLY = 'Chỉ tài khoản Chủ quán trên máy chủ quán mới quản lý được thiết bị nhân viên';
+/** Dữ liệu quán CHỈ nằm trên máy này (chế độ dùng ngay) hoặc còn thay đổi chưa gửi lên kho → xoá dữ liệu máy là mất hẳn: chỉ Chủ quán được làm, và phải gõ XOA xác nhận.
+    Khi mọi thứ đã nằm an toàn trên kho thì mọi tài khoản vẫn được 'ngắt liên kết, xoá dữ liệu trên máy này' như đã quy định. */
+const unlinkIsDestructive = () => Cloud.localMode || Records.dirtyCount() > 0;
+const canUnlinkHere = () => !unlinkIsDestructive() || !ME || ME.role === 'Chủ quán';
+const ownerOnlyUpgrade = () => !ME || ME.role === 'Chủ quán';
 const canDetachStore = () => Cloud.role === 'owner' && !!Cloud.linked && (!ME || ME.role === 'Chủ quán');
 
 function cloudCardHtml() {
@@ -519,14 +524,15 @@ function cloudAct(el) {
       toast('Đã sẵn sàng — dùng thử 14 ngày');
     }); return true;
 
-    case 'c_upgradeRestore': { closeSheet(); go('ownerRestore'); return true; }
+    case 'c_upgradeRestore': { if (!ownerOnlyUpgrade()) { toast('Chỉ tài khoản Chủ quán mới thực hiện được'); return true; } closeSheet(); go('ownerRestore'); return true; }
     case 'c_upgradeNewStore': busy(async () => {
+      if (!ownerOnlyUpgrade()) throw new Error('Chỉ tài khoản Chủ quán mới thực hiện được');
       closeSheet();
       await Cloud.discardStoreLink();
       toast('Đã bỏ liên kết quán cũ — liên kết kho mới cho quán đang dùng');
       go('ownerLink');
     }); return true;
-    case 'c_upgradeStart': { go('ownerAuth', { mode: 'signup' }); return true; }
+    case 'c_upgradeStart': { if (!ownerOnlyUpgrade()) { toast('Chỉ tài khoản Chủ quán mới thực hiện được'); return true; } go('ownerAuth', { mode: 'signup' }); return true; }
 
     case 'c_ownerInitGo': busy(async () => {
       const shop = val('oi_shop').trim(), user = val('oi_user').trim(), p1 = val('oi_pass'), p2 = val('oi_pass2');
@@ -663,9 +669,11 @@ function cloudAct(el) {
     case 'c_syncNow': busy(async () => { await Sync.syncNow(); if (route.name === 'cloud') render(); }); return true;
 
     case 'c_unlinkAsk': {
+      if (!canUnlinkHere()) { toast('Dữ liệu quán chưa được sao lưu lên kho — chỉ tài khoản Chủ quán mới được xoá dữ liệu trên máy này'); return true; }
       // Chủ quán đã liên kết kho: cho chọn GỠ LUÔN liên kết ở máy chủ trung tâm (nếu chỉ xoá trên máy, tài khoản vẫn nhớ kho cũ)
       const detach = canDetachStore();
-      sheet('Ngắt liên kết?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">Toàn bộ dữ liệu trên máy này sẽ bị <b>xoá</b> và máy quay về màn thiết lập. Dữ liệu đã đồng bộ vẫn còn trên Supabase của quán.${detach ? `<br><br><b>Chỉ xoá trên máy này:</b> tài khoản lưu trữ vẫn nhớ kho Supabase — đăng nhập lại sẽ khôi phục được dữ liệu.<br><b>Xoá và gỡ liên kết kho:</b> tài khoản lưu trữ quên kho cũ để bạn tạo kho mới (kho cũ không bị xoá, bạn tự xoá trên supabase.com nếu muốn). Chọn cách này TRƯỚC khi xoá dự án trên Supabase.` : ''}${Records.dirtyCount() ? `<br><br><span style="color:var(--red)">Còn ${Records.dirtyCount()} thay đổi chưa gửi lên — sẽ mất nếu ngắt ngay.</span>` : ''}</div>
+      sheet('Ngắt liên kết?', `<div class="t-sm muted" style="margin-bottom:16px;line-height:1.6">Toàn bộ dữ liệu trên máy này sẽ bị <b>xoá</b> và máy quay về màn thiết lập. ${Cloud.localMode ? '<b>Dữ liệu quán chỉ nằm trên máy này</b> (chưa bật đồng bộ) — xoá là <b>mất hẳn, không khôi phục được</b>.' : 'Dữ liệu đã đồng bộ vẫn còn trên Supabase của quán.'}${detach ? `<br><br><b>Chỉ xoá trên máy này:</b> tài khoản lưu trữ vẫn nhớ kho Supabase — đăng nhập lại sẽ khôi phục được dữ liệu.<br><b>Xoá và gỡ liên kết kho:</b> tài khoản lưu trữ quên kho cũ để bạn tạo kho mới (kho cũ không bị xoá, bạn tự xoá trên supabase.com nếu muốn). Chọn cách này TRƯỚC khi xoá dự án trên Supabase.` : ''}${Records.dirtyCount() ? `<br><br><span style="color:var(--red)">Còn ${Records.dirtyCount()} thay đổi chưa gửi lên — sẽ mất nếu ngắt ngay.</span>` : ''}</div>
+        ${unlinkIsDestructive() ? '<div class="field"><label class="f">Gõ <b>XOA</b> để xác nhận</label><input class="input" id="unl_confirm" autocapitalize="characters" autocomplete="off"></div>' : ''}
         <button class="btn danger" data-act="c_unlinkGo">${detach ? 'Chỉ xoá dữ liệu trên máy này' : 'Xoá dữ liệu &amp; ngắt liên kết'}</button>
         ${detach ? `<button class="btn danger" data-act="c_unlinkDetachGo" style="margin-top:8px">Xoá &amp; gỡ liên kết kho (để tạo kho mới)</button>` : ''}
         <button class="btn ghost" data-act="closeSheet" style="margin-top:8px">Huỷ</button>`);
@@ -692,6 +700,7 @@ function cloudAct(el) {
     }); return true;
 
     case 'c_unlinkDetachGo': busy(async () => {
+      if (unlinkIsDestructive() && val('unl_confirm').trim().toUpperCase() !== 'XOA') throw new Error('Gõ đúng chữ XOA để xác nhận');
       if (!canDetachStore()) throw new Error('Chỉ tài khoản Chủ quán trên máy chủ quán mới được gỡ liên kết kho');
       await Cloud.unlinkAndDetach(); closeSheet(); TOKEN = null; ME = null;
       try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
@@ -700,6 +709,8 @@ function cloudAct(el) {
     }); return true;
 
     case 'c_unlinkGo': busy(async () => {
+      if (!canUnlinkHere()) throw new Error('Chỉ tài khoản Chủ quán mới được xoá dữ liệu chưa sao lưu');
+      if (unlinkIsDestructive() && val('unl_confirm').trim().toUpperCase() !== 'XOA') throw new Error('Gõ đúng chữ XOA để xác nhận');
       closeSheet(); await Cloud.unlinkAll(); TOKEN = null; ME = null;
       try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
       route = { name: 'setup', params: {} }; render();

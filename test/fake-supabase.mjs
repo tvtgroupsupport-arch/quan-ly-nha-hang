@@ -92,9 +92,6 @@ export class FakeProject {
     for (const [k, r] of [...this.records]) {
       if (r.collection === 'logs' && r.updated_at < logsCutoff) { this.records.delete(k); purgedLogs++; }
     }
-    for (const [k, r] of [...this.records]) {
-      if (r.collection === 'stockMoves' && r.updated_at < stockCutoff) { this.records.delete(k); purgedStock++; }
-    }
     return { purged_tombstones: purgedTombstones, purged_orders_rows: purgedOrders, purged_logs: purgedLogs, purged_stock_moves: purgedStock, months_kept: monthsKeep };
   }
   rpc_store_status(_, s) {
@@ -236,7 +233,9 @@ export class FakeProject {
         const key = r.collection + '|' + r.id, cur = this.records.get(key);
         if (!owner) {
           if (r.deleted) throw new Error('Máy nhân viên không được xoá dữ liệu');
-          if (STAFF_RW.includes(r.collection)) { /* được phép */ }
+          if (STAFF_RW.includes(r.collection)) {
+            if (r.collection === 'logs' && cur && stable(cur.data) !== stable(r.data)) throw new Error('Nhật ký chỉ được thêm mới, không được sửa');
+          }
           else if (r.collection === 'menu') {
             if (!(cur && !cur.deleted && stable(omit(cur.data, ['stock_state', 'updated_at'])) === stable(omit(r.data, ['stock_state', 'updated_at']))))
               throw new Error('Máy nhân viên chỉ được đổi tình trạng còn/hết món');
