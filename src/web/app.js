@@ -1668,6 +1668,7 @@ function wireCloud() {
   NativeBridge.network.get().then(on => Sync.setOnline(on));
   NativeBridge.app.onResume(() => {
     try { NativeBridge.alerts && NativeBridge.alerts.resumed && NativeBridge.alerts.resumed(); } catch (e) {}
+    try { if (typeof playOnResume === 'function') playOnResume(); } catch (e) {}      // đóng hộp thoại mua của Google mà không trả lời → mở lại trang đăng ký
     Sync.kick(0, { deep: true });      // mở lại app: kéo lùi đủ để bắt mọi bản ghi sót trong lúc app ngủ
     ensureKeepAlive();
     recheckLicense(License.status().state !== 'ok');   // sắp/đã quá hạn → hỏi lại ngay, không đợi chu kỳ 6 giờ

@@ -3112,6 +3112,37 @@ t.group('38n. Vòng 3: công tắc về đúng trạng thái dù đang giữ foc
   F.route = { name: 'cloud', params: {} };
   t.ok(F.VIEWS.cloud().includes('Kho dữ liệu cần cập nhật script SQL') && F.VIEWS.cloud().includes('c_copySql'), 'thẻ chi tiết (có nút sao chép script) ở màn Đồng bộ vẫn hiện');
 }
+t.group('34i. Đóng hộp thoại mua của Google mà không trả lời → khi mở lại app trang đăng ký không bị khoá mãi');
+{
+  const w = newWorld(); w.central.trialDays = 0;
+  const A = await newDevice(w, 'mua-huy', { billingMode: 'play' });
+  await A.Cloud.ownerSignUp('h@y.vn', 'matkhau1', 'H'); await A.License.refresh(true);
+  await A.createStore({ shopName: 'Quán H', ownerName: 'Chị Hoa', username: 'chuquan', appPassword: 'abcdef', sample: true });
+  await A.Cloud.saveCfg({ role: 'owner', local: true, acct: true }); await A.Persist.flush(); await A.login('chuquan', 'abcdef');
+  A.fetchImpl = async () => ({ ok: true, json: async () => ({ ok: true }) });
+  A.route = { name: 'subscription', params: {} };
+  A.billingPurchaseImpl = () => new Promise(() => {});      // plugin không bao giờ trả lời (người dùng đóng hộp thoại)
+  A.lastToast = null; A.lastPurchaseCall = null;
+  const pending = A.playPurchase('goi_1_thang');
+  await A.until(() => !!A.lastPurchaseCall, 3000);      // đã mở hộp thoại mua của Google
+  t.ok(A.playBusy === true, 'đang chờ Google: nút gói bị khoá');
+  A.playOnResume(40);                                       // app được mở lại sau khi hộp thoại đóng
+  await pending;
+  t.ok(A.playBusy === false, 'sau khi mở lại app mà không có kết quả → mở khoá, bấm gói lại được');
+  t.ok(/Đã huỷ/.test(A.lastToast || ''), 'báo "Đã huỷ"');
+  // mua lại được
+  A.billingPurchaseImpl = null; A.lastPurchaseCall = null;
+  await A.playPurchase('goi_1_thang');
+  t.ok(A.lastPurchaseCall && A.lastPurchaseCall.productId === 'goi_1_thang', 'bấm gói lần nữa → vào lại được luồng mua của Google');
+  // mua bình thường không bị huỷ oan khi app mở lại ngay sau đó
+  A.billingPurchaseImpl = async (id) => { await new Promise(r => setTimeout(r, 40)); return { purchaseToken: 'tok-' + id, productId: id }; };
+  A.lastToast = null;
+  A.lastPurchaseCall = null;
+  const p2 = A.playPurchase('goi_1_thang'); await A.until(() => !!A.lastPurchaseCall, 3000);
+  A.playOnResume(2000);
+  await p2;
+  t.ok(!/Đã huỷ/.test(A.lastToast || ''), 'giao dịch hoàn tất trong thời gian ân hạn thì KHÔNG bị coi là huỷ');
+}
 t.group('37. Trang Hướng dẫn sử dụng trong app: song ngữ, ảnh thật + khung đỏ, mở được từ Quản lý (kể cả khi bị khoá)');
 {
   const w = newWorld(); const A = await setupOwner(w);

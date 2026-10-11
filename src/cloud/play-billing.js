@@ -170,6 +170,22 @@ async function refreshLicenseWithPlay(force) {
 
 function _playLabel(id) { return ({ goi_1_thang: '1 tháng', goi_6_thang: '6 tháng', goi_12_thang: '12 tháng' }[id] || id); }
 
+/** Hộp thoại mua của Google: nếu người dùng đóng nó mà KHÔNG trả lời (bấm ra ngoài / nút Back) thì lời hứa của plugin có thể không bao giờ kết thúc →
+    nút gói bị khoá mãi ("_playBusy") và không mở lại được trang đăng ký. Khi app được mở lại (resume) mà vẫn chưa có kết quả sau PLAY_RESUME_GRACE thì coi là đã huỷ. */
+const PLAY_RESUME_GRACE = 8000;
+let _playPending = null;
+function playOnResume(graceMs) {
+  const p = _playPending; if (!p || p.armed) return;
+  p.armed = true;
+  setTimeout(() => { if (_playPending === p) p.reject(new Error('user cancelled')); }, graceMs == null ? PLAY_RESUME_GRACE : graceMs);
+}
+function purchaseWithEscape(productId, ownerId, basePlan) {
+  return new Promise((resolve, reject) => {
+    const p = { reject, armed: false }; _playPending = p;
+    NativeBridge.billing.purchase(productId, ownerId, basePlan).then(resolve, reject);
+  });
+}
+
 async function playPurchase(productId, force) {
   if (_playBusy) return;
   _playBusy = true; render();
@@ -215,7 +231,7 @@ async function playPurchase(productId, force) {
     const prod = (_playProducts || []).find(p => playProductId(p) === productId);
     const basePlan = (prod && prod.planIdentifier && prod.identifier) || PLAY_BASE_PLANS[productId];
     if (!basePlan) throw new Error('Không xác định được gói cơ bản của gói này — kiểm tra lại cấu hình gói trên Play Console');
-    const tx = await NativeBridge.billing.purchase(productId, ownerId, basePlan);
+    const tx = await purchaseWithEscape(productId, ownerId, basePlan);
     const purchaseToken = tx?.purchaseToken || tx?.transactionId || tx?.id;
     if (!purchaseToken) throw new Error('Không nhận được mã giao dịch từ Google — thử lại');
 
@@ -229,7 +245,8 @@ async function playPurchase(productId, force) {
     if (/user.*cancel|cancelled|canceled/i.test(msg)) toast('Đã huỷ');
     else toast(msg || 'Mua gói không thành công, thử lại');
   } finally {
-    _playBusy = false; render();
+    _playPending = null; _playBusy = false; render();
+    playSyncPurchases(true).catch(() => {});     // lỡ giao dịch đã xong mà plugin không báo: gửi lên máy chủ xác minh
   }
 }
 async function playRestore() {
