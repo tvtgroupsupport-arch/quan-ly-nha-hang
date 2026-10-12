@@ -12,15 +12,15 @@
 --        select id from auth.users where email = 'email-cua-ban@example.com';
 --      (đăng ký tài khoản đó trong app hoặc trang admin/index.html trước)
 --   4. Chép Project URL + anon key vào app.config.json (trường centralUrl, centralAnonKey).
---   5. trial_days = số ngày dùng thử do máy chủ cấp cho tài khoản mới. Mặc định 0 = KHÔNG dùng thử: tài khoản mới hết hạn ngay và app khoá tới khi mua gói;
---      dùng thử miễn phí do Google Play cấp qua ưu đãi (offer) của gói 1 tháng trên Play Console. (Muốn tặng thêm ngày dùng thử từ máy chủ: đổi số này.)
+--   5. trial_days = số ngày dùng thử do máy chủ cấp cho tài khoản mới. Mặc định 30 = tài khoản mới được dùng thử 30 ngày khi chưa mua gói (tính từ lúc tạo tài khoản);
+--      hết hạn thì app khoá tới khi mua gói qua Google Play (gói 1 tháng còn có thể có ưu đãi dùng thử riêng của Google). Đặt 0 = không dùng thử từ máy chủ.
 -- ============================================================================
 
 create table if not exists public.app_config (
   key   text primary key,
   value text not null
 );
-insert into public.app_config (key, value) values ('trial_days', '0')
+insert into public.app_config (key, value) values ('trial_days', '30')
   on conflict (key) do nothing;
 
 create table if not exists public.profiles (
