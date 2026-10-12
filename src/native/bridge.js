@@ -28,6 +28,8 @@ const isNative = Capacitor.isNativePlatform();
 
 /* ---------- SQLite (chỉ trên Android) ---------- */
 let conn = null;
+/** Plugin Android đôi khi không trả lời (cầu nối Capacitor nghẽn) → hạn chót để không treo cả lượt đồng bộ mà không rõ nguyên nhân */
+const plug = (p, ms, what) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(Object.assign(new Error(what + ' không phản hồi (quá ' + Math.round(ms / 1000) + ' giây)'), { pluginTimeout: true })), ms); })]).finally(() => clearTimeout(t)); };
 const sqlite = isNative ? {
   async open(name) {
     const mgr = new SQLiteConnection(CapacitorSQLite);
@@ -38,15 +40,15 @@ const sqlite = isNative ? {
       : await mgr.createConnection(name, false, 'no-encryption', 1, false);
     await conn.open();
   },
-  async exec(statements) { await conn.execute(statements, true); },
-  async query(statement, values) { const r = await conn.query(statement, values || []); return r.values || []; },
-  async batch(set) { await conn.executeSet(set, true); }
+  async exec(statements) { await plug(conn.execute(statements, true), 20000, 'SQLite'); },
+  async query(statement, values) { const r = await plug(conn.query(statement, values || []), 20000, 'SQLite'); return r.values || []; },
+  async batch(set) { await plug(conn.executeSet(set, true), 20000, 'SQLite'); }
 } : null;
 
 /* ---------- mạng ---------- */
 const network = {
   async get() {
-    if (isNative) return (await Network.getStatus()).connected;
+    if (isNative) { try { return (await plug(Network.getStatus(), 4000, 'Network')).connected; } catch (e) { return true; } }   // plugin treo: coi như còn mạng, để fetch tự báo lỗi thật
     return navigator.onLine !== false;
   },
   onChange(cb) {

@@ -315,6 +315,7 @@ async function diagnoseAll() {
     try { const info = await _withTimeout(Promise.resolve().then(fn), 15000); out.push({ name, ok: true, ms: Date.now() - t0, info: String(info == null ? '' : info) }); }
     catch (e) { out.push({ name, ok: false, ms: Date.now() - t0, info: fmtErr(e) }); }
   };
+  await step('Bộ nhớ SQLite trên máy', async () => { await NativeBridge.sqlite.query('SELECT 1'); return 'phản hồi bình thường'; });
   await step('Mạng', async () => { if (!(await NativeBridge.network.get())) throw new Error('không có mạng'); return 'có mạng'; });
   await step('Kho dữ liệu của quán (Supabase)', async () => {
     if (!Cloud.cfg.storeUrl) throw new Error('chưa liên kết kho');

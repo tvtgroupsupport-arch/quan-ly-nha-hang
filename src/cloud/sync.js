@@ -26,7 +26,7 @@ const Sync = (() => {
   /** Ngắt lượt đang chạy nếu: lượt đã bị thay thế/huỷ (gen đổi — kể cả do stop()), hoặc máy đã ngắt liên kết (Cloud.store/role mất).
       Gọi NGAY TRƯỚC mỗi lần ghi D / SQLite / con trỏ, để dữ liệu quán cũ không "sống lại" sau khi ngắt liên kết giữa lúc đang kéo. */
   const stale = my => { if ((my !== undefined && my !== gen) || !enabled()) throw Object.assign(new Error('cancelled'), { cancelled: true }); };
-  let runStart = 0, timeoutMs = 60000;   // một lượt đồng bộ quá 60 giây (mạng yếu/máy chủ treo) bị coi là hỏng và thử lại — trước đây có thể treo mãi ở "Đang đồng bộ…"
+  let runStart = 0, timeoutMs = 60000, curStep = '';   // một lượt đồng bộ quá 60 giây (mạng yếu/máy chủ treo) bị coi là hỏng và thử lại — trước đây có thể treo mãi ở "Đang đồng bộ…"
   const withTimeout = (p, ms) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(Object.assign(new Error('Hết thời gian chờ máy chủ — mạng yếu, sẽ tự thử lại'), { timeout: true })), ms); })]).finally(() => clearTimeout(t)); };
 
   const enabled = () => !!(typeof Cloud !== 'undefined' && Cloud.store && Cloud.role);
@@ -63,20 +63,21 @@ const Sync = (() => {
       // gây độ trễ vài giây khi 2 máy đồng bộ qua lại). Đồng bộ KHÔNG "quick" (gọi tay qua syncNow(),
       // vd. ngay sau khi chủ quán thu hồi một thiết bị) luôn kiểm tra đủ, không bớt bước nào — để phát
       // hiện thu hồi/mất quyền nhanh như trước, không đánh đổi bảo mật lấy tốc độ.
-      if (!opts?.quick || Date.now() - lastAccessCheck > 60000) { lastAccessCheck = Date.now(); await checkAccess(); }
+      if (!opts?.quick || Date.now() - lastAccessCheck > 60000) { lastAccessCheck = Date.now(); curStep = 'kiểm tra quyền'; await checkAccess(); }
       // Máy vừa khôi phục/liên kết (đã xoá sạch dữ liệu cục bộ): kéo dữ liệu THẬT về và để nó thắng, TRƯỚC KHI đẩy bất cứ gì —
       // nếu lần kéo đầu bị lỗi mạng, các bản ghi mặc định mới tạo (tên quán, cài đặt...) không được đè lên dữ liệu thật trên kho.
+      curStep = 'kéo dữ liệu';
       if (Persist.getMeta('initialPullPending', 0)) { await pullAll(my, { force: true }); stale(my); await Persist.setMeta('initialPullPending', 0); }
       stale(my);
-      await pushAll(my);
-      await pullAll(my, { deep });
+      curStep = 'gửi thay đổi'; await pushAll(my);
+      curStep = 'kéo dữ liệu'; await pullAll(my, { deep });
      })(), timeoutMs);
       stale(my);       // lượt đã bị thay thế/huỷ trong lúc chờ → im lặng bỏ qua, không báo "đã đồng bộ"
       S.status = 'ok'; S.lastSyncAt = Date.now(); S.lastError = ''; fails = 0; S.progress = 0;
     } catch (e) {
       if (my !== gen) ownsRun = false;   // đã bị thay thế (lượt mới, hoặc stop()/ngắt liên kết): im lặng bỏ qua — KHÔNG gen++, KHÔNG đặt lỗi, KHÔNG đụng S.running của lượt mới
       else {
-        if (e && e.timeout) gen++;       // lượt này quá hạn: các vòng lặp của nó dừng ở lần kiểm tra kế tiếp (chỉ khi nó VẪN là lượt hiện hành — nếu không sẽ huỷ oan lượt mới)
+        if (e && e.timeout) { gen++; if (curStep) e.message += ' (kẹt ở bước ' + curStep + ')'; }       // lượt này quá hạn: các vòng lặp của nó dừng ở lần kiểm tra kế tiếp (chỉ khi nó VẪN là lượt hiện hành — nếu không sẽ huỷ oan lượt mới)
         await handleError(e);
       }
     } finally {
