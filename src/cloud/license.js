@@ -52,11 +52,28 @@ const License = (() => {
   }
   const locked = () => status().locked;
 
+  /** Chặn lấy lại dùng thử: máy chủ ghi nhớ mã băm của Android ID. Máy này đã gắn với TÀI KHOẢN KHÁC → gói dùng thử (chưa mua) của tài khoản này bị cắt ngay.
+      Chỉ máy chủ quán gọi (máy nhân viên dùng hạn gói của chủ quán, không có dùng thử riêng). Chỉ nhớ kết quả khi gọi thành công; lỗi mạng → thử lại lần sau. */
+  async function claimDeviceTrial() {
+    try {
+      if (typeof NativeBridge === 'undefined' || !NativeBridge.device) return;
+      const { data: sess } = await Cloud.central().auth.getSession();
+      const uid = sess && sess.session && sess.session.user && sess.session.user.id;
+      if (!uid || Persist.getMeta('trial_claim', '') === uid) return;
+      const id = await NativeBridge.device.androidId();
+      if (!id) return;
+      const { data, error } = await Cloud.central().rpc('claim_device_trial', { p_device_id: id });
+      if (error) return;
+      if (data && data.result) Persist.setMeta('trial_claim', uid);
+    } catch (e) { /* offline hoặc máy chủ chưa chạy script mới: bỏ qua */ }
+  }
+
   /** Máy chủ quán: hỏi trung tâm. Không có mạng thì giữ nguyên kết quả cũ. */
   async function refresh(force) {
     // force: dùng lúc thiết lập (chưa có vai trò máy) — vẫn hỏi trung tâm bằng phiên đăng nhập chủ quán vừa tạo
     if (!force && (typeof Cloud === 'undefined' || Cloud.role !== 'owner')) return status();
     try {
+      await claimDeviceTrial();
       const { data, error } = await Cloud.central().rpc('get_my_subscription');
       if (error) throw error;
       if (data) {

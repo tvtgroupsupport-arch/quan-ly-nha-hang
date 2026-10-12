@@ -1935,6 +1935,36 @@ t.group('34f. Bỏ hẳn dùng thử cục bộ 14 ngày và luồng "không c�
   t.eq(B.License.describe(), 'Dùng thử — đã hết hạn', 'dùng thử máy chủ hết hạn → "Dùng thử — đã hết hạn" (không phải "Chưa đăng ký")');
 }
 
+t.group('34j. Chặn lấy lại dùng thử bằng Android ID: máy đã gắn tài khoản khác → dùng thử của tài khoản mới bị cắt; cùng tài khoản cài lại thì không');
+{
+  const w = newWorld();   // trial_days mặc định của máy chủ giả = 14
+  const A = await newDevice(w, 'tz-a', { androidId: 'abcdef0123456789' });
+  await A.Cloud.ownerSignUp('a@y.vn', 'matkhau1', 'A'); await A.License.refresh(true);
+  t.ok(!A.License.locked() && A.License.describe().startsWith('Dùng thử — còn'), 'tài khoản đầu tiên trên máy → có dùng thử');
+  // cài lại app (máy mới trong bộ nhớ, cùng Android ID) và đăng nhập đúng tài khoản cũ → vẫn còn dùng thử, không bị cắt
+  const A2 = await newDevice(w, 'tz-a2', { androidId: 'abcdef0123456789' });
+  await A2.Cloud.ownerSignIn('a@y.vn', 'matkhau1'); await A2.License.refresh(true);
+  t.ok(!A2.License.locked(), 'cùng tài khoản, cùng máy (cài lại) → không bị khoá');
+  // tạo tài khoản MỚI trên cùng máy để lấy thêm dùng thử → bị cắt ngay
+  const B = await newDevice(w, 'tz-b', { androidId: 'abcdef0123456789' });
+  await B.Cloud.ownerSignUp('b@y.vn', 'matkhau1', 'B'); await B.License.refresh(true);
+  t.ok(B.License.locked(), 'tài khoản mới trên máy đã dùng dùng thử → hết hạn ngay');
+  // máy khác (Android ID khác) tạo tài khoản mới → vẫn có dùng thử
+  const C = await newDevice(w, 'tz-c', { androidId: 'zzzz9999888877' });
+  await C.Cloud.ownerSignUp('c@y.vn', 'matkhau1', 'C'); await C.License.refresh(true);
+  t.ok(!C.License.locked(), 'máy khác → có dùng thử bình thường');
+  // không đọc được Android ID (trình duyệt/lỗi) → không chặn gì
+  const D0 = await newDevice(w, 'tz-d'); await D0.Cloud.ownerSignUp('d@y.vn', 'matkhau1', 'D'); await D0.License.refresh(true);
+  t.ok(!D0.License.locked(), 'không có Android ID → bỏ qua, không khoá oan');
+  // tài khoản đã MUA gói (không còn trạng thái trial) thì không bị cắt dù máy đã gắn tài khoản khác
+  const w2 = newWorld();
+  const E = await newDevice(w2, 'tz-e', { androidId: 'eeeeeeee11111111' }); await E.Cloud.ownerSignUp('e@y.vn', 'matkhau1', 'E'); await E.License.refresh(true);
+  const F = await newDevice(w2, 'tz-f', { androidId: 'eeeeeeee11111111' }); await F.Cloud.ownerSignUp('f@y.vn', 'matkhau1', 'F');
+  const fid = [...w2.central.subs.keys()].pop(); const fs0 = w2.central.subs.get(fid); fs0.status = 'active'; fs0.plan_months = 1; fs0.expires_at = Date.now() + 20 * 86400000;
+  await F.License.refresh(true);
+  t.ok(!F.License.locked(), 'tài khoản đã mua gói → không bị cắt');
+}
+
 t.group('35. Đồng bộ không treo mãi ở "Đang đồng bộ…" khi mạng yếu/máy chủ không trả lời');
 {
   const w = newWorld(); const A = await setupOwner(w);

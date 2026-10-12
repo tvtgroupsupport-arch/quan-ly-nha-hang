@@ -285,6 +285,15 @@ export class FakeProject {
     return { plan_months: sub.plan_months, status: live ? sub.status : 'expired', started_at: this.iso(sub.started_at),
              expires_at: this.iso(sub.expires_at), server_now: this.iso(this.now()) };
   }
+  rpc_claim_device_trial({ p_device_id }, s) {
+    if (!p_device_id || String(p_device_id).length < 8) return { result: 'skipped' };
+    this.trialDevices = this.trialDevices || new Map();
+    if (!this.trialDevices.has(p_device_id)) this.trialDevices.set(p_device_id, s.uid);
+    if (this.trialDevices.get(p_device_id) === s.uid) return { result: 'ok' };
+    const sub = this.subs.get(s.uid);
+    if (sub && sub.status === 'trial' && sub.plan_months === 0) sub.expires_at = Math.min(sub.expires_at, this.now());
+    return { result: 'denied' };
+  }
   rpc_save_store_link({ p_url, p_anon }, s) {
     if (!/^https:\/\/[A-Za-z0-9._-]+(:[0-9]+)?$/.test(p_url)) throw new Error('Địa chỉ Supabase không hợp lệ');
     this.links.set(s.uid, { url: p_url, anon_key: p_anon }); return null;

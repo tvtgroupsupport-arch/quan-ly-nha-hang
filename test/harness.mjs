@@ -50,7 +50,7 @@ export async function newDevice(world, name, opts = {}) {
   const billingMode = opts.billingMode || '';   // opts.billingMode = 'play' dựng bản Google Play (APP_CONFIG.billingMode === 'play')
   const SCRIPT = SCRIPTS[billingMode] || (SCRIPTS[billingMode] = assembleScript({ centralUrl: CENTRAL_URL, centralAnonKey: ANON, supportText: '', guestPageUrl: GUEST_PAGE_URL, ...(billingMode ? { billingMode } : {}) }));
   const file = opts.dbFile || path.join(tmp, `${name}-${Math.random().toString(36).slice(2)}.db`);
-  const dev = { name, file, online: true, saved: [], scanResult: null, clip: '', timers: [], sessions: opts.sessions || {}, inputs: {}, netCb: null, clockOffset: 0 };
+  const dev = { name, file, online: true, saved: [], scanResult: null, clip: '', timers: [], sessions: opts.sessions || {}, inputs: {}, netCb: null, clockOffset: 0, androidId: opts.androidId || '' };
 
   const FakeDate = class extends Date {
     constructor(...a) { if (a.length === 0) super(Date.now() + dev.clockOffset); else super(...a); }
@@ -79,6 +79,7 @@ export async function newDevice(world, name, opts = {}) {
   const nb = {
     isNative: true, platform: 'android', ready: async () => {},
     sqlite, supabase: supa,
+    device: { androidId: async () => dev.androidId || '' },
     network: { get: async () => dev.online, onChange: cb => { dev.netCb = cb; } },
     app: { onResume(cb) { dev.resumeCb = cb; }, onBack() {} },       // nhớ hàm xử lý resume để test gọi được hành vi thật
     copy: async t => { dev.clip = t; }, readClipboard: async () => dev.clip,

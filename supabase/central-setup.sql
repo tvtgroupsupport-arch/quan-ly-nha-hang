@@ -421,11 +421,38 @@ begin
   delete from auth.users where id = v;
 end $$;
 
+-- ---------- Chặn lấy lại dùng thử bằng cách cài lại app / tạo tài khoản mới ----------
+-- Máy chủ quán gửi Android ID; chỉ lưu mã băm. Máy đã gắn với tài khoản KHÁC thì gói dùng thử (chưa mua, chưa được admin cộng) của tài khoản này hết hạn ngay.
+-- Máy nhân viên không gọi hàm này: họ dùng hạn gói của chủ quán.
+create table if not exists public.trial_devices (
+  device_hash text primary key,
+  owner_id    uuid not null references auth.users (id) on delete cascade,
+  first_seen  timestamptz not null default now()
+);
+alter table public.trial_devices enable row level security;
+revoke all on public.trial_devices from anon, authenticated;
+
+create or replace function public.claim_device_trial(p_device_id text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare v_hash text; v_owner uuid; v_cut int;
+begin
+  if auth.uid() is null then raise exception 'not authenticated' using errcode = '42501'; end if;
+  if p_device_id is null or length(btrim(p_device_id)) < 8 then return jsonb_build_object('result', 'skipped'); end if;
+  v_hash := encode(sha256(convert_to('bepo:' || btrim(p_device_id), 'UTF8')), 'hex');
+  insert into public.trial_devices (device_hash, owner_id) values (v_hash, auth.uid()) on conflict do nothing;
+  select owner_id into v_owner from public.trial_devices where device_hash = v_hash;
+  if v_owner = auth.uid() then return jsonb_build_object('result', 'ok'); end if;
+  update public.subscriptions set expires_at = least(expires_at, now()), updated_at = now()
+   where owner_id = auth.uid() and status = 'trial' and plan_months = 0 and bonus_until is null and expires_at > now();
+  get diagnostics v_cut = row_count;
+  return jsonb_build_object('result', 'denied', 'trial_cut', v_cut > 0);
+end $$;
+
 -- ---------- Quyền thực thi ----------
 revoke execute on all functions in schema public from public, anon;
 revoke execute on function public._extend_subscription(uuid, int) from authenticated;
 grant execute on function
-  public.get_my_subscription(), public.save_store_link(text, text), public.get_store_link(),
+  public.get_my_subscription(), public.claim_device_trial(text), public.save_store_link(text, text), public.get_store_link(),
   public.clear_store_link(), public.delete_my_account(), public.request_renewal(int, text), public.is_admin(),
   public.admin_overview(), public.admin_pending_requests(), public.admin_approve_renewal(bigint),
   public.admin_reject_renewal(bigint), public.admin_extend(uuid, int), public.admin_status()

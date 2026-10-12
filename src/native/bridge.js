@@ -18,6 +18,7 @@ import { ScreenBrightness } from '@capacitor-community/screen-brightness';
 import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Haptics } from '@capacitor/haptics';
+import { Device } from '@capacitor/device';
 import { ForegroundService } from '@capawesome-team/capacitor-android-foreground-service';
 import { CapacitorThermalPrinter } from 'capacitor-thermal-printer';
 import * as supabase from '@supabase/supabase-js';
@@ -54,6 +55,14 @@ const network = {
   onChange(cb) {
     if (isNative) Network.addListener('networkStatusChange', s => cb(s.connected));
     else { window.addEventListener('online', () => cb(true)); window.addEventListener('offline', () => cb(false)); }
+  }
+};
+
+/* ---------- định danh máy (Android ID) — chỉ dùng để chặn lấy lại dùng thử bằng cách cài lại app / tạo tài khoản mới ---------- */
+const device = {
+  async androidId() {
+    if (!isNative) return '';
+    try { return String((await plug(Device.getId(), 4000, 'Device')).identifier || ''); } catch (e) { return ''; }
   }
 };
 
@@ -331,5 +340,5 @@ window.ExcelJS = ExcelJS;
 window.NativeBridge = {
   isNative, platform: Capacitor.getPlatform(),
   ready: async () => {},
-  sqlite, supabase, network, app, copy, readClipboard, scan, saveFile, savedReports, brightness, billing, browser, alerts, printer
+  sqlite, supabase, network, device, app, copy, readClipboard, scan, saveFile, savedReports, brightness, billing, browser, alerts, printer
 };
