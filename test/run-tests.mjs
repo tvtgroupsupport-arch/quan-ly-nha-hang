@@ -1922,7 +1922,7 @@ t.group('34f. Bỏ hẳn dùng thử cục bộ 14 ngày và luồng "không c�
   t.ok(!/không cần email|Bắt đầu dùng ngay|14-day|14 ngày/.test(guide.replace(/\/\*[\s\S]*?\*\//g, '')), 'hướng dẫn trong app không còn nhắc dùng thử 14 ngày / không cần email');
   t.ok(guide.includes('tài khoản BEPO') && guide.includes('dùng thử miễn phí'), 'hướng dẫn trong app mô tả luồng mới: tài khoản BEPO + gói 1 tháng dùng thử miễn phí');
   const sql = fs.readFileSync(new URL('../supabase/central-setup.sql', import.meta.url), 'utf8');
-  t.ok(/values \('trial_days', '0'\)/.test(sql) && !/values \('trial_days', '14'\)/.test(sql), 'central-setup.sql: trial_days mặc định là 0');
+  t.ok(/values ('trial_days', '30')/.test(sql), 'central-setup.sql: trial_days mặc định là 30');
   t.ok(/'trial_days'\), 0\);/.test(sql) && /Google Play/.test(sql.split('trial_days')[0] + sql.split('trial_days')[1]), 'giá trị dự phòng của hàm handle_new_user cũng là 0 và chú thích nói dùng thử do Google Play cấp');
   // tài khoản mới ở máy chủ trung tâm đúng cấu hình mới → hết hạn ngay, mô tả "Chưa đăng ký"
   const w = newWorld(); w.central.trialDays = 0; const A = await newDevice(w, 'tk-moi');
