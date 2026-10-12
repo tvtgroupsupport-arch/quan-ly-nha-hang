@@ -43,6 +43,7 @@
     <tr><td>Tên nhà hàng</td><td>Quản lý tài khoản</td><td>Do chủ quán nhập</td></tr>
     <tr><td>Tình trạng gói cước (còn hạn/hết hạn, ngày hết hạn)</td><td>Mở/khoá tính năng theo gói đã mua</td><td></td></tr>
     <tr><td>Thông tin giao dịch gói đăng ký Google Play: mã sản phẩm, mã giao dịch (purchase token), trạng thái và ngày hết hạn</td><td>Xác minh với Google và kích hoạt gói cước</td><td>Chúng tôi <b>không</b> nhận số thẻ hay thông tin thanh toán của bạn — việc thanh toán do Google Play xử lý</td></tr>
+    <tr><td>Mã băm (SHA-256) của mã thiết bị Android (Android ID) — chỉ của máy chủ quán</td><td>Phòng chống gian lận: ngăn lấy lại thời gian dùng thử bằng cách cài lại ứng dụng hoặc tạo nhiều tài khoản trên cùng một máy</td><td>Chỉ lưu mã băm, không lưu mã gốc; không dùng để quảng cáo hay theo dõi; không chia sẻ</td></tr>
     <tr><td>Địa chỉ dự án Supabase riêng của quán và khoá công khai (anon) của dự án đó</td><td>Giúp app tìm lại kho dữ liệu khi đổi máy</td><td>Không phải khoá quản trị</td></tr>
   </table>
 
@@ -51,7 +52,7 @@
 
   <h3>2.3. Thông tin ứng dụng không thu thập</h3>
   <ul>
-    <li>Không thu thập vị trí, danh bạ, tin nhắn, ảnh thư viện, micro.</li>
+    <li>Không thu thập vị trí (xem mục 3: quyền vị trí chỉ để quét máy in Bluetooth), danh bạ, tin nhắn, ảnh thư viện, micro.</li>
     <li>Không có quảng cáo, không có công cụ phân tích hay theo dõi hành vi của bên thứ ba.</li>
     <li>Không bán hay cho thuê dữ liệu cá nhân cho bất kỳ ai.</li>
   </ul>
@@ -59,6 +60,10 @@
   <h2>3. Quyền truy cập trên thiết bị</h2>
   <ul>
     <li><b>Máy ảnh (CAMERA):</b> chỉ để quét mã QR khi liên kết máy nhân viên với máy chủ quán. Ứng dụng không chụp, không lưu và không gửi đi hình ảnh.</li>
+    <li><b>Bluetooth (BLUETOOTH_SCAN, BLUETOOTH_CONNECT) và Vị trí (ACCESS_FINE_LOCATION):</b> chỉ để tìm và kết nối máy in hoá đơn Bluetooth khi chủ quán chọn in. Android yêu cầu quyền vị trí để quét thiết bị Bluetooth; ứng dụng <b>không đọc, không lưu và không gửi vị trí</b> của bạn. Không dùng nếu quán không có máy in Bluetooth.</li>
+    <li><b>Thông báo (POST_NOTIFICATIONS), rung, giữ máy thức (WAKE_LOCK):</b> báo có món/gọi nhân viên mới, nhắc khi đồng bộ nền bị dừng.</li>
+    <li><b>Dịch vụ nền loại đồng bộ dữ liệu (FOREGROUND_SERVICE_DATA_SYNC):</b> giữ kết nối đồng bộ đơn hàng giữa các máy của quán khi ứng dụng ở nền; luôn có thông báo hiển thị khi chạy.</li>
+    <li><b>Mã thiết bị Android:</b> đọc để chống lấy lại dùng thử (xem mục 2.1); không cần cấp quyền riêng.</li>
     <li><b>Internet / trạng thái mạng:</b> đồng bộ dữ liệu, đăng nhập, xác minh gói cước.</li>
     <li><b>Thanh toán trong ứng dụng:</b> mua gói đăng ký qua Google Play Billing.</li>
   </ul>

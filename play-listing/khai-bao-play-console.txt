@@ -66,10 +66,11 @@ Gợi ý trả lời. Nguyên tắc của Google: "thu thập" = dữ liệu r�
 | Thông tin cá nhân | **ID người dùng** (mã tài khoản, mã thiết bị nhân viên ẩn danh) | Có | Không | Bắt buộc | Chức năng ứng dụng, Quản lý tài khoản |
 | Thông tin tài chính | **Lịch sử mua hàng** (gói đăng ký, mã giao dịch Google Play) | Có | Không | Bắt buộc | Chức năng ứng dụng |
 | Ảnh và video | **Ảnh** (ảnh món ăn do quán tải lên) | Có | Không | Tuỳ chọn | Chức năng ứng dụng |
+| Mã thiết bị hoặc mã khác | **Mã thiết bị hoặc mã khác** (Android ID — chỉ lưu mã băm trên máy chủ) | Có | Không | Bắt buộc (máy chủ quán) | **Ngăn chặn gian lận, bảo mật và tuân thủ** (chống lấy lại dùng thử) |
 | Hoạt động trong ứng dụng | **Nội dung khác do người dùng tạo** (thực đơn, đơn hàng, ghi chú) | Có | Không | Bắt buộc | Chức năng ứng dụng |
 
 ### Loại dữ liệu **không** thu thập
-Vị trí; danh bạ; tin nhắn; âm thanh/micro; tệp và tài liệu; lịch; nhật ký cuộc gọi; sức khoẻ và thể dục; lịch sử duyệt web; **thông tin thẻ/ngân hàng** (do Google Play xử lý); thông tin hiệu năng/chẩn đoán gửi đi; mã định danh thiết bị quảng cáo.
+Vị trí; danh bạ; tin nhắn; âm thanh/micro; tệp và tài liệu; lịch; nhật ký cuộc gọi; sức khoẻ và thể dục; lịch sử duyệt web; **thông tin thẻ/ngân hàng** (do Google Play xử lý); thông tin hiệu năng/chẩn đoán gửi đi; mã định danh quảng cáo (Android ID không dùng cho quảng cáo, đã khai ở bảng trên).
 
 ### Giải thích cho các lựa chọn khó
 - **Chia sẻ = Không:** dữ liệu chỉ đi tới (a) máy chủ Supabase của nhà phát triển và (b) dự án Supabase riêng của chủ quán — đều là dịch vụ xử lý thay cho chủ quán/nhà phát triển, không phải "chia sẻ" theo định nghĩa của Google. Thanh toán do Google Play xử lý trực tiếp với người dùng.
@@ -81,7 +82,10 @@ App **không** cung cấp dịch vụ tài chính (không cho vay, không giữ 
 
 ## 9. Khai báo quyền nhạy cảm
 - **CAMERA:** chỉ để quét mã QR liên kết máy nhân viên; không lưu/gửi hình ảnh. (Đây là quyền runtime thông thường, không thuộc nhóm cần mẫu khai báo riêng.)
-- Không dùng quyền SMS, cuộc gọi, vị trí, danh bạ, dịch vụ trợ năng, toàn bộ tệp.
+- **ACCESS_FINE_LOCATION:** chỉ vì Android bắt buộc để quét máy in Bluetooth; không đọc/lưu/gửi vị trí → ở An toàn dữ liệu vẫn chọn **không thu thập Vị trí**. Là quyền vị trí chính xác lúc đang dùng (không phải nền) nên KHÔNG cần mẫu khai báo vị trí nền.
+- **BLUETOOTH_SCAN / BLUETOOTH_CONNECT:** kết nối máy in hoá đơn Bluetooth.
+- **FOREGROUND_SERVICE_DATA_SYNC:** phải khai trong *Nội dung ứng dụng → Quyền dịch vụ nền* (xem hướng dẫn dưới).
+- Không dùng quyền SMS, cuộc gọi, vị trí nền, danh bạ, dịch vụ trợ năng, toàn bộ tệp.
 
 ## 10. Gói đăng ký (Subscriptions) — các điểm Google kiểm tra
 - Giá, chu kỳ gia hạn và cách huỷ phải hiển thị rõ **trước khi** mua: màn *Gói cước* hiện giá lấy trực tiếp từ Google Play và có nút **Quản lý gói trên Google Play**. ✔
