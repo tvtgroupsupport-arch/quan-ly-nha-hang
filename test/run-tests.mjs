@@ -2045,6 +2045,28 @@ t.group('35. Đồng bộ không treo mãi ở "Đang đồng bộ…" khi mạn
   t.eq(A.Records.dirtyCount(), 0, 'thay đổi đã được gửi lên');
 }
 
+t.group('35b. Kho lớn: con trỏ kéo được lưu sau MỖI lô → lượt bị cắt giữa chừng không phải kéo lại từ đầu; hạn chót tính theo tiến triển, không theo tổng thời gian');
+{
+  const w = newWorld(); const A = await setupOwner(w); await A.sync();
+  const base = A.Persist.getMeta('cursor', 0);
+  for (let i = 0; i < 1300; i++) w.store.putRecord('logs', 'lg-big-' + i, { id: 'lg-big-' + i, level: 'info', actor: 'x', action: 'Mẫu', detail: null, created_at: Date.now() - i * 1000 });
+  // lượt 1: lô đầu xong, lô thứ hai thì máy chủ không trả lời → bị cắt giữa chừng
+  const st = A.Cloud.store; const origFrom = st.from.bind(st); let calls = 0;
+  st.from = (tb) => { const q = origFrom(tb); if (tb !== 'records') return q; if (++calls >= 2) { q.then = (res) => res({ data: null, error: { message: 'Failed to fetch' } }); } return q; };
+  await A.Sync.syncNow();
+  const mid = A.Persist.getMeta('cursor', 0);
+  t.ok(mid > base, 'lô đầu đã xong → con trỏ đã tiến lên ngay (không đợi hết vòng lặp): ' + base + ' → ' + mid);
+  // lượt 2: bình thường — phải tiếp tục từ chỗ đã dừng, không hỏi lại từ đầu
+  st.from = origFrom;
+  const asked = []; st.from = (tb) => { const q = origFrom(tb); if (tb === 'records') { const g = q.gt.bind(q); q.gt = (c, v) => { asked.push(v); return g(c, v); }; } return q; };
+  await A.Sync.syncNow();
+  t.ok(asked.length > 0 && Math.min(...asked) >= mid - 400, 'lượt sau hỏi tiếp từ gần con trỏ đã lưu (' + Math.min(...asked) + ' ≥ ' + (mid - 400) + '), không quay về 0');
+  t.ok(A.Persist.getMeta('cursor', 0) >= w.store.seq, 'cuối cùng kéo đủ tới cuối kho');
+  t.eq(A.D.logs.filter(l => String(l.id).startsWith('lg-big-')).length >= 1000, true, 'đã có đủ bản ghi kho lớn trên máy');
+  // hạn chót theo tiến triển: mỗi lô xong thì đếm lại, nên tổng thời gian dài vẫn không bị coi là treo
+  t.ok(A.Sync.state.status === 'ok', 'đồng bộ báo xong bình thường');
+}
+
 t.group('36. Chẩn đoán đồng bộ & gói cước + hiện tiến độ tải dữ liệu từ kho');
 {
   const w = newWorld(); const A = await setupOwner(w); await A.sync();

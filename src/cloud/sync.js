@@ -26,8 +26,17 @@ const Sync = (() => {
   /** Ngắt lượt đang chạy nếu: lượt đã bị thay thế/huỷ (gen đổi — kể cả do stop()), hoặc máy đã ngắt liên kết (Cloud.store/role mất).
       Gọi NGAY TRƯỚC mỗi lần ghi D / SQLite / con trỏ, để dữ liệu quán cũ không "sống lại" sau khi ngắt liên kết giữa lúc đang kéo. */
   const stale = my => { if ((my !== undefined && my !== gen) || !enabled()) throw Object.assign(new Error('cancelled'), { cancelled: true }); };
-  let runStart = 0, timeoutMs = 60000, curStep = '';   // một lượt đồng bộ quá 60 giây (mạng yếu/máy chủ treo) bị coi là hỏng và thử lại — trước đây có thể treo mãi ở "Đang đồng bộ…"
-  const withTimeout = (p, ms) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(Object.assign(new Error('Hết thời gian chờ máy chủ — mạng yếu, sẽ tự thử lại'), { timeout: true })), ms); })]).finally(() => clearTimeout(t)); };
+  let runStart = 0, lastProgress = 0, watchdog = null, timeoutMs = 60000, curStep = '';   // một lượt đồng bộ quá 60 giây (mạng yếu/máy chủ treo) bị coi là hỏng và thử lại — trước đây có thể treo mãi ở "Đang đồng bộ…"
+  /** Hạn chót theo TIẾN TRIỂN, không phải tổng thời gian: mỗi lần có việc xong (xong một lô kéo/đẩy) thì đếm lại từ đầu. Kho lớn (hàng chục nghìn bản ghi) kéo mất vài phút vẫn chạy được,
+      còn lượt thật sự treo (không có gì xong trong timeoutMs) thì bị coi là hỏng và thử lại. */
+  const progress = () => { lastProgress = Date.now(); if (watchdog) watchdog.kick(); };
+  const withTimeout = p => {
+    let t, fail;
+    const dead = new Promise((_, rej) => { fail = rej; });
+    const wd = { kick() { clearTimeout(t); t = setTimeout(() => fail(Object.assign(new Error('Hết thời gian chờ máy chủ — mạng yếu, sẽ tự thử lại'), { timeout: true })), timeoutMs); } };
+    watchdog = wd; wd.kick();
+    return Promise.race([p, dead]).finally(() => { clearTimeout(t); if (watchdog === wd) watchdog = null; });
+  };
 
   const enabled = () => !!(typeof Cloud !== 'undefined' && Cloud.store && Cloud.role);
   const notify = () => { try { if (Sync.onStatus) Sync.onStatus(S); } catch (e) {} };
@@ -48,11 +57,11 @@ const Sync = (() => {
     if (!S.online) { S.status = 'offline'; notify(); return; }
     const wantDeep = !(opts && opts.quick);     // syncNow()/gọi tay luôn kéo lùi đủ; lượt nền (kick) chỉ lùi nhỏ, trừ khi có yêu cầu "sâu" đang chờ
     if (S.running) {
-      if (Date.now() - runStart > timeoutMs * 1.5) { S.running = false; gen++; }   // lượt cũ đã treo quá lâu: huỷ nó, chạy lượt mới
+      if (Date.now() - lastProgress > timeoutMs * 1.5) { S.running = false; gen++; }   // lượt cũ đã treo quá lâu: huỷ nó, chạy lượt mới
       else { again = true; if (wantDeep) deepNext = true; return; }
     }
     const deep = wantDeep || deepNext; deepNext = false;
-    S.running = true; runStart = Date.now(); S.status = 'syncing'; S.progress = 0; notify();
+    S.running = true; runStart = lastProgress = Date.now(); S.status = 'syncing'; S.progress = 0; notify();
     const my = ++gen;
     let ownsRun = true;     // còn là lượt hiện hành không — lượt đã bị thay thế/huỷ thì KHÔNG được đụng tới trạng thái chung (S.running, lỗi, gen)
     try {
@@ -161,6 +170,7 @@ const Sync = (() => {
       stale(my);
       await Persist.writeRows(rows, removed);
       if (refetch.length) await refetchRecords(refetch, my);
+      progress();
     }
   }
 
@@ -222,10 +232,13 @@ const Sync = (() => {
       if (error) throw error;
       if (!data || !data.length) break;
       await applyRemote(data, force ? { force: true } : {}, my);
+      progress();
       got += data.length; S.progress = got;          // hiện tiến độ tải dữ liệu để biết không bị treo (kho cũ có thể rất nhiều bản ghi)
       notify();
       from = data[data.length - 1].seq;
       max = Math.max(max, from);
+      // Lưu con trỏ NGAY sau mỗi lô: lượt bị cắt giữa chừng (hết giờ, tắt app) thì lượt sau tiếp tục từ đây, không kéo lại từ đầu
+      if (max !== cursor) { stale(my); await Persist.setMeta('cursor', max); cursor = max; }
       if (data.length < 500) break;
     }
     stale(my);     // đã ngắt liên kết giữa chừng thì KHÔNG ghi con trỏ cũ xuống máy
