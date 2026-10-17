@@ -125,6 +125,9 @@ language plpgsql security definer set search_path = public as $$
 declare v_months int; v_best_months int; v_best_expiry timestamptz; v_has_active boolean;
         v_bonus timestamptz; v_final timestamptz; v_active boolean; v_store timestamptz;
 begin
+  if exists (select 1 from public.denied_trial_tokens where purchase_token = p_purchase_token) then
+    raise exception 'Máy này đã dùng thử miễn phí rồi' using errcode = '42501';
+  end if;
   select plan_months into v_months from public.play_products where product_id = p_product_id;
   if v_months is null then raise exception 'Không nhận ra mã gói: %', p_product_id using errcode = '22023'; end if;
 
@@ -447,6 +450,36 @@ begin
   get diagnostics v_cut = row_count;
   return jsonb_build_object('result', 'denied', 'trial_cut', v_cut > 0);
 end $$;
+
+-- ---------- Dùng thử miễn phí của Google Play: chỉ 1 lần cho mỗi máy ----------
+-- Google chỉ cấp ưu đãi dùng thử 1 lần cho mỗi TÀI KHOẢN GOOGLE; người dùng đổi tài khoản Google (hoặc tạo tài khoản BEPO mới) trên cùng một máy vẫn lấy lại được.
+-- verify-purchase gọi hàm này khi giao dịch là dùng thử: máy đã dùng thử bằng một giao dịch KHÁC thì từ chối, không ghi nhận và không xác nhận với Google
+-- (giao dịch không xác nhận sau 3 ngày Google tự huỷ). Chỉ lưu mã băm của Android ID (cùng bảng trial_devices với claim_device_trial).
+alter table public.trial_devices add column if not exists trial_token text;
+create table if not exists public.denied_trial_tokens (
+  purchase_token text primary key,
+  created_at     timestamptz not null default now()
+);
+alter table public.denied_trial_tokens enable row level security;
+revoke all on public.denied_trial_tokens from anon, authenticated;
+
+create or replace function public.claim_trial_use(p_owner uuid, p_device_id text, p_token text) returns text
+language plpgsql security definer set search_path = public as $$
+declare v_hash text; v_tok text;
+begin
+  if exists (select 1 from public.denied_trial_tokens where purchase_token = p_token) then return 'used'; end if;
+  if p_device_id is null or length(btrim(p_device_id)) < 8 then return 'skipped'; end if;
+  v_hash := encode(sha256(convert_to('bepo:' || btrim(p_device_id), 'UTF8')), 'hex');
+  insert into public.trial_devices (device_hash, owner_id) values (v_hash, p_owner) on conflict do nothing;
+  select trial_token into v_tok from public.trial_devices where device_hash = v_hash for update;
+  if v_tok is not null and v_tok <> p_token then
+    insert into public.denied_trial_tokens (purchase_token) values (p_token) on conflict do nothing;
+    return 'used';
+  end if;
+  update public.trial_devices set trial_token = p_token where device_hash = v_hash and trial_token is null;
+  return 'ok';
+end $$;
+revoke execute on function public.claim_trial_use(uuid, text, text) from public, anon, authenticated;
 
 -- ---------- Quyền thực thi ----------
 revoke execute on all functions in schema public from public, anon;

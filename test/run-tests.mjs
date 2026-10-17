@@ -1179,7 +1179,7 @@ t.group('31. Đa ngôn ngữ: màn chọn ngôn ngữ lần đầu, dịch tiế
   const missGuest = extra.filter(s => !keys.has(s.toLowerCase()));
   t.eq(missGuest, [], 'trang gọi món của khách và lỗi từ máy chủ đều có bản dịch tiếng Anh');
   const { execFileSync } = await import('node:child_process');   // docs/ không nằm trong git — dựng lại trang khách rồi đọc
-  execFileSync(process.execPath, [new URL('../scripts/build-guest-page.mjs', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')], { stdio: 'ignore' });
+  execFileSync(process.execPath, [(await import('node:url')).fileURLToPath(new URL('../scripts/build-guest-page.mjs', import.meta.url))], { stdio: 'ignore' });
   const guestHtml = fs.readFileSync(new URL('../docs/index.html', import.meta.url), 'utf8');
   t.ok(guestHtml.includes('I18N_EN_4') && guestHtml.includes('id="langBtn"') && !guestHtml.includes('/*__I18N__*/'), 'trang khách đã nhúng bộ dịch và nút đổi ngôn ngữ (docs/index.html được dựng lại bằng scripts/build-guest-page.mjs)');
   // 4) Dịch cả bản dịch cho từng màn hình thật: không còn chữ Việt có dấu trong HTML đã dịch (trừ dữ liệu mẫu người dùng nhập)
@@ -1963,6 +1963,67 @@ t.group('34j. Chặn lấy lại dùng thử bằng Android ID: máy đã gắn 
   const fid = [...w2.central.subs.keys()].pop(); const fs0 = w2.central.subs.get(fid); fs0.status = 'active'; fs0.plan_months = 1; fs0.expires_at = Date.now() + 20 * 86400000;
   await F.License.refresh(true);
   t.ok(!F.License.locked(), 'tài khoản đã mua gói → không bị cắt');
+}
+
+t.group('34k. Mã quyền sử dụng do máy chủ KÝ (Ed25519): chữ ký sai bị bỏ qua, sửa bộ nhớ máy bị phát hiện, có ngày ân hạn; máy chủ chưa có hàm ký → dùng cách cũ');
+{
+  const { generateKeyPairSync, sign: edSign } = await import('node:crypto');
+  const DAY = 86400000;
+  const kp = generateKeyPairSync('ed25519');
+  const pubHex = Buffer.from(kp.publicKey.export({ format: 'jwk' }).x, 'base64url').toString('hex');
+  const mk = (o, f) => { const p = JSON.stringify({ v: 1, o, pm: 1, st: 'active', ex: Date.now() + 20 * DAY, lk: Date.now() + 23 * DAY, sa: Date.now() - DAY, iat: Date.now(), ...f }); return { p, s: edSign(null, Buffer.from(p), kp.privateKey).toString('base64') }; };
+  const w = newWorld(); w.central.trialDays = 0;
+  const A = await newDevice(w, 'sig-a', { billingMode: 'play', licensePublicKey: pubHex });
+  await A.Cloud.ownerSignUp('a@y.vn', 'matkhau1', 'A');
+  const uid = (await A.Cloud.central().auth.getUser()).data.user.id;
+  let calls = 0, answer = null;
+  A.fetchImpl = async (url) => { calls++; if (!String(url).includes('/functions/v1/license-token')) throw new Error('gọi nhầm ' + url); return answer ? { ok: true, json: async () => ({ ok: true, token: answer }) } : { ok: false, json: async () => ({}) }; };
+
+  answer = mk(uid);
+  await A.License.refresh(true);
+  t.ok(calls === 1 && !A.License.locked() && A.License.describe().startsWith('Gói 1 tháng — còn'), 'mã ký hợp lệ → nhận gói còn hạn (gọi đúng Edge Function license-token)');
+  t.ok(!!A.Persist.getMeta('license').tok, 'lưu kèm mã đã ký để lần mở app sau kiểm tra lại chữ ký');
+
+  answer = mk('chu-khac');
+  await A.License.refresh(true);
+  t.ok(A.License.locked(), 'mã ký nhưng của chủ quán khác → bỏ qua, quay về cách cũ (trung tâm báo chưa đăng ký) → khoá');
+
+  const good = mk(uid);
+  answer = { p: good.p.replace('"pm":1', '"pm":12').replace(/"ex":\d+/, '"ex":' + (Date.now() + 900 * DAY)), s: good.s };
+  await A.License.refresh(true);
+  t.ok(A.License.locked(), 'nội dung bị sửa sau khi ký (chữ ký không khớp) → bỏ qua, không nâng hạn');
+
+  answer = mk(uid, { ex: Date.now() - DAY, lk: Date.now() + 2 * DAY });
+  await A.License.refresh(true);
+  const g = A.License.status();
+  t.ok(!A.License.locked() && g.grace && g.graceLeftDays >= 1 && /ân hạn/.test(A.License.describe()), 'quá hạn nhưng còn trong ngày ân hạn (do máy chủ đặt) → chưa khoá, báo "ân hạn"');
+
+  answer = mk(uid, { ex: Date.now() - 5 * DAY, lk: Date.now() - 2 * DAY });
+  await A.License.refresh(true);
+  t.ok(A.License.locked() && !A.License.status().grace, 'hết cả ân hạn → khoá mềm');
+
+  answer = mk(uid);
+  await A.License.refresh(true);
+  t.ok(!A.License.locked(), 'gia hạn: nhận mã mới → mở khoá lại');
+  const m = A.Persist.getMeta('license');
+  A.Persist.setMeta('license', { ...m, tok: { p: m.tok.p.replace(/"ex":\d+/, '"ex":' + (Date.now() + 999 * DAY)), s: m.tok.s } });
+  A.License.load();
+  t.ok(A.License.locked(), 'sửa tay số liệu trong bộ nhớ máy (chữ ký không khớp) → coi như hết hạn');
+
+  // Máy chủ chưa triển khai hàm ký / lỗi → cách cũ (get_my_subscription), không hỏng gì
+  const w2 = newWorld();
+  const B = await newDevice(w2, 'sig-b', { billingMode: 'play', licensePublicKey: pubHex });
+  await B.Cloud.ownerSignUp('b@y.vn', 'matkhau1', 'B');
+  B.fetchImpl = async () => ({ ok: false, status: 404, json: async () => ({}) });
+  await B.License.refresh(true);
+  t.ok(!B.License.locked() && B.License.describe().startsWith('Dùng thử — còn'), 'hàm license-token lỗi/chưa triển khai → dùng get_my_subscription như cũ');
+
+  // Không có khoá công khai trong app (cấu hình cũ) → không gọi hàm ký
+  const C = await newDevice(w2, 'sig-c', { billingMode: 'play' });
+  await C.Cloud.ownerSignUp('c@y.vn', 'matkhau1', 'C');
+  let cCalls = 0; C.fetchImpl = async () => { cCalls++; return { ok: false, json: async () => ({}) }; };
+  await C.License.refresh(true);
+  t.ok(cCalls === 0 && !C.License.locked(), 'không có khoá công khai → không gọi license-token');
 }
 
 t.group('35. Đồng bộ không treo mãi ở "Đang đồng bộ…" khi mạng yếu/máy chủ không trả lời');

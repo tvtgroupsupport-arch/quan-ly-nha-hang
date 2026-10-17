@@ -22,6 +22,7 @@ import { Device } from '@capacitor/device';
 import { ForegroundService } from '@capawesome-team/capacitor-android-foreground-service';
 import { CapacitorThermalPrinter } from 'capacitor-thermal-printer';
 import * as supabase from '@supabase/supabase-js';
+import { ed25519 } from '@noble/curves/ed25519.js';
 // Đóng sẵn ExcelJS vào APK (không tải từ CDN) để xuất báo cáo Excel được cả khi mất mạng
 import ExcelJS from 'exceljs/dist/exceljs.min.js';
 
@@ -64,6 +65,11 @@ const device = {
     if (!isNative) return '';
     try { return String((await plug(Device.getId(), 4000, 'Device')).identifier || ''); } catch (e) { return ''; }
   }
+};
+
+/* ---------- chữ ký số: kiểm tra mã quyền sử dụng do máy chủ gói cước ký (Ed25519, khoá công khai nằm trong app) ---------- */
+const cryptoBridge = {
+  verifyEd25519(message, signature, publicKey) { try { return ed25519.verify(signature, message, publicKey); } catch (e) { return false; } }
 };
 
 /* ---------- vòng đời app ---------- */
@@ -340,5 +346,5 @@ window.ExcelJS = ExcelJS;
 window.NativeBridge = {
   isNative, platform: Capacitor.getPlatform(),
   ready: async () => {},
-  sqlite, supabase, network, device, app, copy, readClipboard, scan, saveFile, savedReports, brightness, billing, browser, alerts, printer
+  sqlite, supabase, network, device, crypto: cryptoBridge, app, copy, readClipboard, scan, saveFile, savedReports, brightness, billing, browser, alerts, printer
 };

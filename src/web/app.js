@@ -1671,7 +1671,8 @@ function wireCloud() {
     try { if (typeof playOnResume === 'function') playOnResume(); } catch (e) {}      // đóng hộp thoại mua của Google mà không trả lời → mở lại trang đăng ký
     Sync.kick(0, { deep: true });      // mở lại app: kéo lùi đủ để bắt mọi bản ghi sót trong lúc app ngủ
     ensureKeepAlive();
-    recheckLicense(License.status().state !== 'ok');   // sắp/đã quá hạn → hỏi lại ngay, không đợi chu kỳ 6 giờ
+    const ls = License.status();
+    recheckLicense(ls.state !== 'ok' || Date.now() - (ls.checkedAt || 0) > 6 * 3600000);   // sắp/đã quá hạn, hoặc lâu chưa hỏi máy chủ (quá 6 giờ) → hỏi lại ngay (máy chủ cũng hỏi lại Google)
   });
   // Nút Back của Android: đóng hộp thoại → quay lại màn trước → thu nhỏ app
   NativeBridge.app.onBack(() => {

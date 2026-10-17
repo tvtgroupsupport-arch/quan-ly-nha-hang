@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { webcrypto } from 'node:crypto';
+import { webcrypto, createPublicKey, verify as cryptoVerify } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { assembleScript } from '../scripts/assemble.mjs';
 import { FakeProject, makeSupabase } from './fake-supabase.mjs';
@@ -48,7 +48,9 @@ export function newWorld() {
 
 export async function newDevice(world, name, opts = {}) {
   const billingMode = opts.billingMode || '';   // opts.billingMode = 'play' dựng bản Google Play (APP_CONFIG.billingMode === 'play')
-  const SCRIPT = SCRIPTS[billingMode] || (SCRIPTS[billingMode] = assembleScript({ centralUrl: CENTRAL_URL, centralAnonKey: ANON, supportText: '', guestPageUrl: GUEST_PAGE_URL, ...(billingMode ? { billingMode } : {}) }));
+  const pubKey = opts.licensePublicKey || '';   // opts.licensePublicKey = khoá công khai Ed25519 (hex) để kiểm tra mã quyền sử dụng có chữ ký; mặc định không có (cách cũ)
+  const scriptKey = billingMode + '|' + pubKey;
+  const SCRIPT = SCRIPTS[scriptKey] || (SCRIPTS[scriptKey] = assembleScript({ centralUrl: CENTRAL_URL, centralAnonKey: ANON, supportText: '', guestPageUrl: GUEST_PAGE_URL, ...(billingMode ? { billingMode } : {}), ...(pubKey ? { licensePublicKey: pubKey } : {}) }));
   const file = opts.dbFile || path.join(tmp, `${name}-${Math.random().toString(36).slice(2)}.db`);
   const dev = { name, file, online: true, saved: [], scanResult: null, clip: '', timers: [], sessions: opts.sessions || {}, inputs: {}, netCb: null, clockOffset: 0, androidId: opts.androidId || '' };
 
@@ -80,6 +82,7 @@ export async function newDevice(world, name, opts = {}) {
     isNative: true, platform: 'android', ready: async () => {},
     sqlite, supabase: supa,
     device: { androidId: async () => dev.androidId || '' },
+    crypto: { verifyEd25519: (msg, sig, pub) => { try { const k = createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(pub)]), format: 'der', type: 'spki' }); return cryptoVerify(null, Buffer.from(msg), k, Buffer.from(sig)); } catch (e) { return false; } } },
     network: { get: async () => dev.online, onChange: cb => { dev.netCb = cb; } },
     app: { onResume(cb) { dev.resumeCb = cb; }, onBack() {} },       // nhớ hàm xử lý resume để test gọi được hành vi thật
     copy: async t => { dev.clip = t; }, readClipboard: async () => dev.clip,

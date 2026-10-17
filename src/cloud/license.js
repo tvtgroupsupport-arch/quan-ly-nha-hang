@@ -15,9 +15,40 @@ const License = (() => {
   let own = null;          // máy chủ quán: kết quả lần hỏi trung tâm gần nhất
   let clockHw = 0;
   let lastPersist = 0;
+  // Mã quyền sử dụng do máy chủ KÝ (Edge Function license-token): { p: chuỗi JSON, s: chữ ký Ed25519 }. Có khoá công khai trong app thì chỉ tin dữ liệu gói
+  // có chữ ký hợp lệ — sửa tay bộ nhớ máy hay dữ liệu đồng bộ trong kho Supabase của quán đều bị phát hiện. Không có khoá / máy chủ chưa triển khai hàm → dùng
+  // cách cũ (hỏi get_my_subscription, dữ liệu chưa ký).
+  const PUBKEY = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.licensePublicKey) || '';
+  const hexBytes = h => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
+  const b64Bytes = b => { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
+  const tokCache = new Map();
+  /** Kiểm tra chữ ký; trả nội dung đã giải mã hoặc null nếu sai chữ ký / hỏng */
+  function openToken(tok) {
+    if (!tok || !tok.p || !tok.s || !PUBKEY || typeof NativeBridge === 'undefined' || !NativeBridge.crypto) return null;
+    const key = tok.p + '|' + tok.s;
+    if (tokCache.has(key)) return tokCache.get(key);
+    let out = null;
+    try {
+      if (NativeBridge.crypto.verifyEd25519(new TextEncoder().encode(tok.p), b64Bytes(tok.s), hexBytes(PUBKEY))) {
+        const p = JSON.parse(tok.p);
+        if (p && p.v === 1 && Number.isFinite(p.ex)) out = p;
+      }
+    } catch (e) { out = null; }
+    if (tokCache.size > 20) tokCache.clear();
+    tokCache.set(key, out);
+    return out;
+  }
+  const fromPayload = (p, tok, checkedAt) => ({ plan_months: p.pm, status: p.st, expires_at: p.ex, lock_at: p.lk || p.ex, started_at: p.sa, checked_at: checkedAt, tok });
+  /** Bản gói có kèm chữ ký (ở máy chủ quán hoặc dữ liệu đồng bộ cho máy nhân viên) → thay số liệu bằng nội dung ĐÃ KÝ; chữ ký sai → coi như hết hạn. Không kèm chữ ký (bản cũ) → giữ nguyên. */
+  function trusted(lic) {
+    if (!lic || !lic.tok || !PUBKEY) return lic;
+    const p = openToken(lic.tok);
+    if (!p) return { plan_months: 0, status: 'expired', expires_at: 1, lock_at: 1, checked_at: lic.checked_at, tampered: true };
+    return { ...lic, plan_months: p.pm, status: p.st, expires_at: p.ex, lock_at: p.lk || p.ex };
+  }
 
   function load() {
-    own = Persist.getMeta('license', null);
+    own = trusted(Persist.getMeta('license', null));
     clockHw = Persist.getMeta('clock_hw', 0) || 0;
   }
   /** "Bây giờ" đáng tin: không bao giờ nhỏ hơn mốc lớn nhất từng thấy */
@@ -30,9 +61,9 @@ const License = (() => {
     return clockHw;
   }
   function current() {
-    if (typeof Cloud !== 'undefined' && Cloud.role === 'staff') return (typeof D !== 'undefined' && D && D.license) || null;
+    if (typeof Cloud !== 'undefined' && Cloud.role === 'staff') return trusted((typeof D !== 'undefined' && D && D.license) || null);
     // Chủ quán chưa có bản hỏi máy chủ (meta `license` mất, hoặc vừa khôi phục sang máy mới lúc mạng lỗi): dùng bản công khai đã đồng bộ từ kho trước khi tính khoá mềm
-    if (!own && typeof D !== 'undefined' && D && D.license && D.license.expires_at) return D.license;
+    if (!own && typeof D !== 'undefined' && D && D.license && D.license.expires_at) return trusted(D.license);
     return own;
   }
   function status() {
@@ -46,8 +77,11 @@ const License = (() => {
       return { state: 'unknown', locked: false };
     }
     const left = lic.expires_at - now();
-    const state = left <= 0 ? 'expired' : left < 7 * DAY ? 'expiring' : 'ok';
-    return { state, locked: state === 'expired', daysLeft: Math.max(0, Math.ceil(left / DAY)),
+    // Gói trả phí đã ký có thêm ngày ân hạn sau hạn (lock_at do máy chủ đặt): còn trong ân hạn thì chưa khoá, chỉ nhắc gia hạn
+    const lockAt = lic.lock_at || lic.expires_at;
+    const grace = left <= 0 && now() < lockAt;
+    const state = left <= 0 && !grace ? 'expired' : left < 7 * DAY ? 'expiring' : 'ok';
+    return { state, grace, graceLeftDays: grace ? Math.max(1, Math.ceil((lockAt - now()) / DAY)) : 0, locked: state === 'expired', daysLeft: Math.max(0, Math.ceil(left / DAY)),
              plan: lic.plan_months, kind: lic.status, expiresAt: lic.expires_at, checkedAt: lic.checked_at };
   }
   const locked = () => status().locked;
@@ -68,25 +102,52 @@ const License = (() => {
     } catch (e) { /* offline hoặc máy chủ chưa chạy script mới: bỏ qua */ }
   }
 
+  /** Hỏi Edge Function license-token: trả { p, tok } đã kiểm tra chữ ký và đúng chủ quán, hoặc null (chưa triển khai / lỗi / chưa có gói → dùng cách cũ). */
+  async function fetchSigned() {
+    try {
+      const { data: sess } = await Cloud.central().auth.getSession();
+      const at = sess && sess.session && sess.session.access_token;
+      if (!at) return null;
+      let tm;
+      const r = await Promise.race([
+        fetch(`${APP_CONFIG.centralUrl}/functions/v1/license-token`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + at, apikey: APP_CONFIG.centralAnonKey }, body: '{}' }),
+        new Promise((_, rej) => { tm = setTimeout(() => rej(new Error('timeout')), 15000); })
+      ]).finally(() => clearTimeout(tm));
+      if (!r.ok) return null;
+      const j = await r.json().catch(() => null);
+      if (!j || !j.ok || !j.token) return null;
+      const p = openToken(j.token);
+      if (!p || p.o !== sess.session.user.id) return null;
+      return { p, tok: j.token };
+    } catch (e) { return null; }
+  }
+
   /** Máy chủ quán: hỏi trung tâm. Không có mạng thì giữ nguyên kết quả cũ. */
   async function refresh(force) {
     // force: dùng lúc thiết lập (chưa có vai trò máy) — vẫn hỏi trung tâm bằng phiên đăng nhập chủ quán vừa tạo
     if (!force && (typeof Cloud === 'undefined' || Cloud.role !== 'owner')) return status();
     try {
       await claimDeviceTrial();
-      const { data, error } = await Cloud.central().rpc('get_my_subscription');
-      if (error) throw error;
-      if (data) {
-        const serverNow = Date.parse(data.server_now);
+      let srv = null, serverNow = 0;
+      const signed = PUBKEY ? await fetchSigned() : null;      // ưu tiên mã đã ký (đồng thời máy chủ hỏi lại Google nếu giao dịch đã cũ)
+      if (signed) { srv = fromPayload(signed.p, signed.tok, Date.now()); serverNow = signed.p.iat; }
+      else {
+        const { data, error } = await Cloud.central().rpc('get_my_subscription');
+        if (error) throw error;
+        if (data) {
+          serverNow = Date.parse(data.server_now);
+          srv = { plan_months: data.plan_months, status: data.status, expires_at: Date.parse(data.expires_at), started_at: Date.parse(data.started_at), checked_at: Date.now() };
+        }
+      }
+      if (srv) {
         if (serverNow > clockHw) clockHw = serverNow;
-        const srv = { plan_months: data.plan_months, status: data.status, expires_at: Date.parse(data.expires_at),
-                      started_at: Date.parse(data.started_at), checked_at: Date.now() };
         // Người dùng cũ còn dùng thử cục bộ (own.local) vừa tạo/đăng nhập tài khoản: GIỮ hạn cục bộ tới khi nó hết (hạn hiệu lực = lớn hơn của hai hạn).
         // Khi gói mua của tài khoản có hạn lớn hơn → dùng bản máy chủ (bỏ cờ local).
         own = (own && own.local && own.expires_at > srv.expires_at) ? { ...own, checked_at: srv.checked_at } : srv;
         Persist.setMeta('license', own); Persist.setMeta('clock_hw', clockHw);
         // Chia sẻ cho máy nhân viên qua dữ liệu đồng bộ
         const pub = { plan_months: own.plan_months, status: own.status, expires_at: own.expires_at, checked_at: own.checked_at };
+        if (own.tok) { pub.tok = own.tok; pub.lock_at = own.lock_at; }
         if (typeof D !== 'undefined' && D && JSON.stringify(D.license) !== JSON.stringify(pub)) { D.license = pub; saveD(); }
       }
     } catch (e) { /* offline: dùng bản đã nhớ */ }
@@ -99,6 +160,7 @@ const License = (() => {
     if (s.state === 'expired' && !s.plan && s.kind !== 'trial') return 'Chưa đăng ký gói cước';
     const kind = s.kind === 'trial' ? 'Dùng thử' : s.plan ? `Gói ${s.plan} tháng` : 'Gói cước';
     if (s.state === 'expired') return `${kind} — đã hết hạn`;
+    if (s.grace) return `${kind} — đã quá hạn, đang trong thời gian ân hạn (còn ${s.graceLeftDays} ngày) — hãy gia hạn`;
     return `${kind} — còn ${s.daysLeft} ngày (hết hạn ${new Date(s.expiresAt).toLocaleDateString('vi-VN')})`;
   }
   // (Đã bỏ dùng thử cục bộ 14 ngày: dùng thử nay do Google Play cấp qua ưu đãi của gói. Người dùng cũ đang có bản `license` trial cục bộ trong

@@ -96,6 +96,22 @@ supabase functions deploy rtdn-webhook --no-verify-jwt
 (`rtdn-webhook` bắt buộc cờ `--no-verify-jwt` vì Google Pub/Sub không gửi JWT đăng nhập Supabase —
 hàm tự kiểm bằng `RTDN_SECRET` trong đường dẫn thay vì cơ chế JWT thông thường.)
 
+### Mã quyền sử dụng có chữ ký + dùng thử 1 lần mỗi máy (làm thêm)
+
+App nhận hạn gói dưới dạng **mã ký Ed25519** từ Edge Function `license-token` (máy chủ cũng tự hỏi lại Google khi giao dịch đã quá 6 giờ chưa kiểm tra),
+và `verify-purchase` chỉ cho mỗi máy dùng thử miễn phí 1 lần (so Android ID đã băm). Cần làm 1 lần:
+
+```bash
+# 1) SQL: chạy lại phần mới của supabase/central-setup.sql (mục "Dùng thử miễn phí của Google Play: chỉ 1 lần cho mỗi máy" + hàm record_play_purchase)
+# 2) Khoá ký (hex 32 byte, khoá CÔNG KHAI tương ứng đã nằm trong app: scripts/assemble.mjs, mặc định licensePublicKey)
+supabase secrets set LICENSE_PRIVATE_KEY=<khoá bí mật hex>      # bản sao lưu: thư mục play store/license-private-key.txt (ngoài git)
+supabase secrets set TRIAL_OFFER_ID=free-trial                  # mã ưu đãi dùng thử trên Play Console (mặc định free-trial)
+# 3) Triển khai
+supabase functions deploy license-token
+supabase functions deploy verify-purchase
+```
+Mất khoá bí mật = không cấp được mã cho các app đã cài (app tự rơi về cách cũ `get_my_subscription` nếu hàm lỗi, nên không khoá oan). Đổi khoá = phải phát hành bản app mới chứa khoá công khai mới.
+
 ## Bước 5 — Google Cloud Pub/Sub: nhận thông báo real-time (RTDN)
 
 1. Google Cloud Console → **Pub/Sub → Topics → Create topic**, đặt tên bất kỳ (vd. `play-rtdn`).

@@ -122,14 +122,17 @@ async function verifyPlayPurchase(purchaseToken, productId) {
   const { data: sess } = await Cloud.central().auth.getSession();
   const token = sess?.session?.access_token;
   if (!token) throw new Error('Phiên đăng nhập đã hết — đăng nhập lại rồi thử lại');
+  // Mã băm của Android ID — máy chủ dùng để cho mỗi máy chỉ dùng thử miễn phí 1 lần (chỉ khi giao dịch là dùng thử)
+  let deviceId = '';
+  try { deviceId = (NativeBridge.device && await NativeBridge.device.androidId()) || ''; } catch (e) { deviceId = ''; }
   const url = `${APP_CONFIG.centralUrl}/functions/v1/verify-purchase`;
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, apikey: APP_CONFIG.centralAnonKey },
-    body: JSON.stringify({ purchaseToken, productId }),
+    body: JSON.stringify({ purchaseToken, productId, deviceId }),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || `Máy chủ xác minh báo lỗi (${r.status})`);
+  if (!r.ok) throw Object.assign(new Error(j.error || `Máy chủ xác minh báo lỗi (${r.status})`), { code: j.code || '' });
   return j;
 }
 
@@ -242,7 +245,8 @@ async function playPurchase(productId, force) {
     refreshPlayProductsQuiet(true);       // ưu đãi dùng thử vừa dùng → danh sách gói phải cập nhật
   } catch (e) {
     const msg = String(e?.message || e || '');
-    if (/user.*cancel|cancelled|canceled/i.test(msg)) toast('Đã huỷ');
+    if (e && e.code === 'TRIAL_USED') sheet('Máy này đã dùng thử rồi', `<div class="t-sm" style="line-height:1.6">${esc(msg)}</div><button class="btn" data-act="c_playManage" style="margin-top:12px">Quản lý gói trên Google Play</button>`);
+    else if (/user.*cancel|cancelled|canceled/i.test(msg)) toast('Đã huỷ');
     else toast(msg || 'Mua gói không thành công, thử lại');
   } finally {
     _playPending = null; _playBusy = false; render();

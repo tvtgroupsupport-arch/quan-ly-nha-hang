@@ -53,7 +53,7 @@ async function getAccessToken(sa: ServiceAccountKey): Promise<string> {
 export interface SubscriptionPurchaseV2 {
   subscriptionState: string;   // SUBSCRIPTION_STATE_ACTIVE | _CANCELED | _IN_GRACE_PERIOD | _ON_HOLD | _PAUSED | _EXPIRED | _PENDING
   acknowledgementState: string; // ACKNOWLEDGEMENT_STATE_PENDING | _ACKNOWLEDGED
-  lineItems: Array<{ productId: string; expiryTime: string }>;
+  lineItems: Array<{ productId: string; expiryTime: string; offerDetails?: { basePlanId?: string; offerId?: string }; offerPhase?: { freeTrial?: unknown } }>;
   externalAccountIdentifiers?: { obfuscatedExternalAccountId?: string };
   /** Mã giao dịch CŨ mà giao dịch này nối tiếp (đăng ký lại gói đã huỷ nhưng chưa hết hạn, đổi gói…) — dùng để tìm đúng chủ khi thiếu mã tài khoản. */
   linkedPurchaseToken?: string;

@@ -65,6 +65,8 @@ export function readConfig() {
   }
   // Tên hiển thị của app dưới biểu tượng trên điện thoại (đặt bằng biến APP_NAME trên GitHub hoặc trường appName trong app.config.json; để trống = mặc định).
   cfg.appName = (process.env.APP_NAME || cfg.appName || '').trim();
+  // Khoá CÔNG KHAI Ed25519 kiểm tra mã quyền sử dụng do Edge Function license-token ký (khoá bí mật chỉ nằm ở secret LICENSE_PRIVATE_KEY của Supabase trung tâm). Công khai nên để thẳng trong mã.
+  cfg.licensePublicKey = (process.env.LICENSE_PUBLIC_KEY || cfg.licensePublicKey || 'e3eda23ab6cbdfb422fa3447bd982a4d5c2b13b82ad358c7e68a7648a82bfaab').trim();
   cfg.playAppId = process.env.PLAY_APP_ID || cfg.playAppId || 'vn.quanly.nhahang.play';
   return cfg;
 }
@@ -72,7 +74,7 @@ export function readConfig() {
 /** Hằng số được nướng vào app lúc build: địa chỉ Supabase trung tâm + script SQL cho Supabase của quán */
 export function buildPrelude(cfg) {
   const sql = fs.readFileSync(path.join(ROOT, 'supabase/store-setup.sql'), 'utf8');
-  const pub = { centralUrl: cfg.centralUrl, centralAnonKey: cfg.centralAnonKey, supportText: cfg.supportText, guestPageUrl: cfg.guestPageUrl, billingMode: cfg.billingMode, buildVersion: cfg.buildVersion };
+  const pub = { centralUrl: cfg.centralUrl, centralAnonKey: cfg.centralAnonKey, supportText: cfg.supportText, guestPageUrl: cfg.guestPageUrl, billingMode: cfg.billingMode, buildVersion: cfg.buildVersion, licensePublicKey: cfg.licensePublicKey || '' };
   return `const APP_CONFIG = ${JSON.stringify(pub)};\nconst STORE_SQL = ${JSON.stringify(sql)};\n`;
 }
 

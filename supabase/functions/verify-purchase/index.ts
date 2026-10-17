@@ -12,6 +12,7 @@ import { fetchSubscription, acknowledgeSubscription, isActiveState } from '../_s
 
 const PACKAGE_NAME = Deno.env.get('PLAY_PACKAGE_NAME') ?? '';
 const SA_JSON = Deno.env.get('PLAY_SERVICE_ACCOUNT_JSON') ?? '';
+const TRIAL_OFFER_ID = Deno.env.get('TRIAL_OFFER_ID') ?? 'free-trial';   // mã ưu đãi dùng thử miễn phí trên Play Console (gói 1 tháng)
 
 // App chạy trong WebView (origin https://localhost) gọi hàm này khác nguồn → trình duyệt gửi OPTIONS "preflight"
 // trước; thiếu các header CORS này thì fetch báo "Failed to fetch" và việc xác minh gói không bao giờ chạy.
@@ -39,9 +40,10 @@ Deno.serve(async (req) => {
   if (userErr || !userData?.user) return json({ error: 'Chưa đăng nhập hoặc phiên đã hết hạn' }, 401);
   const ownerId = userData.user.id;
 
-  let body: { purchaseToken?: string; productId?: string };
+  let body: { purchaseToken?: string; productId?: string; deviceId?: string };
   try { body = await req.json(); } catch { return json({ error: 'Dữ liệu gửi lên không hợp lệ' }, 400); }
   const { purchaseToken, productId } = body;
+  const deviceId = typeof body.deviceId === 'string' ? body.deviceId.slice(0, 64) : '';
   if (!purchaseToken || !productId) return json({ error: 'Thiếu purchaseToken hoặc productId' }, 400);
 
   let sa: { client_email: string; private_key: string };
@@ -73,6 +75,15 @@ Deno.serve(async (req) => {
       if (lineageOwner && lineageOwner !== ownerId) return json({ error: 'Giao dịch này không thuộc về tài khoản đang đăng nhập' }, 403);
     }
     claimedWithoutAccountId = true;
+  }
+
+  // Dùng thử miễn phí chỉ 1 lần cho mỗi máy (Google chỉ giới hạn theo tài khoản Google): máy đã dùng thử bằng giao dịch khác → không ghi nhận, không xác nhận
+  // với Google (giao dịch chưa xác nhận sau 3 ngày Google tự huỷ). Hàm claim_trial_use chỉ lưu mã băm của Android ID.
+  const isTrial = (!!line.offerDetails?.offerId && line.offerDetails.offerId === TRIAL_OFFER_ID) || !!line.offerPhase?.freeTrial;
+  if (isTrial) {
+    const { data: claim, error: ce } = await admin.rpc('claim_trial_use', { p_owner: ownerId, p_device_id: deviceId, p_token: purchaseToken });
+    if (ce) return json({ error: `Kiểm tra dùng thử thất bại: ${ce.message}` }, 500);
+    if (claim === 'used') return json({ error: 'Máy này đã dùng thử miễn phí rồi nên gói dùng thử này không được kích hoạt. Vào Google Play → Thanh toán và gói đăng ký → Đăng ký, huỷ gói này để khỏi bị tính tiền, rồi chọn lại gói trả phí.', code: 'TRIAL_USED' }, 409);
   }
 
   if (sub.subscriptionState === 'SUBSCRIPTION_STATE_PENDING') return json({ error: 'Giao dịch đang chờ thanh toán — sẽ tự kích hoạt khi Google xác nhận', pending: true }, 202);
