@@ -124,6 +124,8 @@ async function poll() {
   } catch (e) { /* bỏ qua, thử lại lần sau */ }
 }
 function render() {
+  // Gói cước của quán hết hạn: khách chưa gọi món được (vẫn bấm Gọi nhân viên được). Tự mở lại khi quán gia hạn (poll 15 giây)
+  if (state.ordering_blocked && !state.locked) { document.getElementById('cartBar')?.remove(); $('app').innerHTML = '<div class="msg">Quán tạm ngừng nhận gọi món qua mã QR.<br>Vui lòng gọi nhân viên để được hỗ trợ.</div>'; return; }
   if (state.locked) { clearInterval(poller); $('app').innerHTML = '<div class="msg">Mã QR của bàn này đã khoá.<br>Vui lòng gọi nhân viên để được hỗ trợ.</div>'; return; }
   if (view === 'order') return renderOrder();
   renderMenu();

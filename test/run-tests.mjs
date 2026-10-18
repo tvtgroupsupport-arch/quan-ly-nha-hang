@@ -326,13 +326,14 @@ t.group('11. Gói cước: hết hạn → khoá mềm; gia hạn → mở; ch�
   t.ok(S.License.locked(), 'máy nhân viên cũng bị khoá khi nhận thông tin hết hạn');
   await t.rejects(() => order(S, 'Bàn 01', 1, [['Trà đá', 1]]), /hết hạn/, 'máy nhân viên không gọi món được');
   A.route = { name: 'tables', params: {} }; A.render();
-  t.eq(A.route.name, 'locked', 'giao diện chuyển sang màn "Gói cước đã hết hạn"');
+  t.eq(A.route.name, 'tables', 'hết hạn: KHÔNG còn bị chuyển sang màn khoá — màn Bàn vẫn mở');
+  t.ok(A.VIEWS.tables().length > 0, 'màn Bàn vẫn vẽ bình thường');
   A.route = { name: 'reports', params: {} }; A.render();
   t.eq(A.route.name, 'reports', 'chủ quán vẫn vào được Báo cáo khi bị khoá');
   A.route = { name: 'subscription', params: {} }; A.render();
   t.eq(A.route.name, 'subscription', 'và vào được màn Gia hạn');
   S.route = { name: 'reports', params: {} }; S.render();
-  t.eq(S.route.name, 'locked', 'máy nhân viên bị khoá hẳn, chỉ báo liên hệ chủ quán');
+  t.ok(S.route.name !== 'locked', 'máy nhân viên cũng không bị đưa vào màn khoá (chỉ khoá gọi món)');
 
   // chỉnh lùi đồng hồ không mở khoá được
   A.clockOffset = -60 * 86400000;
@@ -362,13 +363,13 @@ t.group('11b. Gói đã được gia hạn (Google Play tự trừ tiền) → a
   w.central.now = () => Date.now();
   await A.License.refresh();
   A.route = { name: 'tables', params: {} }; A.render();
-  t.eq(A.route.name, 'locked', 'hết hạn → app khoá, hiện màn "Gói cước đã hết hạn"');
+  t.eq(A.route.name, 'tables', 'hết hạn → app vẫn mở các màn khác (chỉ khoá gọi món)');
 
   // Google gia hạn + RTDN cập nhật máy chủ — người dùng KHÔNG bấm gì
   w.central.adminExtend(owner.id, 1);
   await A.recheckLicense(false);
   t.ok(!A.License.locked(), 'kiểm tra định kỳ thấy máy chủ đã gia hạn → hết khoá');
-  t.ok(A.route.name !== 'locked', 'và màn hình tự rời khỏi màn "hết hạn" (trước đây kẹt lại tới khi bấm Kiểm tra lại)');
+  t.ok(A.route.name !== 'locked', 'và không có màn khoá nào bị kẹt lại');
 
   // Bộ theo dõi 30 giây: gói đã quá hạn thì tự hỏi lại, gói còn dài thì không gọi máy chủ
   let asked = 0; const orig = A.Cloud.central().rpc.bind(A.Cloud.central());
@@ -1441,7 +1442,7 @@ t.group('34. Cài mới: tạo tài khoản BEPO → thông tin quán (dữ li�
 
   // màn hình khi bị khoá (chưa từng mua)
   A.route = { name: 'tables', params: {} }; A.render();
-  t.eq(A.route.name, 'locked', 'rời màn Gói cước → bị đưa về màn khoá');
+  t.eq(A.route.name, 'tables', 'rời màn Gói cước → vào được các màn khác (chỉ khoá gọi món)');
   html = A.VIEWS.locked();
   t.ok(html.includes('Chưa đăng ký gói cước') && !html.includes('Gói cước đã hết hạn') && html.includes('gói 1 tháng có thể được dùng thử miễn phí (nếu tài khoản Google của bạn đủ điều kiện)'), 'tiêu đề "Chưa đăng ký gói cước" + gợi ý chọn gói 1 tháng dùng thử miễn phí');
   t.ok(html.includes('data-go="subscription"') && html.includes('Chọn gói cước') && !html.includes('c_upgradeStart'), 'nút "Chọn gói cước" (không còn nút tạo tài khoản vì đã có tài khoản)');
@@ -1652,7 +1653,7 @@ t.group('34c. Người dùng bản cũ (dùng thử 14 ngày cục bộ, chưa c
   t.ok(E.License.locked(), 'sau 14 ngày dùng thử cục bộ hết hạn → khoá');
   E.route = { name: 'tables', params: {} }; E.render();
   html = E.VIEWS.locked();
-  t.ok(E.route.name === 'locked' && html.includes('c_upgradeStart') && html.includes('Tạo tài khoản BEPO để mua gói') && html.includes('Chưa đăng ký gói cước'), 'màn khoá có nút "Tạo tài khoản BEPO để mua gói"');
+  t.ok(E.route.name === 'tables' && html.includes('c_upgradeStart') && html.includes('Tạo tài khoản BEPO để mua gói') && html.includes('Chưa đăng ký gói cước'), 'màn khoá có nút "Tạo tài khoản BEPO để mua gói"');
   t.eq(E.License.describe().startsWith('Dùng thử'), true, 'mô tả vẫn là "Dùng thử — đã hết hạn" (không phải "Chưa đăng ký")');
   E.handleAct({ dataset: { act: 'c_upgradeStart' } }); E.render();
   t.eq(E.route.name, 'ownerAuth', 'đang khoá vẫn vào được màn tạo tài khoản (không bị đá về màn hết hạn)');
@@ -1963,6 +1964,65 @@ t.group('34j. Chặn lấy lại dùng thử bằng Android ID: máy đã gắn 
   const fid = [...w2.central.subs.keys()].pop(); const fs0 = w2.central.subs.get(fid); fs0.status = 'active'; fs0.plan_months = 1; fs0.expires_at = Date.now() + 20 * 86400000;
   await F.License.refresh(true);
   t.ok(!F.License.locked(), 'tài khoản đã mua gói → không bị cắt');
+}
+
+t.group('34l. Gói cước hết hạn: CHỈ khoá gọi món (nhân viên + khách QR); thu tiền, bếp, báo cáo, thực đơn, cài đặt… vẫn dùng bình thường');
+{
+  const w = newWorld(); const A = await setupOwner(w); const S = await addStaffDevice(w, A, 'pv-het-han');
+  await S.login('chuquan', 'chuquan123');
+  await A.api('/settings', { method: 'PATCH', body: { autoLock: false } });
+  const o1 = await order(A, 'Bàn 01', 1, [['Trà đá', 2]]);          // đơn đang mở TRƯỚC khi hết hạn
+  const o2 = await order(A, 'Bàn 02', 1, [['Phở bò tái', 1]]);
+  await A.sync(); await S.sync();
+  w.central.now = () => Date.now() + 40 * 86400000;
+  w.central.subs.forEach(s => { s.expires_at = Date.now() - 1000; });
+  await A.License.refresh(); await A.sync(); await S.sync();
+  t.ok(A.License.locked() && S.License.locked(), 'cả máy chủ quán và máy nhân viên đều ở trạng thái hết hạn');
+
+  // --- BỊ KHOÁ: gọi món ---
+  await t.rejects(() => order(A, 'Bàn 03', 1, [['Trà đá', 1]]), /tạm khoá gọi món/, 'máy chủ quán: gửi món bị chặn');
+  await t.rejects(() => order(S, 'Bàn 03', 1, [['Trà đá', 1]]), /tạm khoá gọi món/, 'máy nhân viên: gửi món bị chặn');
+  await t.rejects(() => order(A, 'Bàn 01', 1, [['Trà đá', 1]]), /tạm khoá gọi món/, 'gọi THÊM vào đơn đang mở cũng bị chặn');
+  const it1 = A.D.orderItems.find(i => i.order_id === o1.id);
+  await t.rejects(() => A.api('/order-items/' + it1.id, { method: 'PATCH', body: { qty: it1.qty + 3 } }), /tạm khoá gọi món/, 'tăng số lượng món đã gọi cũng bị chặn');
+  await t.rejects(() => A.api('/orders/' + o1.id + '/approve', { method: 'POST' }), /tạm khoá gọi món/, 'duyệt đơn khách gọi qua QR bị chặn');
+
+  // --- VẪN DÙNG ĐƯỢC ---
+  const tbl = A.D.tables.find(x => x.name === 'Bàn 01');
+  await serveAll(A, o1.id);
+  t.ok(true, 'bếp: làm và phục vụ món của đơn đang mở vẫn được');
+  const pay = await A.api('/orders/' + o1.id + '/payments', { method: 'POST', body: { method: 'cash' } });
+  t.ok(pay.state === 'paid', 'thu tiền đơn đang mở vẫn được');
+  await A.api('/settings', { method: 'PATCH', body: { sound: false } });
+  t.eq(A.D.settings.sound, false, 'đổi cài đặt vẫn được');
+  const mCount = A.D.menu.length;
+  await A.api('/menu', { method: 'POST', body: { name: 'Món mới khi hết hạn', price: 12000, categoryId: A.D.categories[0].id, kitchenId: A.D.kitchens[0].id } });
+  t.eq(A.D.menu.length, mCount + 1, 'thêm món vào thực đơn vẫn được');
+  await A.api('/order-items/' + A.D.orderItems.find(i => i.order_id === o2.id).id, { method: 'PATCH', body: { qty: 1 } }).catch(() => null);
+  const day = await A.api('/report-range?from=' + (Date.now() - 86400000) + '&to=' + (Date.now() + 86400000));
+  t.ok(day.payments.length >= 1, 'xem báo cáo vẫn được');
+  await A.api('/settings', { method: 'PATCH', body: { sound: true } });
+  const sp = await S.api('/snapshot');
+  t.ok(!!sp, 'máy nhân viên: đọc dữ liệu vẫn được');
+  await S.api('/settings', { method: 'PATCH', body: { sound: true } }).catch(e => t.ok(/chủ quán/.test(e.message), 'máy nhân viên: hạn chế theo quyền như thường (không phải do hết hạn)'));
+
+  // --- GIAO DIỆN: không còn màn khoá, có thanh báo ---
+  for (const r of ['tables', 'cashier', 'kds', 'reports', 'admin']) { A.route = { name: r, params: {} }; A.render(); t.ok(A.route.name === r, 'chủ quán vào được màn "' + r + '" khi hết hạn'); }
+  S.route = { name: 'tables', params: {} }; S.render();
+  t.ok(S.route.name === 'tables', 'nhân viên vào được màn Bàn khi hết hạn');
+  A.route = { name: 'tables', params: {} };
+  const bA = A.licenseBannerHtml(), bS = S.licenseBannerHtml();
+  t.ok(/tạm khoá gọi món/.test(bA) && bA.includes('data-go="subscription"'), 'chủ quán: có thanh báo hết hạn kèm nút gia hạn');
+  t.ok(/tạm khoá gọi món/.test(bS) && /Liên hệ chủ quán/.test(bS) && !bS.includes('data-go'), 'nhân viên: thanh báo nhắc liên hệ chủ quán (không có nút gia hạn)');
+
+  // --- GIA HẠN: gọi món lại được ---
+  w.central.now = () => Date.now();
+  w.central.subs.forEach(s => { s.expires_at = Date.now() + 90 * 86400000; });     // (đồng hồ app đã nhớ mốc +40 ngày nên gia hạn phải vượt mốc đó)
+  await A.License.refresh(); await A.sync(); await S.sync();
+  t.ok(!A.License.locked() && !S.License.locked(), 'gia hạn xong: hết khoá cả hai máy');
+  const ok = await order(A, 'Bàn 03', 1, [['Trà đá', 1]]);
+  t.ok(!!ok.id, 'gọi món lại được sau khi gia hạn');
+  t.eq(A.licenseBannerHtml(), '', 'thanh báo biến mất');
 }
 
 t.group('34k. Mã quyền sử dụng do máy chủ KÝ (Ed25519): chữ ký sai bị bỏ qua, sửa bộ nhớ máy bị phát hiện, có ngày ân hạn; máy chủ chưa có hàm ký → dùng cách cũ');
@@ -2583,13 +2643,13 @@ t.group('38g. Script SQL: phiếu kho cố ý không bị dọn, nhắc chạy l
   // nhắc chạy lại script khi kho còn bản cũ
   A.route = { name: 'cloud', params: {} };
   await A.Sync.syncNow();
-  t.eq(A.Sync.state.sqlVersion, 2, 'app đọc được phiên bản script của kho (store_status.version)');
+  t.eq(A.Sync.state.sqlVersion, 3, 'app đọc được phiên bản script của kho (store_status.version)');
   t.ok(!A.VIEWS.cloud().includes('Kho dữ liệu cần cập nhật script SQL'), 'kho đã chạy bản mới nhất → không nhắc');
   w.store.sqlVersion = 1;
   await A.Sync.syncNow();
   const vc = A.VIEWS.cloud();
   t.ok(vc.includes('Kho dữ liệu cần cập nhật script SQL') && vc.includes('c_copySql'), 'kho còn chạy script bản 1 → màn Đồng bộ nhắc chủ quán chạy lại script (có nút sao chép)');
-  w.store.sqlVersion = 2; await A.Sync.syncNow();
+  w.store.sqlVersion = 3; await A.Sync.syncNow();
   t.ok(!A.VIEWS.cloud().includes('Kho dữ liệu cần cập nhật script SQL'), 'chạy lại script xong → hết nhắc');
   // (17) chữ SQL: mốc ghi vượt CỘT updated_at của dòng ghế/đơn, không phải trường trong JSON
   const body = name => (sqlSrc.split('create or replace function public.').find(ch => ch.startsWith(name + '(')) || '');
@@ -2598,7 +2658,7 @@ t.group('38g. Script SQL: phiếu kho cố ý không bị dọn, nhắc chạy l
   t.ok(/v_now := greatest\(v_now, coalesce\(v_seat\.row_updated_at, 0\) \+ 1\)/.test(gc) && !/seat_data ->> 'updated_at'/.test(gc), 'guest_call: v_now vượt cột updated_at của dòng ghế (không dùng updated_at trong JSON)');
   t.ok(/v_now := greatest\(v_now, coalesce\(v_seat\.row_updated_at, 0\) \+ 1\)/.test(go) && !/seat_data ->> 'updated_at'/.test(go), 'guest_order: v_now vượt cột updated_at của dòng ghế');
   t.ok(/v_now := greatest\(v_now, coalesce\(v_order_col, 0\) \+ 1\)/.test(go), 'guest_order: khi cập nhật đơn hiện có, mốc ghi cũng vượt cột updated_at của dòng đơn');
-  t.ok(/'version', 2,/.test(sqlSrc), 'store_status trả version 2');
+  t.ok(/'version', 3,/.test(sqlSrc), 'store_status trả version 3');
   // store-sql.ts khớp
   const ts = fs.readFileSync(new URL('../supabase/functions/_shared/store-sql.ts', import.meta.url), 'utf8');
   t.ok(ts.includes(JSON.stringify(sqlSrc)), 'store-sql.ts (nhúng cho Edge Function) khớp từng chữ với store-setup.sql sau khi sinh lại');
@@ -2971,7 +3031,7 @@ t.group('38k. Vòng 2: giao diện phân quyền (công tắc về đúng trạn
   await F.Sync.syncNow();
   F.route = { name: 'admin', params: {} }; F.render();
   t.ok(F.document.getElementById('app').innerHTML.includes('Kho dữ liệu cần cập nhật script SQL — bấm để xem cách làm'), 'kho còn script cũ → banner nhẹ ở đầu mọi màn của chủ quán');
-  w5.store.sqlVersion = 2; await F.Sync.syncNow(); F.render();
+  w5.store.sqlVersion = 3; await F.Sync.syncNow(); F.render();
   t.ok(!F.document.getElementById('app').innerHTML.includes('cần cập nhật script SQL'), 'script đã mới → hết banner');
   w5.store.sqlVersion = 1; await F.Sync.syncNow();
   t.eq(F.Sync.state.sqlVersion, 1, 'đã biết kho chạy bản 1');
@@ -3118,7 +3178,7 @@ t.group('38m. Vòng 3: máy nhân viên mất phiên THẬT liên kết lại th
     // câu trả lời của lượt đó (is_device=false, vì phiên ẩn danh mới chưa phải thiết bị) đến muộn
     let relS; const gateS = new Promise(r => { relS = r; });
     const st = S.Cloud.store, origS = st.rpc.bind(st);
-    st.rpc = (n, ...a) => n === 'store_status' ? gateS.then(() => ({ data: { ready: true, version: 2, has_owner: true, is_owner: false, is_device: false }, error: null })) : origS(n, ...a);
+    st.rpc = (n, ...a) => n === 'store_status' ? gateS.then(() => ({ data: { ready: true, version: 3, has_owner: true, is_owner: false, is_device: false }, error: null })) : origS(n, ...a);
     const inflight = S.Sync.cycle();
     await sleep(30);
     delete S.sessions['sb-store'];                                  // mất phiên thật ngay lúc đó

@@ -105,7 +105,7 @@ export class FakeProject {
   rpc_store_status(_, s) {
     this.storeStatusCalls = (this.storeStatusCalls || 0) + 1;
     const d = this.devices.get(s.uid);
-    return { ready: true, version: this.sqlVersion == null ? 2 : this.sqlVersion, has_owner: !!this.owner, is_owner: this.isOwner(s), is_device: this.isDevice(s), device_revoked: !!(d && d.revoked_at) };
+    return { ready: true, version: this.sqlVersion == null ? 3 : this.sqlVersion, has_owner: !!this.owner, is_owner: this.isOwner(s), is_device: this.isDevice(s), device_revoked: !!(d && d.revoked_at) };
   }
   rpc_claim_owner(_, s) {
     if (s.anonymous) throw Object.assign(new Error('Tài khoản ẩn danh không thể làm chủ quán'), { code: '42501' });
@@ -151,12 +151,19 @@ export class FakeProject {
     if (requireUnlocked && Number(r.data.locked) === 1) throw Object.assign(new Error('Bàn này đã khoá mã QR — vui lòng gọi nhân viên'), { code: '42501' });
     return r;
   }
+  /** Mô phỏng public._ordering_blocked(): gói cước trong bản ghi license/main đã quá hạn (kể cả ân hạn lock_at) → không nhận khách gọi món */
+  _orderingBlocked() {
+    const r = this.colOne('license', 'main');
+    const lim = r && (r.data.lock_at != null ? Number(r.data.lock_at) : r.data.expires_at != null ? Number(r.data.expires_at) : null);
+    return lim != null && lim < this.now();
+  }
   rpc_guest_menu({ p_seat_token }) {
     const seat = this._guestSeat(p_seat_token, false);
     const table = this.colOne('tables', seat.data.table_id);
     const rest = this.colOne('restaurant', 'main');
     return {
       locked: Number(seat.data.locked) === 1,
+      ordering_blocked: this._orderingBlocked(),
       restaurant: rest ? rest.data : {},
       table_name: table ? table.data.name : null,
       seat_no: Number(seat.data.seat_no),
@@ -182,6 +189,7 @@ export class FakeProject {
   rpc_guest_order({ p_seat_token, p_lines }) {
     if (!Array.isArray(p_lines) || !p_lines.length || p_lines.length > 40) throw Object.assign(new Error('Chưa chọn món'), { code: '22023' });
     const seat = this._guestSeat(p_seat_token, true);
+    if (this._orderingBlocked()) throw Object.assign(new Error('Quán tạm ngừng nhận gọi món qua mã QR — vui lòng gọi nhân viên'), { code: '42501' });
     let now = Math.max(this.now(), (seat.updated_at || 0) + 1);
     let orderId = seat.data.bound_order_id, order = orderId ? this.colOne('orders', orderId) : null;
     if (order && order.data.status !== 'open') order = null;

@@ -101,6 +101,36 @@ t.group('G2. Khách gọi món — đơn/món hiện đúng trên máy chủ qu�
   t.eq(batches.size, 2, 'hai đợt gọi có số đợt (batch) khác nhau — không gộp lẫn');
 }
 
+t.group('G2b. Gói cước hết hạn: khách quét QR KHÔNG gọi món được (xem thực đơn và gọi nhân viên vẫn được); gia hạn → gọi lại được');
+{
+  const w = newWorld(); const A = await setupOwner(w);
+  const token = A.D.seats.find(s => s.table_id === tableOf(A, 'Bàn 03').id && s.seat_no === 1).qr_token;
+  const guest = guestBrowser(w);
+  const m0 = await guest.rpc('guest_menu', { p_seat_token: token });
+  t.eq(m0.data.ordering_blocked, false, 'còn hạn: guest_menu báo ordering_blocked = false');
+  // máy chủ quán ghi bản ghi gói cước hết hạn lên kho (như License.refresh khi gói quá hạn)
+  A.D.license = { plan_months: 1, status: 'expired', expires_at: Date.now() - 86400000, checked_at: Date.now() };
+  await A.Persist.flush(); await A.sync();
+  const m1 = await guest.rpc('guest_menu', { p_seat_token: token });
+  t.eq(m1.data.ordering_blocked, true, 'hết hạn: guest_menu báo ordering_blocked = true (trang khách hiện thông báo, ẩn nút gửi món)');
+  t.ok(m1.data.menu.length > 0, 'vẫn xem được thực đơn');
+  const r = await guest.rpc('guest_order', { p_seat_token: token, p_lines: [{ menuItemId: menuId(A, 'Trà đá'), qty: 1 }] });
+  t.ok(r.error && r.error.code === '42501' && /tạm ngừng nhận gọi món/.test(r.error.message), 'guest_order bị từ chối: ' + (r.error && r.error.message));
+  const c = await guest.rpc('guest_call', { p_seat_token: token });
+  t.ok(!c.error && c.data === true, 'khách vẫn bấm Gọi nhân viên được');
+  t.eq(A.D.orders.filter(o => o.source === 'qr').length, 0, 'không có đơn nào được tạo');
+  // ân hạn do máy chủ đặt (lock_at còn xa) → vẫn nhận gọi món
+  A.D.license = { plan_months: 1, status: 'active', expires_at: Date.now() - 86400000, lock_at: Date.now() + 2 * 86400000, checked_at: Date.now() };
+  await A.Persist.flush(); await A.sync();
+  const r2 = await guest.rpc('guest_order', { p_seat_token: token, p_lines: [{ menuItemId: menuId(A, 'Trà đá'), qty: 1 }] });
+  t.ok(!r2.error, 'còn trong ngày ân hạn → khách vẫn gọi món được');
+  // gia hạn
+  A.D.license = { plan_months: 1, status: 'active', expires_at: Date.now() + 30 * 86400000, checked_at: Date.now() };
+  await A.Persist.flush(); await A.sync();
+  const m3 = await guest.rpc('guest_menu', { p_seat_token: token });
+  t.eq(m3.data.ordering_blocked, false, 'gia hạn xong: gọi món qua QR mở lại');
+}
+
 t.group('G3. Nhân viên thấy đơn khách gần như ngay lập tức (qua đồng bộ, không cần làm gì thêm)');
 {
   const w = newWorld(); const A = await setupOwner(w); const S = await addStaffDevice(w, A, 'bep');

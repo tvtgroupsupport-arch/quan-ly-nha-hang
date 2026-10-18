@@ -3,8 +3,9 @@
    Nguồn sự thật: bảng subscriptions trên Supabase TRUNG TÂM (chỉ bạn sửa được).
      • Máy chủ quán hỏi trung tâm (get_my_subscription), nhớ kết quả cục bộ,
        và ghi vào dữ liệu đồng bộ (collection `license`) để máy nhân viên biết.
-     • Hết hạn → KHOÁ MỀM: vẫn đăng nhập, xem và xuất báo cáo được, chủ quán vào
-       được màn Gia hạn; chỉ chặn thao tác ghi (gọi món, thanh toán...).
+     • Hết hạn (và hết ngày ân hạn nếu có) → CHỈ KHOÁ GỌI MÓN: nhân viên gửi món / duyệt đơn (engineGuard, local-engine.js) và khách quét QR
+       (guest_order trong store-setup.sql đọc bản ghi `license`). Thu tiền, bếp, báo cáo, thực đơn, kho, cài đặt… vẫn dùng bình thường;
+       thanh báo ở đầu màn hình (licenseBannerHtml) nhắc gia hạn.
      • Chống chỉnh lùi đồng hồ: lưu mốc thời gian lớn nhất từng thấy (kể cả giờ
        máy chủ) và luôn dùng mốc đó nếu đồng hồ máy bị lùi.
    Giới hạn thật: mã nguồn nằm trên máy khách nên người rành kỹ thuật vẫn có

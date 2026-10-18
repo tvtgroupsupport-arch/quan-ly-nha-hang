@@ -143,7 +143,7 @@ language sql stable security definer set search_path = public as $$
     'ready', true,
     -- Phiên bản script: app so số này với số trong bản script đi kèm app; thấp hơn → app nhắc chủ quán chạy lại script (xem Đồng bộ).
     --   1 = bản đầu · 2 = guest_call/guest_order bù lệch đồng hồ theo CỘT updated_at của dòng records (không theo updated_at trong JSON)
-    'version', 2,
+    'version', 3,
     'has_owner', exists (select 1 from public.app_owner),
     'is_owner', public.is_owner(),
     'is_device', public.is_active_device(),
@@ -367,6 +367,14 @@ begin
   end if;
 end $$;
 
+/** Gói cước của quán đã hết hạn (kể cả ngày ân hạn) → KHÔNG nhận khách gọi món qua QR. Đọc bản ghi gói cước 'license' mà máy chủ quán ghi vào kho
+    (lock_at = hạn + ân hạn do máy chủ gói cước đặt; bản cũ chỉ có expires_at). Chưa có bản ghi gói cước → không chặn. Chỉ chặn GỌI MÓN: xem thực đơn, gọi nhân viên vẫn dùng được. */
+create or replace function public._ordering_blocked() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select coalesce((data ->> 'lock_at')::bigint, (data ->> 'expires_at')::bigint) < (extract(epoch from now()) * 1000)::bigint
+                     from public.records where collection = 'license' and id = 'main' and not deleted), false);
+$$;
+
 /** Thực đơn + thông tin quán cho đúng ghế đã quét — khách xem được trước khi gọi món. */
 create or replace function public.guest_menu(p_seat_token text) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -375,6 +383,7 @@ begin
   select * into v_seat from public._guest_seat(p_seat_token, false);
   return jsonb_build_object(
     'locked', coalesce((v_seat.seat_data ->> 'locked')::int, 0) = 1,
+    'ordering_blocked', public._ordering_blocked(),
     'restaurant', coalesce((select data from public.records where collection = 'restaurant' and id = 'main' and not deleted), '{}'::jsonb),
     'table_name', (select data ->> 'name' from public.records where collection = 'tables' and id = (v_seat.seat_data ->> 'table_id') and not deleted),
     'seat_no', (v_seat.seat_data ->> 'seat_no')::int,
@@ -431,6 +440,7 @@ begin
     raise exception 'Chưa chọn món' using errcode = '22023';
   end if;
   select * into v_seat from public._guest_seat(p_seat_token, true);
+  if public._ordering_blocked() then raise exception 'Quán tạm ngừng nhận gọi món qua mã QR — vui lòng gọi nhân viên' using errcode = '42501'; end if;
   v_now := greatest(v_now, coalesce(v_seat.row_updated_at, 0) + 1);   -- xem chú thích ở guest_call: so với CỘT updated_at của dòng ghế
 
   v_order_id := v_seat.seat_data ->> 'bound_order_id';

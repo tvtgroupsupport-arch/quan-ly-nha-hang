@@ -29,6 +29,16 @@ function syncBannerHtml() {
   if (s.status === 'auth') return `<button data-go="cloud" style="display:block;width:100%;border:0;background:${bg};color:#fff;padding:7px 14px;font-size:12px;font-weight:600;text-align:center">${esc(msg)} — bấm để xử lý</button>`;
   return `<div style="background:${bg};color:#fff;padding:7px 14px;font-size:12px;font-weight:600;text-align:center">${esc(msg)}</div>`;
 }
+/** Thanh báo gói cước hết hạn (chỉ khoá gọi món). Chủ quán bấm vào để gia hạn; máy nhân viên chỉ nhắc liên hệ chủ quán. */
+function licenseBannerHtml() {
+  try {
+    if (typeof ME === 'undefined' || !ME || typeof License === 'undefined' || !License.locked()) return '';
+    if (['login', 'setup', 'lang', 'restoring', 'staffJoin', 'ownerAuth', 'quickStart', 'ownerRestore', 'subscription', 'userGuide'].includes(route.name)) return '';
+    const msg = 'Gói cước đã hết hạn — tạm khoá gọi món (nhân viên và khách quét QR). Các tính năng khác vẫn dùng bình thường.';
+    if (Cloud.role === 'staff') return `<div style="background:var(--amber);color:#fff;padding:7px 14px;font-size:12px;font-weight:600;text-align:center">${esc(msg)} Liên hệ chủ quán để gia hạn.</div>`;
+    return `<button data-go="subscription" style="display:block;width:100%;border:0;background:var(--amber);color:#fff;padding:7px 14px;font-size:12px;font-weight:600;text-align:center">${esc(msg)} Bấm để gia hạn</button>`;
+  } catch (e) { return ''; }
+}
 function syncBanner() { return `<div id="syncbar">${syncBannerHtml()}</div>`; }
 function updateSyncBanner() { const el = document.getElementById('syncbar'); if (el) el.innerHTML = syncBannerHtml(); }
 

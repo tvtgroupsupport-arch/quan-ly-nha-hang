@@ -105,17 +105,14 @@ function render() {
     const ok = shared ? shared.some(k => can(k))
       : (() => { const need = screenPerm(route.name); return !need || can(need); })();
     if (!ok || (OWNER_ONLY_ROUTES.includes(route.name) && !meIsOwner())) route = { name: homeScreen(), params: {} };
-    // 4. Gói cước hết hạn: khoá mềm — vẫn xem được báo cáo và gia hạn
-    if (License.locked()) {
-      const allowed = Cloud.role === 'staff' ? LOCK_OK_STAFF : LOCK_OK_OWNER;
-      if (!allowed.includes(route.name)) route = { name: 'locked', params: {} };
-    }
+    // 4. Gói cước hết hạn: CHỈ khoá việc gọi món (engineGuard + guest_order) — mọi màn hình khác vẫn mở; thanh báo ở đầu màn hình (licenseBannerHtml)
+    if (route.name === 'locked') route = { name: homeScreen(), params: {} };
   }
   if (route.name === 'history' && !window._history && !window._historyLoading) {
     window._history = []; loadHistory(true);
   }
   const v = VIEWS[route.name] || vTables;
-  document.getElementById('app').innerHTML = syncBanner() + v();
+  document.getElementById('app').innerHTML = syncBanner() + licenseBannerHtml() + v();
   hideOwnerOnly(document.getElementById('app'));
   applyFontScale();
   if (route.name === 'pay') queueMicrotask(renderCashBox);

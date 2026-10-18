@@ -270,13 +270,16 @@ const STAFF_DEVICE_FORBIDDEN = [
   ['POST', 'kitchens'], ['PATCH', 'kitchens', '*'], ['DELETE', 'kitchens', '*'],
   ['PATCH', 'settings'], ['PATCH', 'restaurant']
 ];
-/** Khoá gói cước (hết hạn): chặn mọi thao tác ghi trừ đăng nhập/đăng xuất/đổi mật khẩu */
-const LICENSE_ALLOWED_WRITES = [['POST', 'auth', 'login'], ['POST', 'auth', 'logout'], ['POST', 'auth', 'password']];
+/** Gói cước hết hạn CHỈ khoá việc GỌI MÓN: nhân viên gửi món, duyệt đơn khách gọi qua QR, tăng số lượng món đã gọi (khách quét QR bị chặn ở phía kho Supabase: guest_order).
+    Mọi tính năng khác (thu tiền, bếp, báo cáo, thực đơn, kho, nhân viên, đồng bộ…) vẫn dùng bình thường. */
+const LICENSE_ORDERING_WRITES = [['POST', 'orders', 'items'], ['POST', 'orders', '*', 'approve']];
 
 function engineGuard(method, seg, body) {
   const match = pat => pat[0] === method && pat.length - 1 === seg.length && pat.slice(1).every((x, i) => x === '*' || x === seg[i]);
-  if (method !== 'GET' && typeof License !== 'undefined' && License.locked() && !LICENSE_ALLOWED_WRITES.some(match)) {
-    return err(402, 'Gói cước đã hết hạn — chủ quán cần gia hạn để tiếp tục thao tác');
+  if (method !== 'GET' && typeof License !== 'undefined' && License.locked()) {
+    const raisesQty = method === 'PATCH' && seg[0] === 'order-items' && seg.length === 2 && body && body.qty !== undefined
+      && (() => { const it = D.orderItems.find(i => i.id === seg[1]); return !!it && Number(body.qty) > it.qty; })();
+    if (LICENSE_ORDERING_WRITES.some(match) || raisesQty) return err(402, 'Gói cước đã hết hạn — tạm khoá gọi món (nhân viên và khách quét QR). Chủ quán cần gia hạn để gọi món lại');
   }
   if (typeof Cloud !== 'undefined' && Cloud.role === 'staff') {
     if (method === 'PATCH' && seg[0] === 'menu' && seg.length === 2) {
