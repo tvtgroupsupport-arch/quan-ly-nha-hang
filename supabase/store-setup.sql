@@ -143,7 +143,7 @@ language sql stable security definer set search_path = public as $$
     'ready', true,
     -- Phiên bản script: app so số này với số trong bản script đi kèm app; thấp hơn → app nhắc chủ quán chạy lại script (xem Đồng bộ).
     --   1 = bản đầu · 2 = guest_call/guest_order bù lệch đồng hồ theo CỘT updated_at của dòng records (không theo updated_at trong JSON)
-    'version', 3,
+    'version', 4,
     'has_owner', exists (select 1 from public.app_owner),
     'is_owner', public.is_owner(),
     'is_device', public.is_active_device(),
@@ -259,7 +259,7 @@ declare
   r         record;
   -- Máy nhân viên được ghi các loại dữ liệu vận hành này
   v_staff_rw constant text[] := array['orders','orderItems','payments','stockMoves','reservations','seats','logs'];
-  v_known    constant text[] := array['areas','tables','seats','categories','kitchens','menu','recipes',
+  v_known    constant text[] := array['areas','tables','seats','categories','kitchens','menu','combos','recipes',
                                       'ingredients','promos','staff','reservations','orders','orderItems',
                                       'payments','stockMoves','logs','restaurant','settings','license'];
 begin

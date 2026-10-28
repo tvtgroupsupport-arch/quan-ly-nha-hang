@@ -70,7 +70,7 @@ function emptyD() {
     settings: { autoLock: true, sound: true, sepay: true, confirmFirstOrder: false,
                 callSound: true, chime: 1, soundVolume: 100 },
     license: null,
-    areas: [], tables: [], seats: [], categories: [], kitchens: [], menu: [], recipes: [],
+    areas: [], tables: [], seats: [], categories: [], kitchens: [], menu: [], combos: [], recipes: [],
     ingredients: [], promos: [], staff: [], reservations: [],
     orders: [], orderItems: [], payments: [], stockMoves: [], logs: [],
     counter: 1000                    // bộ đếm mã đơn — chỉ của riêng máy này, không đồng bộ
@@ -128,11 +128,15 @@ function seedSample(db) {
     ['Bia Sài Gòn', 2, 25000, 2, '🍺', 'Lon 330ml', []],
     ['Chè thái', 3, 35000, 1, '🍮', 'Mít, nhãn, nước cốt dừa', []]
   ];
+  const MID = {};
   def.forEach(([name, ci, price, ki, emoji, description, rec]) => {
-    const id = 'm' + rid();
+    const id = 'm' + rid(); MID[name] = id;
     db.menu.push({ id, name, description, emoji, price, category_id: C[ci].id, kitchen_id: K[ki].id, stock_state: 'ok', active: 1, updated_at: t });
     rec.forEach(([ing, q]) => db.recipes.push({ menu_item_id: id, ingredient_id: ING[ing], qty_per_serve: q }));
   });
+  // Combo mẫu (bộ món đặt trước cho tiệc): gọi 1 lần ra đủ các món
+  db.combos.push({ id: 'cb' + rid(), name: 'Combo tiệc 4 người', description: 'Khai vị + 2 món chính + đồ uống', active: 1, updated_at: t,
+    items: [['Gỏi cuốn tôm thịt', 2], ['Phở bò tái', 2], ['Cơm tấm sườn bì', 2], ['Nước cam ép', 4]].map(([n, q]) => ({ menu_item_id: MID[n], qty: q })) });
 }
 
 /** Tạo dữ liệu cho quán mới: thông tin quán + tài khoản chủ quán (mật khẩu đã băm) */
@@ -263,6 +267,7 @@ function err(status, message, extra) { const e = new Error(message); e.status = 
 const STAFF_DEVICE_FORBIDDEN = [
   ['POST', 'areas'], ['POST', 'tables'], ['PATCH', 'tables', '*'], ['DELETE', 'tables', '*'],
   ['POST', 'menu'], ['DELETE', 'menu', '*'], ['PUT', 'menu', '*', 'recipe'],
+  ['POST', 'combos'], ['PATCH', 'combos', '*'], ['DELETE', 'combos', '*'],
   ['POST', 'ingredients'], ['PATCH', 'ingredients', '*'],
   ['POST', 'promos'], ['PATCH', 'promos', '*'],
   ['POST', 'staff'], ['PATCH', 'staff', '*'], ['POST', 'staff', '*', 'reset-password'], ['DELETE', 'staff', '*'],
@@ -378,7 +383,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       serverTime: nowMs(), restaurant: D.restaurant, settings: D.settings,
       areas: D.areas, tables: D.tables.filter(t => t.active), seats: D.seats,
       categories: D.categories, kitchens: D.kitchens,
-      menu: D.menu.filter(m => m.active), recipes: D.recipes, ingredients: D.ingredients,
+      menu: D.menu.filter(m => m.active), combos: D.combos.filter(c => c.active), recipes: D.recipes, ingredients: D.ingredients,
       promos: D.promos, staff: D.staff, reservations: D.reservations,
       orders: snapOrders,
       orderItems: D.orderItems.filter(i => snapOrderIds.has(i.order_id)),
@@ -492,8 +497,27 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
 
   /* --- đơn hàng --- */
   if (M('POST', 'orders', 'items')) {
-    const { tableId, seatNo, lines } = body || {};
+    const { tableId, seatNo } = body || {};
+    let lines = body && body.lines;
     if (!lines?.length) throw err(400, 'Chưa chọn món');
+    // Combo: một dòng {comboId, qty} được mở thành đủ các món của combo (số suất × số lượng mỗi món). Mỗi món vẫn là một dòng riêng: đi đúng khu bếp, trừ kho theo công thức,
+    // tính giá từng món; chỉ gắn thêm nhãn combo để bếp / nhân viên biết món nào thuộc combo nào.
+    if (lines.some(l => l && l.comboId)) {
+      const exp = [];
+      for (const ln of lines) {
+        if (!(ln && ln.comboId)) { exp.push(ln); continue; }
+        const c = D.combos.find(x => x.id === ln.comboId && x.active);
+        if (!c) throw err(400, 'Combo không tồn tại hoặc đã bị tắt');
+        const cq = ln.qty == null ? 1 : Number(ln.qty);
+        if (!Number.isInteger(cq) || cq < 1 || cq > 99) throw err(400, 'Số suất combo phải là số nguyên từ 1 đến 99');
+        for (const it of c.items) {
+          const m = D.menu.find(x => x.id === it.menu_item_id && x.active);
+          if (!m) throw err(409, 'Combo "' + c.name + '" có món không còn bán — hãy sửa combo');
+          exp.push({ menuItemId: m.id, qty: it.qty * cq, note: ln.note || '', _combo: { id: c.id, name: c.name, qty: cq } });
+        }
+      }
+      lines = exp;
+    }
     // Ghế phải có thật trong bàn — nếu không, đơn sẽ mồ côi và không màn nào hiển thị
     if (tableId && !D.seats.some(s => s.table_id === tableId && s.seat_no === Number(seatNo))) {
       throw err(400, 'Ghế không tồn tại trong bàn này');
@@ -526,11 +550,12 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
       const qty = ln.qty == null ? 1 : Number(ln.qty);
       D.orderItems.push({ id: 'it' + rid(), order_id: o.id, menu_item_id: m.id, name_snapshot: m.name,
         price_snapshot: m.price, kitchen_id: m.kitchen_id, qty, note: ln.note || '',
+        ...(ln._combo ? { combo_id: ln._combo.id, combo_name: ln._combo.name, combo_qty: ln._combo.qty } : {}),
         status: 'queued',
         batch, origin_table: tableId || null, origin_seat: tableId ? Number(seatNo) : null,
         created_at: nowMs(), updated_at: nowMs() });
       consume(m.id, qty, o.id);
-      added.push(m.name + ' ×' + qty + (ln.note ? ' (' + ln.note + ')' : ''));
+      added.push(m.name + ' ×' + qty + (ln.note ? ' (' + ln.note + ')' : '') + (ln._combo ? ' [Combo ' + ln._combo.name + ']' : ''));
     }
     o.updated_at = nowMs();
     addLog(who(), 'Gửi món', `${orderPlace(o)} · đơn ${o.code}${isNew ? ' (mới)' : ''} · đợt ${batch}: ${added.join(', ')}`);
@@ -828,6 +853,47 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
   if (M('DELETE', 'menu', '*')) {
     const m = D.menu.find(x => x.id === seg[1]); if (m) m.active = 0;
     addLog(who(), 'Xoá món', m?.name); saveD(); return { ok: true };
+  }
+  /* --- combo món: bộ món đặt trước cho tiệc, gọi 1 lần ra đủ các món (giá = cộng giá từng món, không giảm) --- */
+  const comboItems = raw => {
+    if (!Array.isArray(raw) || !raw.length) throw err(400, 'Combo cần ít nhất 1 món');
+    if (raw.length > 60) throw err(400, 'Combo tối đa 60 món');
+    const seen = new Set(), out = [];
+    for (const r of raw) {
+      const mid = r && r.menuItemId, q = Number(r && r.qty);
+      if (!D.menu.some(x => x.id === mid && x.active)) throw err(400, 'Món trong combo không tồn tại');
+      if (!Number.isInteger(q) || q < 1 || q > 99) throw err(400, 'Số lượng mỗi món trong combo phải là số nguyên từ 1 đến 99');
+      if (seen.has(mid)) throw err(400, 'Một món chỉ xuất hiện một lần trong combo — hãy tăng số lượng');
+      seen.add(mid); out.push({ menu_item_id: mid, qty: q });
+    }
+    return out;
+  };
+  const comboTxt = items => items.map(i => ((D.menu.find(m => m.id === i.menu_item_id) || {}).name || i.menu_item_id) + ' ×' + i.qty).join(', ');
+  if (M('POST', 'combos')) {
+    const name = String(body?.name || '').trim();
+    if (!name) throw err(400, 'Nhập tên combo');
+    if (D.combos.some(c => c.active && c.name.toLowerCase() === name.toLowerCase())) throw err(409, 'Tên combo đã tồn tại');
+    const items = comboItems(body?.items);
+    const id = 'cb' + rid();
+    D.combos.push({ id, name, description: String(body?.description || '').trim(), items, active: 1, updated_at: nowMs() });
+    addLog(who(), 'Thêm combo', name + ' — ' + comboTxt(items)); saveD(); return { id };
+  }
+  if (M('PATCH', 'combos', '*')) {
+    const c = D.combos.find(x => x.id === seg[1]);
+    if (!c) throw err(404, 'Không tìm thấy combo');
+    const name = body?.name !== undefined ? String(body.name).trim() : c.name;
+    if (!name) throw err(400, 'Nhập tên combo');
+    if (D.combos.some(x => x.id !== c.id && x.active && x.name.toLowerCase() === name.toLowerCase())) throw err(409, 'Tên combo đã tồn tại');
+    const items = body?.items !== undefined ? comboItems(body.items) : c.items;
+    const before = c.name + ' — ' + comboTxt(c.items) + (c.active ? '' : ' (đang tắt)');
+    Object.assign(c, { name, description: body?.description !== undefined ? String(body.description).trim() : c.description, items,
+      active: body?.active !== undefined ? (body.active ? 1 : 0) : c.active, updated_at: nowMs() });
+    addLog(who(), c.active ? 'Sửa combo' : 'Tắt combo', 'Trước: ' + before + ' → Sau: ' + c.name + ' — ' + comboTxt(c.items) + (c.active ? '' : ' (đang tắt)'));
+    saveD(); return { ok: true };
+  }
+  if (M('DELETE', 'combos', '*')) {
+    const c = D.combos.find(x => x.id === seg[1]); if (c) { c.active = 0; c.updated_at = nowMs(); }
+    addLog(who(), 'Xoá combo', c?.name); saveD(); return { ok: true };
   }
   if (M('PUT', 'menu', '*', 'recipe')) {
     const ingNm = id => (D.ingredients.find(i => i.id === id) || {}).name || id;

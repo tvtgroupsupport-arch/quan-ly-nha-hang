@@ -1966,6 +1966,105 @@ t.group('34j. Chặn lấy lại dùng thử bằng Android ID: máy đã gắn 
   t.ok(!F.License.locked(), 'tài khoản đã mua gói → không bị cắt');
 }
 
+t.group('34m. Combo món: tạo / sửa / xoá, gọi combo cho bàn tự thêm đủ món (đúng khu bếp, đúng giá, trừ kho), đồng bộ, phân quyền');
+{
+  const w = newWorld(); const A = await setupOwner(w); const S = await addStaffDevice(w, A, 'pv-combo');
+  await S.login('chuquan', 'chuquan123');
+  const mid = n => menuId(A, n), price = n => A.D.menu.find(m => m.name === n).price;
+  t.ok(A.D.combos.some(c => c.name === 'Combo tiệc 4 người' && c.items.length === 4), 'dữ liệu mẫu có sẵn 1 combo để thử');
+
+  // --- tạo combo + kiểm tra đầu vào ---
+  await t.rejects(() => A.api('/combos', { method: 'POST', body: { name: '  ', items: [{ menuItemId: mid('Trà đá'), qty: 1 }] } }), /Nhập tên combo/, 'thiếu tên bị từ chối');
+  await t.rejects(() => A.api('/combos', { method: 'POST', body: { name: 'Rỗng', items: [] } }), /ít nhất 1 món/, 'combo rỗng bị từ chối');
+  await t.rejects(() => A.api('/combos', { method: 'POST', body: { name: 'Sai SL', items: [{ menuItemId: mid('Trà đá'), qty: 0 }] } }), /từ 1 đến 99/, 'số lượng 0 bị từ chối');
+  await t.rejects(() => A.api('/combos', { method: 'POST', body: { name: 'Trùng món', items: [{ menuItemId: mid('Trà đá'), qty: 1 }, { menuItemId: mid('Trà đá'), qty: 2 }] } }), /một lần/, 'một món lặp hai lần bị từ chối');
+  await t.rejects(() => A.api('/combos', { method: 'POST', body: { name: 'Ma', items: [{ menuItemId: 'khong-co', qty: 1 }] } }), /không tồn tại/, 'món không có thật bị từ chối');
+  const created = await A.api('/combos', { method: 'POST', body: { name: 'Combo tiệc 10 người', description: 'Đặt trước', items: [
+    { menuItemId: mid('Phở bò tái'), qty: 5 }, { menuItemId: mid('Cơm tấm sườn bì'), qty: 5 }, { menuItemId: mid('Trà đá'), qty: 10 }] } });
+  t.ok(!!created.id && A.D.combos.some(c => c.id === created.id), 'tạo combo thành công');
+  await t.rejects(() => A.api('/combos', { method: 'POST', body: { name: 'combo TIỆC 10 NGƯỜI', items: [{ menuItemId: mid('Trà đá'), qty: 1 }] } }), /đã tồn tại/, 'tên trùng (không phân biệt hoa thường) bị từ chối');
+  t.ok(A.D.logs.some(l => l.action === 'Thêm combo' && /Combo tiệc 10 người/.test(l.detail || '')), 'nhật ký ghi việc thêm combo, kèm danh sách món');
+
+  // --- gọi combo cho bàn ---
+  const tb = A.D.tables.find(x => x.name === 'Bàn 04');
+  const tom = ing(A, 'Tôm sú').qty;
+  const o = await A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ comboId: A.D.combos.find(c => c.name === 'Combo tiệc 4 người').id, qty: 2 }] } });
+  const items = A.D.orderItems.filter(i => i.order_id === o.id);
+  t.eq(items.length, 4, 'gọi 1 dòng combo → app thêm đủ 4 món của combo');
+  const want = { 'Gỏi cuốn tôm thịt': 4, 'Phở bò tái': 4, 'Cơm tấm sườn bì': 4, 'Nước cam ép': 8 };      // số lượng mỗi món × 2 suất
+  t.ok(items.every(i => want[i.name_snapshot] === i.qty), 'số lượng từng món = số lượng trong combo × số suất: ' + items.map(i => i.name_snapshot + '×' + i.qty).join(', '));
+  t.ok(items.every(i => i.combo_name === 'Combo tiệc 4 người' && i.combo_qty === 2 && i.status === 'queued' && i.batch === 1), 'mỗi món gắn nhãn combo, cùng một đợt gọi, trạng thái đã gửi bếp');
+  t.ok(items.every(i => i.price_snapshot === price(i.name_snapshot) && i.kitchen_id === A.D.menu.find(m => m.name === i.name_snapshot).kitchen_id), 'giá từng món đúng thực đơn và đi đúng khu bếp của món (bếp chính / quầy pha chế)');
+  const full = await A.api('/orders/' + o.id + '/detail').catch(() => null);
+  const sub = items.reduce((s2, i) => s2 + i.qty * i.price_snapshot, 0);
+  t.eq(sub, 2 * (2 * price('Gỏi cuốn tôm thịt') + 2 * price('Phở bò tái') + 2 * price('Cơm tấm sườn bì') + 4 * price('Nước cam ép')), 'tổng tiền = 2 suất × giá combo (cộng giá từng món, không giảm)');
+  t.ok(Math.abs((tom - ing(A, 'Tôm sú').qty) - 4 * 0.08) < 1e-6, 'kho trừ theo công thức: 4 phần gỏi cuốn × 0.08kg tôm');
+  t.ok(A.D.logs.some(l => l.action === 'Gửi món' && /\[Combo Combo tiệc 4 người\]/.test(l.detail || '')), 'nhật ký gửi món ghi rõ thuộc combo nào');
+
+  // --- gọi lẫn món thường + combo; tiếp tục gọi thêm vào đơn đang mở ---
+  await A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ menuItemId: mid('Trà đá'), qty: 1 }, { comboId: created.id, qty: 1 }] } });
+  t.eq(A.D.orderItems.filter(i => i.order_id === o.id).length, 4 + 1 + 3, 'gọi lẫn món thường + combo vào đơn đang mở: thêm đủ 1 + 3 dòng');
+  t.eq(A.D.orderItems.filter(i => i.order_id === o.id && i.batch === 2).length, 4, 'các dòng của lần gọi thứ hai cùng là đợt 2');
+
+  // --- hết hàng một món → cả combo bị từ chối, không tạo gì dở dang ---
+  A.D.menu.find(m => m.name === 'Phở bò tái').stock_state = 'out';
+  const nBefore = A.D.orderItems.length;
+  await t.rejects(() => A.api('/orders/items', { method: 'POST', body: { tableId: A.D.tables.find(x => x.name === 'Bàn 05').id, seatNo: 1, lines: [{ comboId: created.id, qty: 1 }] } }), /hết hàng/, 'có món hết hàng → không gọi được combo');
+  t.eq(A.D.orderItems.length, nBefore, 'không để lại món nào dở dang');
+  A.D.menu.find(m => m.name === 'Phở bò tái').stock_state = 'ok';
+  await t.rejects(() => A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ comboId: 'khong-co', qty: 1 }] } }), /không tồn tại/, 'combo không có thật bị từ chối');
+  await t.rejects(() => A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ comboId: created.id, qty: 0 }] } }), /từ 1 đến 99/, 'số suất 0 bị từ chối');
+
+  // --- giao diện: màn Gọi món có tab Combo, giỏ tính giá combo, gửi đi mở thành đủ món ---
+  await A.refresh();
+  A.route = { name: 'newOrder', params: { t: A.D.tables.find(x => x.name === 'Bàn 06').id, s: 1, cat: '__combo' } };
+  let html = A.VIEWS.newOrder();
+  t.ok(html.includes('🎁 Combo') && html.includes('Combo tiệc 4 người') && html.includes('Combo tiệc 10 người') && /\/ suất/.test(html), 'màn Gọi món: có tab Combo, liệt kê combo kèm giá mỗi suất');
+  const tenId = created.id, c10 = 5 * price('Phở bò tái') + 5 * price('Cơm tấm sườn bì') + 10 * price('Trà đá');
+  A.handleAct({ dataset: { act: 'cart+', id: 'combo:' + tenId } }); A.handleAct({ dataset: { act: 'cart+', id: 'combo:' + tenId } });
+  html = A.VIEWS.newOrder();
+  t.ok(html.includes('data-act="sendOrder"') && html.replace(/[.,\s]/g, '').includes(String(2 * c10)), 'giỏ hàng tính đúng 2 suất combo = ' + 2 * c10);
+  const before = A.D.orderItems.length;
+  A.handleAct({ dataset: { act: 'sendOrder' } });
+  await A.until(() => A.D.orderItems.length > before);
+  t.eq(A.D.orderItems.length - before, 3, 'bấm Gửi xuống bếp: combo mở thành 3 món');
+  const o6 = A.D.orders.find(x => x.table_id === A.D.tables.find(y => y.name === 'Bàn 06').id && x.status === 'open');
+  A.route = { name: 'order', params: { id: o6.id } };
+  t.ok(A.VIEWS.order().includes('Combo: Combo tiệc 10 người'), 'màn đơn của bàn hiện nhãn "Combo: …" dưới từng món');
+  A.route = { name: 'kds', params: { k: 'all' } };
+  t.ok(A.VIEWS.kds().includes('Combo tiệc 10 người'), 'màn Bếp hiện nhãn combo trên từng món');
+  A.route = { name: 'combos', params: {} };
+  t.ok(A.VIEWS.combos().includes('Combo tiệc 10 người') && A.VIEWS.combos().includes('data-act="newCombo"'), 'màn Combo món liệt kê combo, có nút tạo mới');
+
+  // --- thanh toán: tổng đúng ---
+  await serveAll(A, o.id);
+  const pay = await A.api('/orders/' + o.id + '/payments', { method: 'POST', body: { method: 'cash' } });
+  t.eq(pay.total, A.D.orderItems.filter(i => i.order_id === o.id).reduce((s2, i) => s2 + i.qty * i.price_snapshot, 0), 'thu tiền đơn có combo: thành tiền = tổng các món');
+
+  // --- sửa / tắt / xoá ---
+  await A.api('/combos/' + created.id, { method: 'PATCH', body: { items: [{ menuItemId: mid('Trà đá'), qty: 3 }], name: 'Combo tiệc 10 người (mới)' } });
+  t.ok(A.D.combos.find(c => c.id === created.id).items.length === 1 && /mới/.test(A.D.combos.find(c => c.id === created.id).name), 'sửa tên và danh sách món của combo');
+  await t.rejects(() => A.api('/combos/' + created.id, { method: 'PATCH', body: { items: [] } }), /ít nhất 1 món/, 'sửa thành combo rỗng bị từ chối');
+  A.D.menu.find(m => m.name === 'Chè thái').active = 0;
+  const withGone = await A.api('/combos', { method: 'POST', body: { name: 'Để xoá', items: [{ menuItemId: mid('Trà đá'), qty: 1 }] } });
+  A.D.combos.find(c => c.id === withGone.id).items.push({ menu_item_id: mid('Chè thái'), qty: 1 });
+  await t.rejects(() => A.api('/orders/items', { method: 'POST', body: { tableId: A.D.tables.find(x => x.name === 'Bàn 05').id, seatNo: 1, lines: [{ comboId: withGone.id, qty: 1 }] } }), /không còn bán/, 'combo có món đã bị xoá khỏi thực đơn: không gọi được, báo rõ lý do');
+  A.D.menu.find(m => m.name === 'Chè thái').active = 1;
+  await A.api('/combos/' + withGone.id, { method: 'DELETE' });
+  t.ok(!A.D.combos.find(c => c.id === withGone.id).active, 'xoá combo (ẩn khỏi danh sách)');
+  await t.rejects(() => A.api('/orders/items', { method: 'POST', body: { tableId: tb.id, seatNo: 1, lines: [{ comboId: withGone.id, qty: 1 }] } }), /không tồn tại|bị tắt/, 'combo đã xoá không gọi được nữa');
+
+  // --- đồng bộ + phân quyền máy nhân viên ---
+  await A.sync(); await S.sync();
+  t.ok(S.D.combos.some(c => c.id === created.id) && S.D.combos.find(c => c.id === created.id).items.length === 1, 'máy nhân viên nhận combo qua đồng bộ (đúng nội dung đã sửa)');
+  await t.rejects(() => S.api('/combos', { method: 'POST', body: { name: 'Lậu', items: [{ menuItemId: mid('Trà đá'), qty: 1 }] } }), /chủ quán/, 'máy nhân viên không tạo / sửa / xoá được combo');
+  const o7 = await S.api('/orders/items', { method: 'POST', body: { tableId: A.D.tables.find(x => x.name === 'Bàn 03').id, seatNo: 1, lines: [{ comboId: created.id, qty: 2 }] } });
+  t.eq(S.D.orderItems.filter(i => i.order_id === o7.id).length, 1, 'nhưng máy nhân viên GỌI được combo cho bàn');
+  await S.sync(); await A.sync();
+  t.eq(A.D.orderItems.filter(i => i.order_id === o7.id && i.combo_name).length, 1, 'đơn gọi combo từ máy nhân viên sang máy chủ quán đủ món và nhãn combo');
+  t.ok(w.store.records.has('combos|' + created.id), 'kho Supabase lưu combo (collection "combos")');
+}
+
 t.group('34l. Gói cước hết hạn: CHỈ khoá gọi món (nhân viên + khách QR); thu tiền, bếp, báo cáo, thực đơn, cài đặt… vẫn dùng bình thường');
 {
   const w = newWorld(); const A = await setupOwner(w); const S = await addStaffDevice(w, A, 'pv-het-han');
@@ -2643,13 +2742,13 @@ t.group('38g. Script SQL: phiếu kho cố ý không bị dọn, nhắc chạy l
   // nhắc chạy lại script khi kho còn bản cũ
   A.route = { name: 'cloud', params: {} };
   await A.Sync.syncNow();
-  t.eq(A.Sync.state.sqlVersion, 3, 'app đọc được phiên bản script của kho (store_status.version)');
+  t.eq(A.Sync.state.sqlVersion, 4, 'app đọc được phiên bản script của kho (store_status.version)');
   t.ok(!A.VIEWS.cloud().includes('Kho dữ liệu cần cập nhật script SQL'), 'kho đã chạy bản mới nhất → không nhắc');
   w.store.sqlVersion = 1;
   await A.Sync.syncNow();
   const vc = A.VIEWS.cloud();
   t.ok(vc.includes('Kho dữ liệu cần cập nhật script SQL') && vc.includes('c_copySql'), 'kho còn chạy script bản 1 → màn Đồng bộ nhắc chủ quán chạy lại script (có nút sao chép)');
-  w.store.sqlVersion = 3; await A.Sync.syncNow();
+  w.store.sqlVersion = 4; await A.Sync.syncNow();
   t.ok(!A.VIEWS.cloud().includes('Kho dữ liệu cần cập nhật script SQL'), 'chạy lại script xong → hết nhắc');
   // (17) chữ SQL: mốc ghi vượt CỘT updated_at của dòng ghế/đơn, không phải trường trong JSON
   const body = name => (sqlSrc.split('create or replace function public.').find(ch => ch.startsWith(name + '(')) || '');
@@ -2658,7 +2757,7 @@ t.group('38g. Script SQL: phiếu kho cố ý không bị dọn, nhắc chạy l
   t.ok(/v_now := greatest\(v_now, coalesce\(v_seat\.row_updated_at, 0\) \+ 1\)/.test(gc) && !/seat_data ->> 'updated_at'/.test(gc), 'guest_call: v_now vượt cột updated_at của dòng ghế (không dùng updated_at trong JSON)');
   t.ok(/v_now := greatest\(v_now, coalesce\(v_seat\.row_updated_at, 0\) \+ 1\)/.test(go) && !/seat_data ->> 'updated_at'/.test(go), 'guest_order: v_now vượt cột updated_at của dòng ghế');
   t.ok(/v_now := greatest\(v_now, coalesce\(v_order_col, 0\) \+ 1\)/.test(go), 'guest_order: khi cập nhật đơn hiện có, mốc ghi cũng vượt cột updated_at của dòng đơn');
-  t.ok(/'version', 3,/.test(sqlSrc), 'store_status trả version 3');
+  t.ok(/'version', 4,/.test(sqlSrc), 'store_status trả version 4');
   // store-sql.ts khớp
   const ts = fs.readFileSync(new URL('../supabase/functions/_shared/store-sql.ts', import.meta.url), 'utf8');
   t.ok(ts.includes(JSON.stringify(sqlSrc)), 'store-sql.ts (nhúng cho Edge Function) khớp từng chữ với store-setup.sql sau khi sinh lại');
@@ -3031,7 +3130,7 @@ t.group('38k. Vòng 2: giao diện phân quyền (công tắc về đúng trạn
   await F.Sync.syncNow();
   F.route = { name: 'admin', params: {} }; F.render();
   t.ok(F.document.getElementById('app').innerHTML.includes('Kho dữ liệu cần cập nhật script SQL — bấm để xem cách làm'), 'kho còn script cũ → banner nhẹ ở đầu mọi màn của chủ quán');
-  w5.store.sqlVersion = 3; await F.Sync.syncNow(); F.render();
+  w5.store.sqlVersion = 4; await F.Sync.syncNow(); F.render();
   t.ok(!F.document.getElementById('app').innerHTML.includes('cần cập nhật script SQL'), 'script đã mới → hết banner');
   w5.store.sqlVersion = 1; await F.Sync.syncNow();
   t.eq(F.Sync.state.sqlVersion, 1, 'đã biết kho chạy bản 1');
@@ -3178,7 +3277,7 @@ t.group('38m. Vòng 3: máy nhân viên mất phiên THẬT liên kết lại th
     // câu trả lời của lượt đó (is_device=false, vì phiên ẩn danh mới chưa phải thiết bị) đến muộn
     let relS; const gateS = new Promise(r => { relS = r; });
     const st = S.Cloud.store, origS = st.rpc.bind(st);
-    st.rpc = (n, ...a) => n === 'store_status' ? gateS.then(() => ({ data: { ready: true, version: 3, has_owner: true, is_owner: false, is_device: false }, error: null })) : origS(n, ...a);
+    st.rpc = (n, ...a) => n === 'store_status' ? gateS.then(() => ({ data: { ready: true, version: 4, has_owner: true, is_owner: false, is_device: false }, error: null })) : origS(n, ...a);
     const inflight = S.Sync.cycle();
     await sleep(30);
     delete S.sessions['sb-store'];                                  // mất phiên thật ngay lúc đó

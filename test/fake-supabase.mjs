@@ -4,7 +4,7 @@
    Lưu ý: đây là bản mô phỏng bằng JS để kiểm thử PHÍA APP; nó KHÔNG chứng minh script SQL chạy đúng trên Postgres. */
 
 const STAFF_RW = ['orders', 'orderItems', 'payments', 'stockMoves', 'reservations', 'seats', 'logs'];
-const KNOWN = ['areas', 'tables', 'seats', 'categories', 'kitchens', 'menu', 'recipes', 'ingredients', 'promos', 'staff',
+const KNOWN = ['areas', 'tables', 'seats', 'categories', 'kitchens', 'menu', 'combos', 'recipes', 'ingredients', 'promos', 'staff',
   'reservations', 'orders', 'orderItems', 'payments', 'stockMoves', 'logs', 'restaurant', 'settings', 'license'];
 
 /** jsonb lưu khoá theo (độ dài, thứ tự chữ cái) — mô phỏng để bắt lỗi phụ thuộc thứ tự khoá */
@@ -105,7 +105,7 @@ export class FakeProject {
   rpc_store_status(_, s) {
     this.storeStatusCalls = (this.storeStatusCalls || 0) + 1;
     const d = this.devices.get(s.uid);
-    return { ready: true, version: this.sqlVersion == null ? 3 : this.sqlVersion, has_owner: !!this.owner, is_owner: this.isOwner(s), is_device: this.isDevice(s), device_revoked: !!(d && d.revoked_at) };
+    return { ready: true, version: this.sqlVersion == null ? 4 : this.sqlVersion, has_owner: !!this.owner, is_owner: this.isOwner(s), is_device: this.isDevice(s), device_revoked: !!(d && d.revoked_at) };
   }
   rpc_claim_owner(_, s) {
     if (s.anonymous) throw Object.assign(new Error('Tài khoản ẩn danh không thể làm chủ quán'), { code: '42501' });

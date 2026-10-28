@@ -62,6 +62,7 @@ function adapt(s) {
       kitchen: kitName(m.kitchen_id), kitchenId: m.kitchen_id, stock: m.stock_state,
       recipe: s.recipes.filter(r => r.menu_item_id === m.id).map(r => ({ ing: r.ingredient_id, qty: r.qty_per_serve }))
     })),
+    combos: (s.combos || []).map(c => ({ id: c.id, name: c.name, desc: c.description || '', active: !!c.active, items: (c.items || []).map(i => ({ mid: i.menu_item_id, qty: i.qty })) })),
     inventory: s.ingredients.map(i => ({ id: i.id, name: i.name, unit: i.unit, qty: i.qty, min: i.min_qty })),
     promos: s.promos.map(p => ({
       id: p.id, name: p.name, type: p.type, value: p.value, min: p.min_total,
@@ -89,7 +90,7 @@ function adapt(s) {
         lid: i.id, mid: i.menu_item_id, name: i.name_snapshot, price: i.price_snapshot,
         qty: i.qty, note: i.note || '', status: i.status, kitchen: kitName(i.kitchen_id),
         emoji: (s.menu.find(m => m.id === i.menu_item_id) || {}).emoji || '🍽️', batch: i.batch,
-        originTable: i.origin_table, originSeat: i.origin_seat
+        originTable: i.origin_table, originSeat: i.origin_seat, comboId: i.combo_id || null, comboName: i.combo_name || ''
       }))
     })),
     payments: s.payments.filter(p => p.state === 'paid').map(p => {

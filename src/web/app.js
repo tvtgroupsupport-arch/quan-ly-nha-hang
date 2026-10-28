@@ -13,7 +13,7 @@ function back() {
 
 const VIEWS = {
   login: vLogin, tables: vTables, table: vTable, newOrder: vNewOrder, order: vOrder, pay: vPay, paid: vPaid,
-  kds: vKds, admin: vAdmin, reservations: vReservations, menu: vMenu, catKitchen: vCategoriesKitchens, promos: vPromos, reports: vReports,
+  kds: vKds, admin: vAdmin, reservations: vReservations, menu: vMenu, combos: vCombos, catKitchen: vCategoriesKitchens, promos: vPromos, reports: vReports,
   staff: vStaff, billing: vBilling, logs: vLogs,
   tablesAdmin: vTablesAdmin, stockLog: vStockLog, exportHub: vExport,
   seatPick: vSeatPick, stock: vStock, history: vHistory, historyDetail: vHistoryDetail,
@@ -85,7 +85,7 @@ function screenPerm(name) {
                    seatPick: 'tables', transferTo: 'tables', newOrder: 'tables',
                    history: 'reports', exportHub: 'reports', stockLog: 'stock',
                    guestPage: 'tablesAdmin', qrPrint: 'tablesAdmin', historyDetail: 'reports',
-                   catKitchen: 'menu' }[name] || name;
+                   catKitchen: 'menu', combos: 'menu' }[name] || name;
   const sc = SCREENS.find(x => x.route === parent);
   return sc ? sc.key : null;
 }
@@ -166,6 +166,22 @@ function toast(msg) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.remove(), 2200);
 }
 let sheetEl = null;
+/** Vẽ lại danh sách món trong khung sửa combo (chỉ thay phần danh sách + dòng tổng, giữ nguyên ô tên đang nhập) */
+function refreshComboSheet() {
+  const it = window._cbItems || {}, el = document.getElementById('cbList'), sum = document.getElementById('cbSum');
+  if (!el) return;
+  el.innerHTML = DB.categories.map(cat => {
+    const ms = DB.menu.filter(m => m.cat === cat);
+    if (!ms.length) return '';
+    return `<div class="t-xs" style="margin:10px 0 4px;font-weight:700">${esc(cat)}</div>` + ms.map(m => {
+      const n = it[m.id] || 0;
+      return `<div class="card between" style="margin-bottom:6px;padding:8px 12px"><div style="flex:1;min-width:0"><div class="t-sm">${esc(m.name)}</div><div class="mono t-xs">${fmt(m.price)}</div></div>
+        <div class="step">${n > 0 ? `<button class="minus" data-act="cbi-" data-id="${m.id}" aria-label="Giảm">−</button><span class="n">${n}</span>` : ''}<button class="plus" data-act="cbi+" data-id="${m.id}" aria-label="Thêm: ${esc(m.name)}">+</button></div></div>`;
+    }).join('');
+  }).join('');
+  const ids = Object.keys(it), total = ids.reduce((s, id) => s + ((menuById(id) || {}).price || 0) * it[id], 0);
+  if (sum) sum.textContent = ids.length ? ids.length + ' món · ' + fmt(total) + ' / suất' : 'Chưa chọn món nào';
+}
 function sheet(title, html) {
   closeSheet();
   const bg = document.createElement('div'); bg.className = 'sheet-bg';
@@ -491,7 +507,7 @@ function handleAct(el, ev) {
     const cart = window._cart || {};
     if (!Object.keys(cart).length) { toast('Chưa chọn món nào'); return; }
     if (!route.params.t) { handleAct({ dataset: { act: 'pickTable' } }); toast('Chọn bàn trước khi gửi'); return; }
-    const lines = Object.entries(cart).map(([menuItemId, qty]) => ({ menuItemId, qty }));
+    const lines = Object.entries(cart).map(([id, qty]) => String(id).startsWith('combo:') ? { comboId: String(id).slice(6), qty } : { menuItemId: id, qty });
     if (window._sending) return;   // đang gửi: bỏ qua lần bấm thứ hai (tránh tạo món/đơn trùng)
     window._sending = true;
     const idem = uid('ord');
@@ -805,6 +821,34 @@ function handleAct(el, ev) {
     }, 'Đã lưu');
     return;
   }
+  /* ---------- combo món ---------- */
+  case 'newCombo': case 'editCombo': {
+    const c = a === 'editCombo' ? (DB.combos || []).find(x => x.id === d.id) : null;
+    window._cbItems = {}; (c ? c.items : []).forEach(i => { window._cbItems[i.mid] = i.qty; });
+    sheet(c ? 'Sửa combo' : 'Tạo combo', `
+      <div class="field"><label class="f">Tên combo</label><input class="input" id="cbn" value="${c ? esc(c.name) : ''}" placeholder="vd. Combo tiệc 10 người"></div>
+      <div class="field"><label class="f">Mô tả (không bắt buộc)</label><input class="input" id="cbd" value="${c ? esc(c.desc) : ''}"></div>
+      <div class="sec">Chọn món trong combo</div>
+      <div id="cbSum" class="t-xs" style="margin-bottom:6px"></div>
+      <div id="cbList"></div>
+      <button class="btn pri" data-act="saveCombo" data-id="${c ? c.id : ''}" style="margin-top:12px">Lưu</button>
+      ${c ? `<button class="btn danger" data-act="delCombo" data-id="${c.id}" style="margin-top:8px">Xoá combo</button>` : ''}`);
+    refreshComboSheet();
+    return;
+  }
+  case 'cbi+': { const it = window._cbItems || (window._cbItems = {}); it[d.id] = Math.min(99, (it[d.id] || 0) + 1); refreshComboSheet(); return; }
+  case 'cbi-': { const it = window._cbItems || (window._cbItems = {}); it[d.id] = (it[d.id] || 0) - 1; if (it[d.id] <= 0) delete it[d.id]; refreshComboSheet(); return; }
+  case 'saveCombo': {
+    const it = window._cbItems || {};
+    const body = { name: val('cbn').trim(), description: val('cbd'), items: Object.entries(it).map(([menuItemId, qty]) => ({ menuItemId, qty })) };
+    run(async () => {
+      if (d.id) await api('/combos/' + d.id, { method: 'PATCH', body });
+      else await api('/combos', { method: 'POST', body });
+      closeSheet();
+    }, 'Đã lưu combo');
+    return;
+  }
+  case 'delCombo': { run(() => api('/combos/' + d.id, { method: 'DELETE' }).then(closeSheet), 'Đã xoá combo'); return; }
   case 'delMenuItem': { run(() => api('/menu/' + d.id, { method: 'DELETE' }).then(closeSheet), 'Đã xoá món'); return; }
 
   /* ---------- công thức ---------- */

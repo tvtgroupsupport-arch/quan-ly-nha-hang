@@ -374,6 +374,15 @@ function vTable(){
 }
 
 /* ============ GỌI MÓN ============ */
+/* ---- Combo món (bộ món đặt trước cho tiệc): helper dùng chung ---- */
+function comboById(id){ return (DB.combos || []).find(c => c.id === id); }
+function comboTotal(c){ return c.items.reduce((s, i) => s + ((menuById(i.mid) || {}).price || 0) * i.qty, 0); }
+function comboBroken(c){ return c.items.some(i => !menuById(i.mid)); }
+function comboOut(c){ return c.items.some(i => { const m = menuById(i.mid); return !!m && m.stock === 'out'; }); }
+function comboText(c){ return c.items.map(i => ((menuById(i.mid) || { name: '(đã xoá)' }).name) + ' ×' + i.qty).join(', '); }
+/** Giá 1 đơn vị trong giỏ: món thường hoặc 1 suất combo (khoá "combo:<id>") */
+function cartUnitPrice(id){ return String(id).startsWith('combo:') ? (comboById(String(id).slice(6)) ? comboTotal(comboById(String(id).slice(6))) : 0) : (menuById(id) ? menuById(id).price : 0); }
+
 function vNewOrder(){
   const p = route.params;
   const tableId = p.t || null, seatNo = p.s ? +p.s : null;
@@ -384,17 +393,29 @@ function vNewOrder(){
   let list = DB.menu.filter(m=>m.cat===cat);
   if(q) list = DB.menu.filter(m=>m.name.toLowerCase().includes(q));
   const cartN = Object.values(cart).reduce((a,b)=>a+b,0);
-  const cartSum = Object.entries(cart).reduce((s,[id,n])=>s+(menuById(id)?.price||0)*n,0);
+  const cartSum = Object.entries(cart).reduce((s,[id,n])=>s+cartUnitPrice(id)*n,0);
+  const comboMode = cat === '__combo' && !q && (DB.combos || []).length > 0;
+  const comboListHtml = comboMode ? DB.combos.map(c => {
+    const n = cart['combo:' + c.id] || 0, out = comboOut(c) || comboBroken(c);
+    return `<div class="card" style="${out ? 'opacity:.55' : ''}"><div class="between" style="gap:10px"><div style="flex:1;min-width:0">
+      <div class="t-md">🎁 ${esc(c.name)}</div>${c.desc ? `<div class="t-xs">${esc(c.desc)}</div>` : ''}
+      <div class="t-xs" style="line-height:1.5;margin-top:4px">${esc(comboText(c))}</div>
+      <div class="mono t-sm" style="color:var(--accent);font-weight:600;margin-top:4px">${fmt(comboTotal(c))} / suất</div></div>
+      ${out ? '<span class="badge b-red">Có món hết</span>'
+        : n > 0 ? `<div class="step"><button class="minus" data-act="cart-" data-id="combo:${c.id}" aria-label="Giảm">−</button><span class="n">${n}</span><button class="plus" data-act="cart+" data-id="combo:${c.id}" aria-label="Tăng">+</button></div>`
+        : `<button class="addbtn" data-act="cart+" data-id="combo:${c.id}" aria-label="Thêm combo: ${esc(c.name)}">+</button>`}
+    </div></div>`;
+  }).join('') : '';
   const target = tableId ? `${tableById(tableId).name} · Ghế ${seatNo}` : 'Chưa chọn bàn';
   return `<div class="screen">
     ${hdr(existing?'Gọi thêm món':'Gọi món', esc(target), {noBack:!!p.noBack, right:`<button class="iconbtn" data-act="pickTable" aria-label="Chọn bàn">${icon('tables')}</button>`})}
-    <div class="body" data-swipe="cat" data-cat="${esc(cat)}">
+    <div class="body" ${comboMode ? '' : 'data-swipe="cat"'} data-cat="${esc(cat)}">
       <div class="card row" style="padding:10px 14px">${icon('search')}
         <input class="input" style="border:none;padding:0;background:transparent" id="q" placeholder="Tìm món…" value="${esc(p.q||'')}">
       </div>
-      ${q?'':`<div class="scrollx">${DB.categories.map(c=>`<button class="chip ${c===cat?'on':''}" data-go="newOrder" data-cat="${esc(c)}" data-keep="1">${esc(c)}</button>`).join('')}</div>
+      ${q?'':`<div class="scrollx">${(DB.combos || []).length ? `<button class="chip ${cat==='__combo'?'on':''}" data-go="newOrder" data-cat="__combo" data-keep="1">🎁 Combo</button>` : ''}${DB.categories.map(c=>`<button class="chip ${c===cat?'on':''}" data-go="newOrder" data-cat="${esc(c)}" data-keep="1">${esc(c)}</button>`).join('')}</div>
       <div class="t-xs">Vuốt sang trái/phải để đổi danh mục</div>`}
-      ${list.length?list.map(m=>{
+      ${comboMode ? comboListHtml : list.length?list.map(m=>{
         const n = cart[m.id]||0;
         const out = m.stock==='out';
         return `<div class="card row" style="${out?'opacity:.5':''}">
@@ -462,15 +483,17 @@ function vOrder(){
         const served = o.items.filter(i=>i.status==='served');
         const servedGroups = new Map();
         served.forEach(i=>{
-          const g = servedGroups.get(i.mid) || { name:i.name, emoji:i.emoji, qty:0, total:0, seats:new Set() };
+          const gk = i.mid + '|' + (i.comboId || '');
+          const g = servedGroups.get(gk) || { name:i.name, emoji:i.emoji, qty:0, total:0, seats:new Set(), combo:i.comboName || '' };
           g.qty += i.qty; g.total += i.price*i.qty;
           if(merged && i.originSeat) g.seats.add(`Ghế ${i.originSeat}${(()=>{const tb=tableById(i.originTable);return tb&&tb.id!==o.tableId?' · '+esc(tb.name):'';})()}`);
-          servedGroups.set(i.mid, g);
+          servedGroups.set(gk, g);
         });
 
         const pendingHtml = pending.map(i=>`<div class="card between">
           <div style="flex:1">
             <div class="t-md">${esc(i.emoji)} ${esc(i.name)}</div>
+            ${i.comboName?`<div class="t-xs">🎁 Combo: ${esc(i.comboName)}</div>`:''}
             ${merged&&i.originSeat?`<div class="t-xs">Ghế ${i.originSeat}${(()=>{const tb=tableById(i.originTable);return tb&&tb.id!==o.tableId?' · '+esc(tb.name):'';})()} gọi</div>`:''}
             ${i.note?`<div class="t-xs">Ghi chú: ${usr(i.note)}</div>`:''}
             <div class="row" style="margin-top:6px;gap:8px">
@@ -488,6 +511,7 @@ function vOrder(){
         const servedHtml = [...servedGroups.values()].map(g=>`<div class="card between" style="opacity:.9">
           <div style="flex:1">
             <div class="t-md">${esc(g.emoji)} ${esc(g.name)} <span class="muted">×${g.qty}</span></div>
+            ${g.combo?`<div class="t-xs">🎁 Combo: ${esc(g.combo)}</div>`:''}
             ${g.seats.size?`<div class="t-xs">${[...g.seats].map(esc).join(', ')}</div>`:''}
           </div>
           <div class="col" style="align-items:flex-end;gap:8px">
@@ -686,7 +710,7 @@ function kdsByTicket(tickets, k){
       <div class="tb">
         ${items.map(i=>`<button class="li ${i.status==='served'?'x':''}" data-act="kdsToggle" data-o="${o.id}" data-l="${i.lid}" style="text-align:left;width:100%">
           <span style="font-size:15px">${i.status==='served'?'☑':i.status==='ready'?'🍽':i.status==='cooking'?'🔥':'☐'}</span>
-          <span style="flex:1">${esc(i.name)} ×${i.qty}${i.note?` <span style="color:#8C8071">(${usr(i.note)})</span>`:''}</span>
+          <span style="flex:1">${esc(i.name)} ×${i.qty}${i.note?` <span style="color:#8C8071">(${usr(i.note)})</span>`:''}${i.comboName?` <span style="color:#8C8071">🎁 ${esc(i.comboName)}</span>`:''}</span>
           <span style="font-size:11px;color:#8C8071">${esc(i.kitchen)}</span>
         </button>`).join('')}
       </div>
@@ -934,6 +958,7 @@ function vMenu(){
   const stB = {ok:['Còn hàng','b-green'],low:['Sắp hết','b-amber'],out:['Hết hàng','b-red']};
   return `<div class="screen">
     ${hdr('Thực đơn', `${DB.menu.length} món`, {right:`
+      <button class="iconbtn" data-go="combos" aria-label="Combo món">🎁</button>
       <button class="iconbtn" data-go="catKitchen" aria-label="Quản lý danh mục &amp; khu bếp">${icon('settings')}</button>
       <button class="iconbtn" data-act="newItem" aria-label="Thêm món" style="background:var(--accent);color:#fff">${icon('plus')}</button>`})}
     <div class="body" data-swipe="cat" data-cat="${esc(cat)}">
@@ -948,6 +973,26 @@ function vMenu(){
           <span class="badge ${cls}">${lb}</span>
         </button>`;
       }).join('') || '<div class="empty">Danh mục này chưa có món nào</div>'}
+    </div>
+    ${navBar('admin')}
+  </div>`;
+}
+
+/* ============ COMBO MÓN ============ */
+function vCombos(){
+  return `<div class="screen">
+    ${hdr('Combo món', `${(DB.combos || []).length} combo`, {right:`<button class="iconbtn" data-act="newCombo" aria-label="Tạo combo" style="background:var(--accent);color:#fff">${icon('plus')}</button>`})}
+    <div class="body">
+      <div class="t-xs" style="line-height:1.6">Combo là bộ món đặt trước cho tiệc: khi gọi món cho bàn chỉ cần chọn combo và số suất, app tự thêm đủ các món (đi đúng khu bếp, trừ kho như món thường). Giá combo = cộng giá từng món.</div>
+      ${(DB.combos || []).map(c => {
+        const bad = comboBroken(c), out = comboOut(c);
+        return `<button class="card" data-act="editCombo" data-id="${c.id}" style="width:100%;text-align:left">
+          <div class="between"><span class="t-md">🎁 ${esc(c.name)}</span>${bad ? '<span class="badge b-red">Có món đã xoá</span>' : out ? '<span class="badge b-amber">Có món hết</span>' : '<span class="badge b-green">Sẵn sàng</span>'}</div>
+          ${c.desc ? `<div class="t-xs" style="margin-top:4px">${esc(c.desc)}</div>` : ''}
+          <div class="t-xs" style="margin-top:6px;line-height:1.6">${esc(comboText(c))}</div>
+          <div class="mono t-sm" style="margin-top:6px;color:var(--accent);font-weight:600">${fmt(comboTotal(c))} / suất</div>
+        </button>`;
+      }).join('') || '<div class="empty">Chưa có combo nào — bấm + để tạo</div>'}
     </div>
     ${navBar('admin')}
   </div>`;

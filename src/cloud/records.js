@@ -23,6 +23,7 @@ const SYNC_DEFS = [
   { name: 'categories',   key: r => r.id },
   { name: 'kitchens',     key: r => r.id },
   { name: 'menu',         key: r => r.id },
+  { name: 'combos',       key: r => r.id },
   { name: 'recipes',      key: r => r.menu_item_id + ':' + r.ingredient_id },
   { name: 'ingredients',  key: r => r.id, strip: r => { const c = { ...r }; delete c.qty; return c; } },
   { name: 'promos',       key: r => r.id },
