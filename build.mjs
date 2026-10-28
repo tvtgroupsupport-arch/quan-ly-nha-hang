@@ -38,8 +38,8 @@ console.log(`✓ www/index.html (${Math.round(html.length / 1024)} KB)`);
 {
   const capCfgPath = path.join(ROOT, 'capacitor.config.json');
   const base = JSON.parse(fs.readFileSync(capCfgPath, 'utf8'));
-  // Tên hiển thị dưới biểu tượng app: lấy từ APP_NAME / appName, mặc định "BEPO" (không còn gắn thêm "(Google Play)").
-  const appName = cfg.appName || 'BEPO';
+  // Tên hiển thị dưới biểu tượng app: lấy từ APP_NAME / appName, mặc định "BEPO - Quản lý nhà hàng" (không còn gắn thêm "(Google Play)").
+  const appName = cfg.appName || 'BEPO - Quản lý nhà hàng';
   if (cfg.billingMode === 'play') { base.appId = cfg.playAppId; base.appName = appName; }
   else { base.appId = 'vn.quanly.nhahang'; base.appName = appName; }
   fs.writeFileSync(capCfgPath, JSON.stringify(base, null, 2) + '\n');
