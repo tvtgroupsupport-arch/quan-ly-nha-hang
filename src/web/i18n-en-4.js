@@ -110,6 +110,8 @@ const I18N_EN_4 = [
   ['Chọn món trong combo', 'Choose dishes in the combo'],
   ['Đã lưu combo', 'Combo saved'],
   ['Đã xoá combo', 'Combo deleted'],
+  ['Tự gộp đơn trùng ghế', 'Orders on the same seat merged automatically'],
+  [') — hai máy cùng gọi món cho ghế này khi mất mạng', ') — two devices ordered for this seat while offline'],
   ['kiểm tra quyền', 'checking access'],
   ['kéo dữ liệu', 'pulling data'],
   ['gửi thay đổi', 'sending changes'],

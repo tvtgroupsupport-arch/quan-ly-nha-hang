@@ -64,7 +64,7 @@ function invariants(dev) {
 }
 
 /** Số ghế đang có nhiều hơn 1 đơn mở (không phải lỗi dữ liệu — cả hai đơn vẫn thu được — nhưng gây rối khi thu tiền) */
-const dupSeats = dev => { const c = {}; dev.D.orders.filter(o => o.status === 'open' && o.table_id).forEach(o => { const k = o.table_id + '#' + o.seat_no; c[k] = (c[k] || 0) + 1; }); return Object.values(c).filter(n => n > 1).length; };
+const dupSeats = (dev, withPending = false) => { const c = {}; dev.D.orders.filter(o => o.status === 'open' && o.table_id).forEach(o => { const k = o.table_id + '#' + o.seat_no; (c[k] = c[k] || []).push(o); }); return Object.values(c).filter(l => l.length > 1 && (withPending || !l.some(o => dev.D.payments.some(p => p.order_id === o.id && p.state === 'pending')))).length; };
 const HOSTILE = ['<img src=x onerror=alert(1)>', '"><script>alert(1)</script>', '" onmouseover="alert(1)', "'; alert(1); //", '<svg/onload=alert(1)>', '${7*7}', '{{7*7}}'];
 const BAD_PAT = [/<img src=x onerror/i, /<script>alert/i, /" onmouseover="alert/, /<svg\/onload/i];
 
@@ -193,7 +193,8 @@ t.group('E4. Hai máy cùng thao tác OFFLINE rồi đồng bộ: không mất m
   t.ok(itemsA.some(i => i.name_snapshot === 'Phở bò tái') && itemsA.some(i => i.name_snapshot === 'Trà đá'), 'cùng ghế, cùng offline: sau đồng bộ máy chủ quán có đủ món của cả hai máy');
   t.ok(itemsS.some(i => i.name_snapshot === 'Phở bò tái') && itemsS.some(i => i.name_snapshot === 'Trà đá'), '…và máy nhân viên cũng đủ');
   const openOnSeat = d => d.D.orders.filter(o => o.status === 'open' && o.table_id === tbl(d, 'Bàn 01').id && o.seat_no === 1);
-  if (openOnSeat(A).length > 1) note('trung bình', `Hai máy cùng gọi món một ghế khi offline tạo ${openOnSeat(A).length} đơn đang mở cho cùng ghế (đơn ${openOnSeat(A).map(o => o.code).join(', ')}). Món không mất nhưng thu tiền phải làm hai lần / dễ nhầm. Cần cơ chế gộp đơn cùng ghế khi đồng bộ.`);
+  t.eq(openOnSeat(A).length, 1, 'sau đồng bộ chỉ còn MỘT đơn mở cho ghế (tự gộp, không mất món)');
+  t.eq(openOnSeat(S).length, 1, 'máy nhân viên cũng chỉ còn một đơn mở cho ghế');
   t.ok(A.D.orderItems.length === S.D.orderItems.length, 'hai máy cùng số dòng món sau đồng bộ');
   // (b) hai máy cùng thu tiền một đơn khi offline
   const o2 = await order(A, 'Bàn 02', 1, [['Trà đá', 1]]); await serveAll(A, o2.id); await A.sync(); await S.sync();
@@ -225,8 +226,7 @@ t.group('E5. Mất điện / app bị hệ điều hành tắt ngay sau thao tá
   const o = await order(A, 'Bàn 01', 1, [['Phở bò tái', 1]]);          // KHÔNG gọi save()/flush()
   const A2 = await newDevice(w, 'sau-khi-tat', { dbFile: A.file });   // máy "mở lại" ngay, chưa kịp chờ 250 ms
   const lost = !A2.D.orders.some(x => x.id === o.id);
-  if (lost) note('trung bình', 'Đơn vừa gửi bếp CHƯA được ghi xuống SQLite nếu app bị tắt trong vòng 250 ms sau thao tác (ghi có điều tiết 250 ms, không ghi khi app chuyển nền). Nên ghi ngay khi app chuyển nền (sự kiện pause) và sau thao tác tiền.');
-  t.ok(true, 'đo cửa sổ mất dữ liệu: ' + (lost ? 'CÓ mất (đơn chưa ghi)' : 'không mất'));
+  t.ok(!lost, 'đơn vừa gửi bếp đã được ghi xuống SQLite NGAY (app bị tắt liền sau đó vẫn không mất)');
   await A.save();
   const A3 = await newDevice(w, 'sau-khi-ghi', { dbFile: A.file });
   t.ok(A3.D.orders.length === before + 1, 'sau khi đã ghi xong: mở lại thấy đủ đơn');
@@ -258,7 +258,8 @@ t.group('E6. Chuỗi thao tác NGẪU NHIÊN trên hai máy (400 bước): bất
   console.log('   ℹ ' + steps + ' bước thành công; lỗi nghiệp vụ gặp (bình thường): ' + errList.map(([k, n]) => `${n}× ${k}`).join(' | ').slice(0, 400));
   const unexpected = errList.filter(([k]) => !/không còn mở|Còn món|đã được xoá|Đơn đã đóng|vào bếp|hết hàng|không tồn tại|Món này|Đơn không còn|đã bị|chưa phục vụ|Chưa chọn|Không giảm|Không sửa|đã đóng|Gói cước/i.test(k));
   t.ok(unexpected.length === 0, 'mọi lỗi gặp đều là lỗi nghiệp vụ hợp lệ, không có lỗi bất ngờ: ' + unexpected.map(([k, n]) => n + '× ' + k).join(' | '));
-  if (dupSeats(A)) note('trung bình', `Sau 400 thao tác ngẫu nhiên trên 2 máy (có lúc offline) có ${dupSeats(A)} ghế bị tạo 2 đơn mở cùng lúc — đúng lỗi gộp đơn cùng ghế ở trên.`);
+  t.eq(dupSeats(A), 0, 'sau 400 thao tác ngẫu nhiên: không ghế nào còn 2 đơn mở (trừ đơn đang chờ xác nhận chuyển khoản, cố ý để nguyên: ' + (dupSeats(A, true) - dupSeats(A)) + ' ghế)');
+  t.eq(dupSeats(S), 0, 'máy nhân viên cũng không còn ghế trùng đơn');
   t.eq(invariants(A), [], 'bất biến dữ liệu máy chủ quán sau 400 thao tác ngẫu nhiên');
   t.eq(invariants(S), [], 'bất biến dữ liệu máy nhân viên');
   const sig = d => JSON.stringify({ o: d.D.orders.map(o => [o.id, o.status]).sort(), i: d.D.orderItems.map(i => [i.id, i.qty, i.status]).sort(), p: d.D.payments.map(p => [p.id, p.state, p.total]).sort() });

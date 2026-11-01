@@ -78,6 +78,11 @@ const app = {
     if (isNative) App.addListener('resume', cb);
     else document.addEventListener('visibilitychange', () => { if (!document.hidden) cb(); });
   },
+  /** App chuyển nền / mất tiêu điểm: nơi để ghi ngay mọi dữ liệu chưa kịp ghi (hệ điều hành có thể tắt tiến trình ngay sau đó) */
+  onPause(cb) {
+    if (isNative) { App.addListener('pause', cb); App.addListener('appStateChange', s => { if (!s.isActive) cb(); }); }
+    else document.addEventListener('visibilitychange', () => { if (document.hidden) cb(); });
+  },
   /** handler trả true nếu đã xử lý nút Back; false → thu nhỏ app */
   onBack(handler) {
     if (!isNative) return;

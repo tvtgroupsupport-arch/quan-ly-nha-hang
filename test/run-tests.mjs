@@ -2026,7 +2026,7 @@ t.group('34m. Combo món: tạo / sửa / xoá, gọi combo cho bàn tự thêm 
   t.ok(html.includes('data-act="sendOrder"') && html.replace(/[.,\s]/g, '').includes(String(2 * c10)), 'giỏ hàng tính đúng 2 suất combo = ' + 2 * c10);
   const before = A.D.orderItems.length;
   A.handleAct({ dataset: { act: 'sendOrder' } });
-  await A.until(() => A.D.orderItems.length > before);
+  await A.until(() => A.D.orderItems.length > before); await A.refresh();
   t.eq(A.D.orderItems.length - before, 3, 'bấm Gửi xuống bếp: combo mở thành 3 món');
   const o6 = A.D.orders.find(x => x.table_id === A.D.tables.find(y => y.name === 'Bàn 06').id && x.status === 'open');
   A.route = { name: 'order', params: { id: o6.id } };
@@ -2063,6 +2063,69 @@ t.group('34m. Combo món: tạo / sửa / xoá, gọi combo cho bàn tự thêm 
   await S.sync(); await A.sync();
   t.eq(A.D.orderItems.filter(i => i.order_id === o7.id && i.combo_name).length, 1, 'đơn gọi combo từ máy nhân viên sang máy chủ quán đủ món và nhãn combo');
   t.ok(w.store.records.has('combos|' + created.id), 'kho Supabase lưu combo (collection "combos")');
+}
+
+t.group('34n. Hai máy cùng gọi món một ghế khi offline → tự gộp đơn, không mất món; ghi ngay khi gửi món / thu tiền / chuyển nền');
+{
+  const w = newWorld(); w.central.trialDays = 3650; const A = await setupOwner(w); const S = await addStaffDevice(w, A, 'nv-trung-ghe');
+  await S.login('chuquan', 'chuquan123');
+  await A.api('/settings', { method: 'PATCH', body: { autoLock: false } }); await A.sync(); await S.sync();
+  const tb = tableOf(A, 'Bàn 01');
+  A.setOnline(false); S.setOnline(false);
+  const oa = await order(A, 'Bàn 01', 1, [['Phở bò tái', 1]]);
+  await new Promise(r => setTimeout(r, 40));
+  const os = await order(S, 'Bàn 01', 1, [['Trà đá', 2], ['Bia Sài Gòn', 1]]);
+  A.setOnline(true); S.setOnline(true);
+  for (let i = 0; i < 3; i++) { await A.sync(); await S.sync(); }
+  const openOn = d => d.D.orders.filter(o => o.status === 'open' && o.table_id === tb.id && o.seat_no === 1);
+  t.eq([openOn(A).length, openOn(S).length], [1, 1], 'sau đồng bộ cả hai máy chỉ còn MỘT đơn mở cho ghế');
+  const main = openOn(A)[0];
+  t.eq(main.id, [oa, os].sort((x, y) => (x.created_at - y.created_at) || (x.id < y.id ? -1 : 1))[0].id, 'đơn chính là đơn tạo SỚM hơn (mọi máy chọn giống nhau)');
+  const names = A.D.orderItems.filter(i => i.order_id === main.id && i.status !== 'cancelled').map(i => i.name_snapshot + '×' + i.qty).sort();
+  t.eq(names, ['Bia Sài Gòn×1', 'Phở bò tái×1', 'Trà đá×2'], 'đủ món của CẢ HAI máy nằm trong đơn chính (không mất món)');
+  t.eq(S.D.orderItems.filter(i => i.order_id === main.id && i.status !== 'cancelled').length, 3, 'máy nhân viên thấy cùng 3 món trong đơn chính');
+  const other = A.D.orders.find(o => o.id !== main.id && o.code && [oa.id, os.id].includes(o.id));
+  t.ok(other.status === 'merged' && other.merged_into === main.id, 'đơn còn lại được đánh dấu "đã ghép" vào đơn chính');
+  t.eq(A.D.seats.find(s2 => s2.table_id === tb.id && s2.seat_no === 1).bound_order_id, main.id, 'ghế gắn với đơn chính');
+  t.ok(A.D.logs.some(l => l.action === 'Tự gộp đơn trùng ghế') || S.D.logs.some(l => l.action === 'Tự gộp đơn trùng ghế'), 'nhật ký ghi lại việc tự gộp đơn');
+  t.eq(A.reconcileSeatOrders(), 0, 'chạy lại không gộp thêm gì (ổn định, không ghi đè qua lại giữa hai máy)');
+  // gộp xong vẫn thu tiền bình thường, đúng tổng
+  await serveAll(A, main.id);
+  const pay = await A.api('/orders/' + main.id + '/payments', { method: 'POST', body: { method: 'cash' } });
+  const expect = A.D.orderItems.filter(i => i.order_id === main.id && i.status !== 'cancelled').reduce((s2, i) => s2 + i.qty * i.price_snapshot, 0);
+  t.eq(pay.total, expect, 'thu tiền đơn đã gộp: đúng tổng của mọi món');
+  await A.sync(); await S.sync();
+  t.eq(S.D.payments.filter(p => p.state === 'paid' && p.order_id === main.id).length, 1, 'máy nhân viên: một thanh toán duy nhất');
+
+  // đơn đang chờ xác nhận chuyển khoản thì KHÔNG tự gộp (không đổi tổng tiền giữa chừng)
+  const t2 = tableOf(A, 'Bàn 02');
+  A.setOnline(false); S.setOnline(false);
+  const pa = await order(A, 'Bàn 02', 1, [['Trà đá', 1]]); await serveAll(A, pa.id);
+  await A.api('/orders/' + pa.id + '/payments', { method: 'POST', body: { method: 'transfer' } });
+  await new Promise(r => setTimeout(r, 40));
+  await order(S, 'Bàn 02', 1, [['Trà đá', 1]]);
+  A.setOnline(true); S.setOnline(true);
+  for (let i = 0; i < 3; i++) { await A.sync(); await S.sync(); }
+  t.eq(A.D.orders.filter(o => o.status === 'open' && o.table_id === t2.id && o.seat_no === 1).length, 2, 'đơn đang chờ xác nhận chuyển khoản: giữ nguyên hai đơn, không gộp');
+}
+
+t.group('34o. Ghi ngay xuống SQLite khi gửi món / thu tiền / app chuyển nền (không phụ thuộc nhịp 250 ms)');
+{
+  const w = newWorld(); w.central.trialDays = 3650; const A = await setupOwner(w, { link: false });
+  await A.api('/settings', { method: 'PATCH', body: { autoLock: false } }); await A.save();
+  const o = await order(A, 'Bàn 01', 1, [['Phở bò tái', 1]]);                    // KHÔNG gọi save()
+  const A2 = await newDevice(w, 'mo-lai-ngay', { dbFile: A.file });
+  t.ok(A2.D.orders.some(x => x.id === o.id), 'gửi món xong, mở lại NGAY từ SQLite vẫn thấy đơn (ghi ngay)');
+  await serveAll(A, o.id);
+  await A.save();
+  const p = await A.api('/orders/' + o.id + '/payments', { method: 'POST', body: { method: 'cash' } });
+  const A3 = await newDevice(w, 'mo-lai-sau-thu', { dbFile: A.file });
+  t.ok(A3.D.payments.some(x => x.id === p.paymentId && x.state === 'paid'), 'thu tiền xong, mở lại NGAY vẫn thấy thanh toán đã ghi');
+  t.ok(typeof A.pauseCb === 'function', 'app đăng ký sự kiện chuyển nền (onPause)');
+  await A.api('/settings', { method: 'PATCH', body: { sound: false } });          // thay đổi thường: ghi theo nhịp 250 ms
+  A.pauseCb();                                                                     // app chuyển nền → ghi ngay
+  const A4 = await newDevice(w, 'mo-lai-sau-nen', { dbFile: A.file });
+  t.eq(A4.D.settings.sound, false, 'app chuyển nền: dữ liệu chưa kịp ghi được ghi ngay');
 }
 
 t.group('34l. Gói cước hết hạn: CHỈ khoá gọi món (nhân viên + khách QR); thu tiền, bếp, báo cáo, thực đơn, cài đặt… vẫn dùng bình thường');

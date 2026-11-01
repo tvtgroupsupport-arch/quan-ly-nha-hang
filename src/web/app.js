@@ -1715,6 +1715,8 @@ function wireCloud() {
     const ls = License.status();
     recheckLicense(ls.state !== 'ok' || Date.now() - (ls.checkedAt || 0) > 6 * 3600000);   // sắp/đã quá hạn, hoặc lâu chưa hỏi máy chủ (quá 6 giờ) → hỏi lại ngay (máy chủ cũng hỏi lại Google)
   });
+  // App chuyển nền: ghi ngay dữ liệu chưa kịp ghi (nhịp ghi thường là 250 ms) rồi mới có thể bị hệ điều hành tắt
+  if (NativeBridge.app.onPause) NativeBridge.app.onPause(() => { try { Persist.flush(); } catch (e) {} });
   // Nút Back của Android: đóng hộp thoại → quay lại màn trước → thu nhỏ app
   NativeBridge.app.onBack(() => {
     if (qrZoomEl) { closeQrZoom(); return true; }

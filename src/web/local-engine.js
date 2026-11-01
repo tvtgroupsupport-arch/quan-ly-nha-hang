@@ -77,7 +77,8 @@ function emptyD() {
   };
 }
 /** Ghi nhận dữ liệu đã đổi: lớp lưu trữ sẽ ghi SQLite và (nếu đã liên kết) đẩy lên Supabase */
-function saveD() { if (typeof Persist !== 'undefined') Persist.saveSoon(); }
+/** now = true: thao tác quan trọng (gửi món, thu tiền) → ghi xuống SQLite NGAY (không đợi nhịp 250 ms) để app bị hệ điều hành tắt ngay sau đó cũng không mất. */
+function saveD(now) { if (typeof Persist !== 'undefined') { if (now) Persist.flush(); else Persist.saveSoon(); } }
 
 const VALID_TABLE_LAYOUTS = ['auto', 'h', 'v', 'wall-top', 'wall-bottom', 'wall-left', 'wall-right'];
 
@@ -231,6 +232,42 @@ function openOrderD(tableId, seatNo) {
     s.bound_order_id = null;
   }
   return D.orders.find(o => o.table_id === tableId && o.seat_no === Number(seatNo) && o.status === 'open');
+}
+/** Gộp các đơn đang mở vào đơn CŨ NHẤT (đúng thứ tự created_at rồi id — mọi máy tính ra cùng một đơn chính): chuyển món, giữ khuyến mãi, đánh dấu đơn kia 'merged', gắn lại ghế. Trả về đơn chính. */
+function mergeOrdersD(orders) {
+  orders.sort((a, b) => (a.created_at - b.created_at) || (a.id < b.id ? -1 : 1));
+  const main = orders[0];
+  orders.slice(1).forEach(o => {
+    D.orderItems.filter(i => i.order_id === o.id).forEach(i => { i.order_id = main.id; i.updated_at = nowMs(); });
+    if (!main.promo_id && o.promo_id) main.promo_id = o.promo_id;
+    o.status = 'merged'; o.merged_into = main.id; o.updated_at = nowMs();
+    const s = D.seats.find(v => v.table_id === o.table_id && v.seat_no === o.seat_no);
+    if (s) s.bound_order_id = main.id;
+    D.seats.filter(v => v.bound_order_id === o.id).forEach(v => v.bound_order_id = main.id);
+  });
+  const ms = D.seats.find(v => v.table_id === main.table_id && v.seat_no === main.seat_no);
+  if (ms) ms.bound_order_id = main.id;
+  return main;
+}
+/** Hai máy cùng gọi món cho CÙNG ghế khi mất mạng → sau đồng bộ có 2 đơn mở cho một ghế (mỗi máy tự tạo đơn riêng). Tự gộp vào đơn cũ nhất, không mất món.
+    Chạy sau mỗi lần nhận dữ liệu từ kho; kết quả giống nhau trên mọi máy nên không ghi đè qua lại. Đơn đang chờ xác nhận chuyển khoản thì để nguyên (không đổi tổng tiền giữa chừng). */
+function reconcileSeatOrders() {
+  const by = new Map();
+  for (const o of D.orders) {
+    if (o.status !== 'open' || !o.table_id || o.merged_into) continue;
+    const k = o.table_id + '#' + o.seat_no;
+    if (by.has(k)) by.get(k).push(o); else by.set(k, [o]);
+  }
+  let n = 0;
+  for (const list of by.values()) {
+    if (list.length < 2) continue;
+    if (list.some(o => D.payments.some(p => p.order_id === o.id && p.state === 'pending'))) continue;
+    const main = mergeOrdersD(list);
+    n++;
+    addLog('Hệ thống', 'Tự gộp đơn trùng ghế', list.slice(1).map(o => o.code).join(', ') + ' → ' + main.code + ' (' + orderPlace(main) + ') — hai máy cùng gọi món cho ghế này khi mất mạng');
+  }
+  if (n) saveD();
+  return n;
 }
 function seatsOfOrderD(oid) {
   const rows = D.seats.filter(s => s.bound_order_id === oid)
@@ -559,7 +596,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     }
     o.updated_at = nowMs();
     addLog(who(), 'Gửi món', `${orderPlace(o)} · đơn ${o.code}${isNew ? ' (mới)' : ''} · đợt ${batch}: ${added.join(', ')}`);
-    saveD(); return orderFull(o.id);
+    saveD(true); return orderFull(o.id);
   }
   if (M('PATCH', 'order-items', '*')) {
     const it = D.orderItems.find(i => i.id === seg[1]);
@@ -604,18 +641,7 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     // Khử trùng: nhiều ghế cùng thuộc một hoá đơn gộp sẽ cho cùng một id — không được tự gộp đơn vào chính nó.
     const orders = [...new Set(body?.orderIds || [])].map(id => D.orders.find(o => o.id === id && o.status === 'open')).filter(Boolean);
     if (orders.length < 2) throw err(409, 'Cần ít nhất 2 đơn đang mở');
-    orders.sort((a, b) => a.created_at - b.created_at);
-    const main = orders[0];
-    orders.slice(1).forEach(o => {
-      D.orderItems.filter(i => i.order_id === o.id).forEach(i => { i.order_id = main.id; i.updated_at = nowMs(); });
-      if (!main.promo_id && o.promo_id) main.promo_id = o.promo_id;
-      o.status = 'merged'; o.merged_into = main.id; o.updated_at = nowMs();
-      const s = D.seats.find(v => v.table_id === o.table_id && v.seat_no === o.seat_no);
-      if (s) s.bound_order_id = main.id;
-      D.seats.filter(v => v.bound_order_id === o.id).forEach(v => v.bound_order_id = main.id);
-    });
-    const ms = D.seats.find(v => v.table_id === main.table_id && v.seat_no === main.seat_no);
-    if (ms) ms.bound_order_id = main.id;
+    const main = mergeOrdersD(orders);
     addLog(who(), 'Ghép đơn', `Gộp vào đơn ${main.code} (${orderPlace(main)}) từ: ${orders.slice(1).map(o => o.code + ' ' + orderPlace(o)).join(', ')} — ${seatsOfOrderD(main.id).length} ghế dùng chung`);
     saveD(); return orderFull(main.id);
   }
@@ -730,11 +756,11 @@ async function apiLocal(path, { method = 'GET', body } = {}) {
     D.payments.unshift({ id, order_id: o.id, method: body?.method || 'cash', subtotal, discount, total,
       state: 'pending', staff_id: whoId(), created_at: nowMs(), paid_at: null });
     if (body?.method === 'cash') settleD(id);
-    saveD();
+    saveD(true);
     const p = D.payments.find(x => x.id === id);
     return { paymentId: id, subtotal, discount, total, state: p.state };
   }
-  if (M('POST', 'payments', '*', 'confirm')) { settleD(seg[1]); saveD(); return { ok: true }; }
+  if (M('POST', 'payments', '*', 'confirm')) { settleD(seg[1]); saveD(true); return { ok: true }; }
 
   if (M('GET', 'orders', 'history')) {
     const limit = Math.min(100, Number(q.limit) || 30);

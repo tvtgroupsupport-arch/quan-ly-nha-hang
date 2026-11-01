@@ -249,6 +249,7 @@ const Sync = (() => {
     stale(my);     // kiểm tra NGAY TRƯỚC khi ghi vào D / SQLite
     const res = Records.applyBatch(D, rows, opts);
     Records.finalize(D, res.touched);
+    if ((res.touched.has('orders') || res.touched.has('orderItems')) && typeof reconcileSeatOrders === 'function') reconcileSeatOrders();     // 2 máy cùng gọi một ghế khi offline → tự gộp đơn
     await Persist.writeRows(res.rows, res.removed);
     if (res.touched.size) notifyChange(res.touched);
   }

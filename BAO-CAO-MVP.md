@@ -10,7 +10,7 @@ Ngày lập: 2026-11-01 · Phạm vi: mã nguồn trên nhánh `main` (commit m�
 |---|---|
 | Nghiệp vụ lõi (bàn → gọi món → bếp → thu tiền → báo cáo) | **Đạt** trong kiểm thử tự động, không phát hiện sai số tiền, sai ngày, mất dữ liệu trong điều kiện bình thường |
 | Độ chính xác báo cáo theo thời gian | **Đạt** (khớp phép tính độc lập ở mọi bộ lọc, biên 0h / 23:59:59.999, 5 múi giờ) |
-| Đồng bộ nhiều máy | **Đạt có điều kiện**: dữ liệu hội tụ giống nhau; còn lỗi nghiệp vụ "2 đơn mở cùng ghế" khi hai máy cùng gọi món lúc offline |
+| Đồng bộ nhiều máy | **Đạt**: dữ liệu hội tụ giống nhau; hai máy cùng gọi món một ghế khi offline được tự gộp đơn |
 | An toàn dữ liệu nhập (XSS, tiền, khuyến mãi biên) | **Đạt** |
 | Gói cước / dùng thử / thanh toán Google Play | **Chưa kiểm chứng thật** – phụ thuộc cấu hình Play Console và bản AAB mới |
 | **Khuyến nghị** | **Có thể tiếp tục thử nghiệm kín (closed testing). Chưa nên phát hành công khai** cho tới khi xử lý các mục "Chặn phát hành" ở mục 5 |
@@ -19,10 +19,10 @@ Ngày lập: 2026-11-01 · Phạm vi: mã nguồn trên nhánh `main` (commit m�
 
 | Bộ kiểm thử | Lệnh | Kết quả |
 |---|---|---|
-| Chính (87 nhóm: bảo mật, đồng bộ, gói cước, kho, báo cáo, i18n, combo…) | `node --experimental-sqlite --no-warnings test/run-tests.mjs` | **1111 đạt · 0 lỗi** |
+| Chính (89 nhóm: bảo mật, đồng bộ, gói cước, kho, báo cáo, i18n, combo, gộp đơn, ghi ngay…) | `node --experimental-sqlite --no-warnings test/run-tests.mjs` | **1126 đạt · 0 lỗi** |
 | Khách quét QR | `test/run-tests-guest.mjs` | **76 đạt · 0 lỗi** |
 | Thời gian & đầy đủ dữ liệu báo cáo (1 năm ≈ 2.650 hoá đơn) | `npm run test:time` (5 múi giờ) | Việt Nam, Hàn Quốc, UTC, Sydney: **145/145**; Los Angeles: 142/145 (lỗi giờ mùa hè, xem mục 4) |
-| Thăm dò tìm lỗi (mới) | `npm run test:explore` | **45 đạt · 0 lỗi · 4 ghi nhận** |
+| Thăm dò tìm lỗi (mới) | `npm run test:explore` | **49 đạt · 0 lỗi · 1 ghi nhận** (sau khi sửa 4.1, 4.2) |
 
 Bộ thăm dò mới (`test/run-tests-explore.mjs`) gồm:
 - **E1** vẽ 45 màn hình × 5 trạng thái (chủ quán, nhân viên, tiếng Anh, quán trống, đơn rất lớn): không lỗi, không chữ rác `undefined / NaN / [object Object]`.
@@ -56,14 +56,14 @@ Bộ thăm dò mới (`test/run-tests-explore.mjs`) gồm:
 
 ## 4. Phát hiện (xếp theo mức độ)
 
-### 4.1 [Trung bình] Hai máy cùng gọi món một ghế khi offline tạo 2 đơn mở cho cùng ghế
+### 4.1 [Trung bình] ✅ ĐÃ SỬA — Hai máy cùng gọi món một ghế khi offline tạo 2 đơn mở cho cùng ghế
 - **Bằng chứng:** E4, E6. Máy A và máy B cùng mất mạng, cùng gọi món cho Bàn 01 – Ghế 1; sau đồng bộ có hai đơn mở (`#1001` và `#1001-XX`). Khi thử 400 thao tác ngẫu nhiên, 3 ghế bị trùng như vậy.
 - **Ảnh hưởng:** **không mất món, không mất tiền** (cả hai đơn đều hiện ở màn Thu ngân của bàn và đều thu được; đã kiểm tra). Nhưng khách bị ra hai hoá đơn, nhân viên dễ nhầm.
-- **Khuyến nghị:** khi đồng bộ phát hiện hai đơn mở cùng ghế thì tự gộp vào đơn cũ hơn (giữ nguyên các dòng món), hoặc nhắc nhân viên "Ghép đơn".
+- **Đã sửa:** sau mỗi lần nhận dữ liệu, app tự gộp các đơn mở cùng ghế vào đơn tạo SỚM nhất (đúng cơ chế "Ghép đơn", mọi máy chọn cùng một đơn chính nên không ghi đè qua lại). Giữ đủ món, ghi nhật ký "Tự gộp đơn trùng ghế". Đơn đang chờ xác nhận chuyển khoản được để nguyên (không đổi tổng tiền giữa chừng). Test 34n và E4/E6.
 
-### 4.2 [Trung bình] Cửa sổ mất dữ liệu 250 ms
+### 4.2 [Trung bình] ✅ ĐÃ SỬA — Cửa sổ mất dữ liệu 250 ms
 - **Bằng chứng:** E5. Ghi xuống SQLite được điều tiết 250 ms và **không có ghi khi app chuyển nền**. Nếu hệ điều hành tắt tiến trình trong 250 ms sau lúc gửi món / thu tiền, thao tác đó mất.
-- **Khuyến nghị:** ghi ngay (flush) khi app chuyển nền / mất tiêu điểm và ngay sau thao tác thu tiền, gửi món. Sửa nhỏ, có thể kiểm thử bằng test E5.
+- **Đã sửa:** gửi món, thu tiền, xác nhận chuyển khoản ghi xuống SQLite **ngay**; app chuyển nền / mất tiêu điểm cũng ghi ngay mọi thay đổi chưa kịp ghi. Test 34o và E5. (Vẫn còn khoảng vài mili-giây của chính lần ghi; không thể loại hoàn toàn nếu hệ điều hành giết tiến trình giữa lúc ghi.)
 
 ### 4.3 [Trung bình] Lệch giờ máy làm doanh thu rơi sang ngày khác
 - **Bằng chứng:** bộ test thời gian (T6). App dùng đồng hồ máy để ghi mốc thời gian; thử máy nhân viên lệch +30 giờ thì hoá đơn ghi sang ngày khác.
@@ -93,7 +93,7 @@ Bộ thăm dò mới (`test/run-tests-explore.mjs`) gồm:
 2. **Bật ưu đãi dùng thử `free-trial`** của gói 1 tháng trên Play Console (đang "Không hoạt động") rồi thử mua bằng tài khoản License tester mới.
 3. **Chạy lại `supabase/store-setup.sql`** (phiên bản 4) trên kho Supabase của mọi quán đã tạo (combo, chặn QR khi hết hạn).
 4. **Gọi thử `license-token` / `verify-purchase` bằng người dùng thật**: hai hàm đã triển khai nhưng chưa có lần gọi thật nào.
-5. Xử lý **4.1** và **4.2** (sửa nhỏ, có test).
+5. ~~Xử lý 4.1 và 4.2~~ — đã sửa (xem mục 4).
 
 ## 6. Chưa kiểm chứng (rủi ro còn lại)
 
@@ -105,7 +105,7 @@ Bộ thăm dò mới (`test/run-tests-explore.mjs`) gồm:
 
 ## 7. Việc nên làm tiếp (đề xuất thứ tự)
 
-1. Sửa 4.2 (flush khi chuyển nền) và 4.1 (gộp đơn cùng ghế) – ước tính nhỏ.
+1. ~~Sửa 4.2 và 4.1~~ — đã xong.
 2. Build AAB, kiểm thử thủ công theo danh sách ở mục 3 cột "máy thật" trên ít nhất 2 điện thoại (một chủ quán, một nhân viên).
 3. Bật ưu đãi dùng thử, mua thử, kiểm tra hết hạn chỉ khoá gọi món.
 4. Sửa 4.3 (cảnh báo lệch giờ), 4.4 (giới hạn khách), 4.6 (giờ mùa hè) nếu có kế hoạch ra ngoài Việt Nam.
