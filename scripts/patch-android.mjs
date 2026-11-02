@@ -101,6 +101,22 @@ if (fs.existsSync(varsFile)) {
   }
 }
 
+/* ---------- CameraX bản mới (trang bộ nhớ 16 KB) ----------
+   @capacitor-mlkit/barcode-scanning mặc định dùng CameraX 1.1.0, trong đó libimage_processing_util_jni.so căn chỉnh 4 KB → Google Play báo
+   "Ứng dụng của bạn không hỗ trợ kích thước trang bộ nhớ 16 KB". Từ CameraX 1.4.0 tệp này đã căn 16 KB; plugin đọc phiên bản từ android/variables.gradle. */
+const CAMERAX = '1.4.2';
+if (fs.existsSync(varsFile)) {
+  let v = fs.readFileSync(varsFile, 'utf8');
+  const want = { androidxCameraCoreVersion: CAMERAX, androidxCameraCamera2Version: CAMERAX, androidxCameraLifecycleVersion: CAMERAX, androidxCameraViewVersion: CAMERAX };
+  let changed = false;
+  for (const [k, val] of Object.entries(want)) {
+    const re = new RegExp(k + "\\s*=\\s*['\"][^'\"]*['\"]");
+    if (re.test(v)) { if (!new RegExp(k + "\\s*=\\s*['\"]" + val.replace(/\./g, '\\.') + "['\"]").test(v)) { v = v.replace(re, k + " = '" + val + "'"); changed = true; } }
+    else { v = v.replace(/ext\s*\{/, m => m + "\n    " + k + " = '" + val + "'"); changed = true; }
+  }
+  if (changed) { fs.writeFileSync(varsFile, v); console.log('✓ CameraX → ' + CAMERAX + ' (căn chỉnh 16 KB, yêu cầu của Google Play)'); }
+}
+
 /* ---------- Hai cảnh báo của Play Console khi tải .aab ----------
    1) "Không có tệp gỡ rối mã nguồn (deobfuscation)": bật R8 cho bản release — Gradle tự sinh mapping.txt và nhét vào .aab.
       Quy tắc giữ lại: Capacitor đã tự giữ plugin/bridge (consumer rules); thêm rõ ràng plugin thanh toán và WebView JS bridge cho chắc.
