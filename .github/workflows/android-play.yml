@@ -75,6 +75,11 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
+      # Google Play bắt buộc mọi thư viện native 64-bit căn chỉnh trang 16 KB. Nếu bước này báo ✗, log liệt kê đúng tệp .so chưa đạt.
+      - name: Kiểm tra hỗ trợ trang bộ nhớ 16 KB
+        if: steps.keystore.outputs.has_keystore == 'true'
+        run: node scripts/check-16kb.mjs android/app/build/outputs/bundle/release/app-release.aab
+
       - name: Biên dịch bản .apk debug (CHƯA cấu hình khoá ký — chỉ xem giao diện, Billing chưa chạy được)
         if: steps.keystore.outputs.has_keystore != 'true'
         working-directory: android

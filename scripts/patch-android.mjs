@@ -129,6 +129,20 @@ if (fs.existsSync(gradleForRelease)) {
     }
   }
 }
+/* ---------- Google Play bắt buộc trang bộ nhớ 16 KB (Android 15+): "Ứng dụng của bạn không hỗ trợ kích thước trang bộ nhớ 16 KB" ----------
+   Mọi tệp .so 64-bit trong gói phải căn chỉnh ELF ≥ 16 KB. Kiểm tra bằng scripts/check-16kb.mjs (chạy tự động trong android-play.yml).
+   Tệp đã biết KHÔNG đạt và KHÔNG dùng: libserial_port.so của capacitor-thermal-printer (căn 4 KB; chỉ phục vụ máy in cổng nối tiếp/USB,
+   BEPO chỉ in qua Bluetooth) → loại khỏi gói. Muốn thêm tệp khác: thêm vào NATIVE_EXCLUDES rồi chạy lại check-16kb.mjs. */
+const NATIVE_EXCLUDES = ['**/libserial_port.so'];
+if (fs.existsSync(gradleForRelease)) {
+  let g = fs.readFileSync(gradleForRelease, 'utf8');
+  if (!g.includes('NATIVE_EXCLUDES')) {
+    if (!/android\s*\{/.test(g)) throw new Error('build.gradle không có khối "android {" — không loại được thư viện native chưa hỗ trợ 16 KB.');
+    g = g.replace(/android\s*\{/, m => m + `\n    // NATIVE_EXCLUDES — loại thư viện native chưa hỗ trợ trang 16 KB (xem scripts/patch-android.mjs)\n    packaging { jniLibs { excludes += [${NATIVE_EXCLUDES.map(x => "'" + x + "'").join(', ')}] } }`);
+    fs.writeFileSync(gradleForRelease, g);
+    console.log('✓ Đã loại khỏi gói: ' + NATIVE_EXCLUDES.join(', ') + ' (không hỗ trợ trang 16 KB)');
+  }
+}
 /* ---------- Ký bản release (chỉ khi đã có android/app/release.keystore — xem android-play.yml) ----------
    Mật khẩu KHÔNG được ghi cứng vào file này — đọc từ biến môi trường lúc Gradle chạy, giữ ở
    GitHub Secrets, không bao giờ nằm trong mã nguồn. */
