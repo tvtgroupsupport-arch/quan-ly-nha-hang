@@ -112,6 +112,13 @@ const Records = (() => {
     return { rows, removed };
   }
 
+  /** Mọi dòng đang giữ trong bộ nhớ (kể cả bia mộ) — để ghi bù xuống đĩa sau khi SQLite kẹt rồi sống lại */
+  function allRows() {
+    const rows = [];
+    for (const d of SYNC_DEFS) for (const [k, c] of byCol[d.name]) rows.push(rowOf(d.name, k, c));
+    return rows;
+  }
+
   function dirtyCount() {
     let n = 0;
     for (const d of SYNC_DEFS) for (const c of byCol[d.name].values()) if (c.dirty) n++;
@@ -246,7 +253,7 @@ const Records = (() => {
   }
 
   return {
-    hydrate, capture, applyBatch, dirtyBatch, dirtyCount, markClean, markAllDirty, forget, reset, finalize,
+    hydrate, capture, allRows, applyBatch, dirtyBatch, dirtyCount, markClean, markAllDirty, forget, reset, finalize,
     ensureQty0, recomputeStock, fixCounter, stamp, observe,
     get hw() { return hw; }, set hw(v) { hw = Math.max(hw, v || 0); },
     get codeTag() { return codeTag; }, set codeTag(v) { codeTag = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4); }

@@ -2332,6 +2332,34 @@ t.group('35c. Client kho bị kẹt (yêu cầu làm mới phiên treo mãi): fe
   t.ok(A.Cloud.role === 'owner' && A.D.menu.length > 0, 'vai trò máy và dữ liệu giữ nguyên sau khi tạo lại client');
 }
 
+t.group('35d. SQLite (cầu nối native) kẹt: ngừng xếp lệnh, đồng bộ vẫn chạy, tự dò rồi ghi bù khi sống lại');
+{
+  const w = newWorld(); const A = await setupOwner(w); await A.sync();
+  const real = { open: A.sqlite.open, exec: A.sqlite.exec, query: A.sqlite.query, batch: A.sqlite.batch };
+  let calls = 0, healed = false;
+  const dead = async () => { calls++; throw Object.assign(new Error('SQLite không phản hồi (quá 20 giây)'), { pluginTimeout: true }); };
+  A.sqlite.batch = (set) => healed ? real.batch(set) : dead();
+  A.sqlite.query = (q, p) => healed ? real.query(q, p) : dead();
+  await A.api('/settings', { method: 'PATCH', body: { sound: false } }); await A.save();
+  t.ok(A.Persist.stalledSince > 0, 'lệnh SQLite quá hạn → Persist chuyển sang trạng thái kẹt');
+  const c0 = calls;
+  for (let i = 0; i < 6; i++) { await A.api('/settings', { method: 'PATCH', body: { kitchenSound: i % 2 === 0 } }); await A.save(); }
+  t.eq(calls, c0, 'đang kẹt: KHÔNG xếp thêm lệnh native nào (hàng đợi không tích tồn)');
+  t.ok(A.Records.dirtyCount() > 0, 'thay đổi vẫn được ghi nhận trong bộ nhớ (cờ chờ gửi)');
+  await A.Sync.syncNow();
+  t.eq(A.Sync.state.status, 'ok', 'SQLite kẹt nhưng đồng bộ vẫn chạy xong (không treo "Đang đồng bộ")');
+  t.eq(A.Records.dirtyCount(), 0, 'thay đổi được đẩy lên máy chủ dù đĩa đang kẹt');
+  t.ok(/kẹt/.test(A.VIEWS.cloud()), 'màn Đồng bộ hiện cảnh báo bộ nhớ máy đang kẹt');
+  await A.Persist.probe();
+  t.ok(A.Persist.stalledSince > 0, 'dò khi vẫn kẹt: giữ nguyên trạng thái kẹt');
+  healed = true;
+  await A.Persist.probe();
+  t.eq(A.Persist.stalledSince, 0, 'SQLite sống lại → thoát trạng thái kẹt');
+  const B = await newDevice(w, 'mo-lai-sau-ket', { dbFile: A.file });
+  t.eq(B.D.settings.sound, false, 'dữ liệu thay đổi lúc kẹt được ghi bù xuống đĩa (mở lại app vẫn thấy)');
+  t.ok(B.Persist.getMeta('hw', 0) > 0, 'meta cũng được ghi bù');
+}
+
 t.group('36. Chẩn đoán đồng bộ & gói cước + hiện tiến độ tải dữ liệu từ kho');
 {
   const w = newWorld(); const A = await setupOwner(w); await A.sync();

@@ -168,6 +168,7 @@ export async function newDevice(world, name, opts = {}) {
   dev.clearInputs = () => { dev.inputs = {}; };
   dev.runTimers = async () => { const t = dev.timers; dev.timers = []; for (const x of t) await x.fn(); };
   /** ghi xuống đĩa ngay (thay cho hẹn giờ 250ms) */
+  dev.sqlite = sqlite;
   dev.save = async () => { await api.Persist.flush(); await api.Persist.idle(); };
   /** một vòng đồng bộ đầy đủ: ghi đĩa → đẩy → kéo */
   dev.sync = async () => { await dev.save(); await api.Sync.syncNow(); await api.Persist.idle(); };

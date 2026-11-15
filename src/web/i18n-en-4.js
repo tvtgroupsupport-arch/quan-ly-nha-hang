@@ -321,5 +321,7 @@ const I18N_EN_4 = [
   ['Sau đó', 'Then'],
   ['Dùng thử miễn phí: Google chưa tính tiền trong thời gian dùng thử. Hãy huỷ gói trong Google Play trước khi hết dùng thử nếu không muốn bị tính tiền.', 'Free trial: Google does not charge you during the trial period. Cancel the plan in Google Play before the trial ends if you do not want to be charged.'],
   ['Ưu đãi dùng thử không còn áp dụng cho tài khoản Google này — kiểm tra giá rồi bấm mua lại', 'The free trial no longer applies to this Google account — check the price, then tap buy again'],
+  ['Bộ nhớ máy đang kẹt từ', 'Device storage has been stuck since'], ['— dữ liệu vẫn đồng bộ, hãy khởi động lại app khi rảnh', '— data still syncs; restart the app when convenient'],
+  ['đang kẹt từ', 'stuck since'], ['— app tạm ngừng ghi xuống đĩa, đang tự dò lại', '— the app paused disk writes and is re-probing automatically'],
   ['Thêm:', 'Add:'], ['Xoá:', 'Delete:'], ['Bật:', 'Turn on:'], ['Sửa:', 'Edit:'],
 ];

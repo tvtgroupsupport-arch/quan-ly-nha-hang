@@ -233,7 +233,7 @@ function vCloud() {
       <div class="card">
         <div class="between" style="margin-bottom:10px"><span class="t-sm">Trạng thái</span>
           <span class="badge ${s.status === 'ok' ? 'b-green' : s.status === 'syncing' ? 'b-blue' : s.status === 'offline' ? 'b-amber' : linked ? 'b-red' : 'b-gray'}">${esc(syncStatusText())}</span></div>
-        ${linked ? `<div class="t-xs" style="line-height:1.7">${s.status === 'syncing' && s.progress ? `Đang tải dữ liệu từ kho: ${s.progress} bản ghi…<br>` : ''}Đồng bộ gần nhất: ${esc(fmtTime(s.lastSyncAt))}<br>Chờ gửi lên: ${Records.dirtyCount()} thay đổi${s.lastError ? `<br><span style="color:var(--red)">${esc(s.lastError)}</span>` : ''}</div>
+        ${linked ? `<div class="t-xs" style="line-height:1.7">${s.status === 'syncing' && s.progress ? `Đang tải dữ liệu từ kho: ${s.progress} bản ghi…<br>` : ''}Đồng bộ gần nhất: ${esc(fmtTime(s.lastSyncAt))}<br>Chờ gửi lên: ${Records.dirtyCount()} thay đổi${Persist.stalledSince ? `<br><span style="color:var(--amber)">Bộ nhớ máy đang kẹt từ ${esc(fmtTime(Persist.stalledSince))} — dữ liệu vẫn đồng bộ, hãy khởi động lại app khi rảnh</span>` : ''}${s.lastError ? `<br><span style="color:var(--red)">${esc(s.lastError)}</span>` : ''}</div>
           ${projectBlockHtml(isOwner)}
           <div class="row" style="gap:8px;margin-top:10px"><button class="btn sm ghost" data-act="c_syncNow" style="flex:1">Đồng bộ ngay</button><button class="btn sm ghost" data-act="c_diag" style="flex:1">Chẩn đoán</button></div>`
           : `<div class="t-xs" style="line-height:1.6">Máy này đang dùng dữ liệu riêng, chưa chia sẻ với thiết bị nào.</div>`}
@@ -325,7 +325,7 @@ async function diagnoseAll() {
     try { const info = await _withTimeout(Promise.resolve().then(fn), 15000); out.push({ name, ok: true, ms: Date.now() - t0, info: String(info == null ? '' : info) }); }
     catch (e) { out.push({ name, ok: false, ms: Date.now() - t0, info: fmtErr(e) }); }
   };
-  await step('Bộ nhớ SQLite trên máy', async () => { await NativeBridge.sqlite.query('SELECT 1'); return 'phản hồi bình thường'; });
+  await step('Bộ nhớ SQLite trên máy', async () => { if (Persist.stalledSince) throw new Error('đang kẹt từ ' + fmtTime(Persist.stalledSince) + ' — app tạm ngừng ghi xuống đĩa, đang tự dò lại'); await NativeBridge.sqlite.query('SELECT 1'); return 'phản hồi bình thường'; });
   await step('Mạng', async () => { if (!(await NativeBridge.network.get())) throw new Error('không có mạng'); return 'có mạng'; });
   await step('Kho dữ liệu của quán (Supabase)', async () => {
     if (!Cloud.cfg.storeUrl) throw new Error('chưa liên kết kho');
