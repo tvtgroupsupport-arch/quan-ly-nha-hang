@@ -26,6 +26,7 @@ const Sync = (() => {
   /** Ngắt lượt đang chạy nếu: lượt đã bị thay thế/huỷ (gen đổi — kể cả do stop()), hoặc máy đã ngắt liên kết (Cloud.store/role mất).
       Gọi NGAY TRƯỚC mỗi lần ghi D / SQLite / con trỏ, để dữ liệu quán cũ không "sống lại" sau khi ngắt liên kết giữa lúc đang kéo. */
   const stale = my => { if ((my !== undefined && my !== gen) || !enabled()) throw Object.assign(new Error('cancelled'), { cancelled: true }); };
+  let timeoutStreak = 0;   // số lượt liên tiếp hết giờ: từ 2 trở lên → coi client kho bị kẹt, tạo lại
   let runStart = 0, lastProgress = 0, watchdog = null, timeoutMs = 60000, curStep = '';   // một lượt đồng bộ quá 60 giây (mạng yếu/máy chủ treo) bị coi là hỏng và thử lại — trước đây có thể treo mãi ở "Đang đồng bộ…"
   /** Hạn chót theo TIẾN TRIỂN, không phải tổng thời gian: mỗi lần có việc xong (xong một lô kéo/đẩy) thì đếm lại từ đầu. Kho lớn (hàng chục nghìn bản ghi) kéo mất vài phút vẫn chạy được,
       còn lượt thật sự treo (không có gì xong trong timeoutMs) thì bị coi là hỏng và thử lại. */
@@ -82,7 +83,7 @@ const Sync = (() => {
       curStep = 'kéo dữ liệu'; await pullAll(my, { deep });
      })(), timeoutMs);
       stale(my);       // lượt đã bị thay thế/huỷ trong lúc chờ → im lặng bỏ qua, không báo "đã đồng bộ"
-      S.status = 'ok'; S.lastSyncAt = Date.now(); S.lastError = ''; fails = 0; S.progress = 0;
+      S.status = 'ok'; S.lastSyncAt = Date.now(); S.lastError = ''; fails = 0; timeoutStreak = 0; S.progress = 0;
     } catch (e) {
       if (my !== gen) ownsRun = false;   // đã bị thay thế (lượt mới, hoặc stop()/ngắt liên kết): im lặng bỏ qua — KHÔNG gen++, KHÔNG đặt lỗi, KHÔNG đụng S.running của lượt mới
       else {
@@ -259,6 +260,10 @@ const Sync = (() => {
   async function handleError(e) {
     if (e && e.cancelled) return;      // lượt cũ đã bị lượt mới thay thế: bỏ qua, không báo lỗi
     const msg = (e && (e.message || e.msg)) || String(e);
+    // Hết giờ liên tiếp (lượt đồng bộ quá hạn hoặc yêu cầu mạng bị huỷ vì quá hạn): client kho có thể đang kẹt vì một yêu cầu làm mới phiên treo mãi → tạo lại client, không cần tắt app
+    if ((e && e.timeout) || /H\u1ebft th\u1eddi gian ch\u1edd|AbortError|operation was aborted/i.test(msg)) {
+      if (++timeoutStreak >= 2 && Cloud.rebuildStore && Cloud.rebuildStore()) { timeoutStreak = 0; S.lastError = msg; reconnect(); return; }
+    } else timeoutStreak = 0;
     if (e && e.transient) {            // chưa xác định được phiên đăng nhập vì mạng chập chờn: KHÔNG phải mất phiên
       S.status = 'offline'; S.lastError = ''; fails++;
       kick(Math.min(60000, 4000 * Math.pow(2, Math.min(fails, 4))), { deep: true }); return;
@@ -290,15 +295,29 @@ const Sync = (() => {
     kick(Math.min(60000, 4000 * Math.pow(2, Math.min(fails, 4))), { deep: true });
   }
 
-  /** Bắt đầu đồng bộ sau khi đã có Cloud.store + Cloud.role */
-  function start() {
-    stop(); S.revoked = false;
-    if (!enabled()) { S.status = 'off'; notify(); return; }
+  function openChannel() {
     try {
       channel = Cloud.store.channel('qlnh-records')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'records' }, () => kick(200))
         .subscribe();
     } catch (e) { channel = null; }
+  }
+  /** Client kho vừa được tạo lại (cái cũ bị kẹt): huỷ lượt đang chạy, nối lại kênh realtime và đồng bộ lại ngay. Không đụng dữ liệu chờ gửi. */
+  function reconnect() {
+    if (!enabled()) return;
+    gen++; S.running = false; again = false;
+    clearTimeout(timer); timer = null;
+    channel = null;      // kênh cũ đã bị Cloud.setStore gỡ cùng client cũ
+    openChannel();
+    timeoutStreak = 0; fails = 0;
+    kick(0, { deep: true });
+  }
+
+  /** Bắt đầu đồng bộ sau khi đã có Cloud.store + Cloud.role */
+  function start() {
+    stop(); S.revoked = false;
+    if (!enabled()) { S.status = 'off'; notify(); return; }
+    openChannel();
     periodic = setInterval(() => kick(0, { deep: true }), 30000);   // nhịp định kỳ luôn lùi đủ: bắt các bản ghi commit đảo thứ tự mà lượt nền (lùi nhỏ) có thể bỏ lỡ
     kick(0, { deep: true });
   }
@@ -331,6 +350,6 @@ const Sync = (() => {
       để đảm bảo có dữ liệu THẬT trước khi bất cứ thứ gì có cơ hội đẩy bản rỗng đó lên đè mất dữ liệu gốc. */
   async function pullOnly() { await checkAccess(); await pullAll(undefined, { force: true }); stale(); await Persist.setMeta('initialPullPending', 0); }
 
-  return { state: S, start, stop, hold, kick, syncNow, setOnline, cycle, pullOnly, setTimeoutMs: ms => { timeoutMs = ms; },
+  return { state: S, start, stop, hold, kick, reconnect, syncNow, setOnline, cycle, pullOnly, setTimeoutMs: ms => { timeoutMs = ms; },
            onChange: null, onStatus: null };
 })();

@@ -2289,6 +2289,49 @@ t.group('35b. Kho lớn: con trỏ kéo được lưu sau MỖI lô → lượt 
   t.ok(A.Sync.state.status === 'ok', 'đồng bộ báo xong bình thường');
 }
 
+t.group('35c. Client kho bị kẹt (yêu cầu làm mới phiên treo mãi): fetch có hạn chót, đồng bộ tự tạo lại client và phục hồi — không cần tắt app');
+{
+  const w = newWorld(); const A = await setupOwner(w); await A.sync();
+  // (1) fetch có hạn chót: yêu cầu treo mãi bị huỷ và báo lỗi rõ
+  let sawSignal = null;
+  A.fetchImpl = (url, init) => { sawSignal = init && init.signal; return new Promise(() => {}); };
+  const r = await A.Cloud.timedFetch('https://x.test/auth/v1/token', {}, 40).then(() => 'xong', e => e);
+  t.ok(r && r.timeout === true && /Hết thời gian chờ/.test(r.message), 'yêu cầu mạng treo mãi → bị huỷ sau hạn chót, báo "Hết thời gian chờ máy chủ" (' + (r.message || r) + ')');
+  t.ok(sawSignal && sawSignal.aborted === true, 'yêu cầu đang treo được huỷ qua AbortSignal');
+  const ok = await A.Cloud.timedFetch('https://x.test/ok', {}, 40).then(() => 'xong', e => e).catch(e => e);
+  void ok;
+  A.fetchImpl = (url) => Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: 1 }) });
+  const good = await A.Cloud.timedFetch('https://x.test/ok', {}, 40);
+  t.ok(good && good.ok, 'yêu cầu bình thường không bị ảnh hưởng bởi hạn chót');
+
+  // (2) client kho kẹt: lượt đồng bộ hết giờ liên tiếp → tự tạo lại client rồi chạy lại bình thường
+  const stuck = A.Cloud.store;
+  const hang = () => new Promise(() => {});
+  stuck.rpc = hang; stuck.from = () => ({ select: hang, gt: hang, then: () => hang() });
+  stuck.auth.getSession = hang;
+  A.Sync.setTimeoutMs(40);
+  await A.api('/settings', { method: 'PATCH', body: { sound: false } }); await A.save();
+  await A.Sync.syncNow();
+  t.ok(A.Sync.state.status === 'error' && A.Cloud.store === stuck, 'lượt 1 hết giờ: chưa tạo lại client (chỉ mới 1 lần)');
+  await A.Sync.syncNow();
+  t.ok(A.Cloud.store !== stuck, 'lượt 2 hết giờ liên tiếp → client kho được TẠO LẠI');
+  A.Sync.setTimeoutMs(60000);
+  await A.Sync.syncNow();
+  t.eq(A.Sync.state.status, 'ok', 'sau khi tạo lại client: đồng bộ chạy bình thường, không cần tắt app');
+  t.eq(A.Records.dirtyCount(), 0, 'thay đổi chờ gửi đã được gửi lên');
+
+  // (3) mở lại app sau thời gian nằm nền: client kẹt được phát hiện và thay mới trước khi đồng bộ
+  const stuck2 = A.Cloud.store; stuck2.auth.getSession = hang;
+  const fresh = await A.Cloud.ensureFresh(40);
+  t.ok(fresh === false && A.Cloud.store !== stuck2, 'ensureFresh: client không trả lời phiên trong hạn → tạo lại');
+  const healthy = A.Cloud.store;
+  t.ok((await A.Cloud.ensureFresh(40)) === true && A.Cloud.store === healthy, 'client khoẻ thì giữ nguyên, không tạo lại thừa');
+  await A.api('/settings', { method: 'PATCH', body: { sound: true } }); await A.save(); await A.Sync.syncNow();
+  t.eq(A.Sync.state.status, 'ok', 'đồng bộ bình thường sau khi thay client');
+  // (4) tạo lại client không làm mất phiên: máy vẫn là máy chủ quán, dữ liệu vẫn nguyên
+  t.ok(A.Cloud.role === 'owner' && A.D.menu.length > 0, 'vai trò máy và dữ liệu giữ nguyên sau khi tạo lại client');
+}
+
 t.group('36. Chẩn đoán đồng bộ & gói cước + hiện tiến độ tải dữ liệu từ kho');
 {
   const w = newWorld(); const A = await setupOwner(w); await A.sync();

@@ -147,12 +147,12 @@ export async function newDevice(world, name, opts = {}) {
     (dev.fetchImpl || (() => Promise.reject(new Error('fetch: không có mạng (giả lập)'))))(...a));
 
   const factory = new Function('window', 'document', 'localStorage', 'NativeBridge', 'navigator', 'location', 'crypto', 'Date',
-    'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask', 'TextEncoder', 'btoa', 'atob', 'console', 'URL', 'Blob', 'FileReader', 'fetch', 'requestAnimationFrame',
+    'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask', 'TextEncoder', 'btoa', 'atob', 'console', 'URL', 'Blob', 'FileReader', 'fetch', 'requestAnimationFrame', 'AbortController',
     SCRIPT + tail);
   const api = factory(windowFake, documentFake, localStorage, nb, { userAgent: 'test', onLine: true }, { host: 'localhost', href: 'https://localhost/', origin: 'https://localhost', hash: '' },
     webcrypto, FakeDate, setTimeoutFake, clearTimeoutFake, (fn, ms) => { (dev.intervals = dev.intervals || []).push({ fn, ms }); return dev.intervals.length; }, () => {}, queueMicrotask, TextEncoder, btoa, atob, consoleFake,
     { createObjectURL: () => 'blob:x', revokeObjectURL() {} }, class { constructor(parts, o) { this.parts = parts; this.size = parts.reduce((s, p) => s + (p.length || p.byteLength || 0), 0); this.type = (o || {}).type; } },
-    class {}, fetchFake, fn => setImmediate(fn));
+    class {}, fetchFake, fn => setImmediate(fn), AbortController);
 
   Object.defineProperties(dev, Object.getOwnPropertyDescriptors(api));   // giữ nguyên getter/setter (D, route, ME...)
   dev.api = (p, o) => api.apiLocal(p, o);

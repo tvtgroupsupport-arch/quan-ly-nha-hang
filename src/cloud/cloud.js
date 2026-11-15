@@ -13,10 +13,25 @@ const INVITE_PREFIX = 'QLNH1';
 const Cloud = (() => {
   const C = { role: null, store: null, central: null, cfg: {}, ownerPw: null };
 
+  /** fetch có HẠN CHÓT: thư viện Supabase chỉ cho MỘT yêu cầu làm mới phiên chạy một lúc và mọi lời gọi sau đều chờ nó — nếu yêu cầu đó treo (mạng chập chờn lúc app vừa mở lại)
+      thì MỌI lời gọi sau treo theo cho tới khi tắt app. Hạn chót làm yêu cầu treo bị huỷ (báo lỗi) thay vì chặn mãi. Vừa gọi AbortController vừa tự đua với đồng hồ,
+      vì có WebView không huỷ được yêu cầu đang treo. */
+  const FETCH_TIMEOUT_MS = 25000;
+  function timedFetch(url, init, ms) {
+    const limit = ms || FETCH_TIMEOUT_MS;
+    const ctl = new AbortController();
+    const opts = { ...(init || {}), signal: ctl.signal };
+    if (init && init.signal) { if (init.signal.aborted) ctl.abort(); else init.signal.addEventListener('abort', () => ctl.abort()); }
+    let tm;
+    const timeout = new Promise((_, rej) => { tm = setTimeout(() => { try { ctl.abort(); } catch (e) {} rej(Object.assign(new Error('Hết thời gian chờ máy chủ — mạng yếu (' + Math.round(limit / 1000) + ' giây)'), { timeout: true })); }, limit); });
+    return Promise.race([fetch(url, opts), timeout]).finally(() => clearTimeout(tm));
+  }
+
   function mkClient(url, key, storageKey) {
     if (typeof NativeBridge === 'undefined' || !NativeBridge.supabase) throw new Error('Thiếu thư viện Supabase');
     return NativeBridge.supabase.createClient(url, key, {
-      auth: { storageKey, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+      auth: { storageKey, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+      global: { fetch: (u, i) => timedFetch(u, i) }
     });
   }
 
@@ -59,6 +74,24 @@ const Cloud = (() => {
     C.cfg = { ...C.cfg, ...patch };
     C.role = C.cfg.role || null;
     return Persist.setMeta('cfg', C.cfg);
+  }
+
+  /** Tạo lại client kho (dùng lại phiên đã lưu): client cũ có thể đang kẹt vì một yêu cầu làm mới phiên bị treo. Trả về true nếu tạo được. */
+  function rebuildStore() {
+    const cfg = C.cfg;
+    if (!C.store || !cfg.storeUrl || !cfg.storeAnon) return false;
+    try { setStore(mkClient(cfg.storeUrl, cfg.storeAnon, 'sb-store')); return true; } catch (e) { console.warn(e); return false; }
+  }
+  /** Kiểm tra client kho còn trả lời (lấy phiên, tối đa ms): quá hạn → coi là kẹt, tạo lại client và nối lại đồng bộ. Gọi khi mở lại app sau thời gian nằm nền. */
+  async function ensureFresh(ms) {
+    if (!C.store || !C.role) return true;
+    let tm;
+    const ok = await Promise.race([
+      Promise.resolve().then(() => C.store.auth.getSession()).then(() => true, () => true),
+      new Promise(r => { tm = setTimeout(() => r(false), ms || 8000); })
+    ]).finally(() => clearTimeout(tm));
+    if (!ok && rebuildStore()) { try { Sync.reconnect(); } catch (e) {} }
+    return ok;
   }
 
   function central() {
@@ -379,7 +412,7 @@ const Cloud = (() => {
     /** Đã có tài khoản BEPO (Supabase trung tâm): cờ cfg.acct do luồng tạo quán/đăng nhập đặt; máy đã liên kết kho thì chắc chắn có tài khoản.
         Người dùng cũ ở chế độ dùng ngay (cài bản trước, dùng thử trên máy) chưa có cờ này → chưa có tài khoản. */
     get hasAccount() { return !!(C.cfg.acct || C.store); },
-    init, saveCfg, central, friendly,
+    init, saveCfg, central, friendly, timedFetch, rebuildStore, ensureFresh,
     ownerSignUp, ownerSignIn, centralEmail, centralEmailState, getStoreLink, discardStoreLink,
     linkStoreAsOwner, restoreOwner, createInvite, parseInvite, joinAsStaff,
     reloginStore, hasStoreSession, sessionState, rejoinAsStaff, listDevices, revokeDevice, deleteDevice, unlinkAll, unlinkAndDetach, deleteAccount, onRevoked

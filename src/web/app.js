@@ -1710,13 +1710,18 @@ function wireCloud() {
   NativeBridge.app.onResume(() => {
     try { NativeBridge.alerts && NativeBridge.alerts.resumed && NativeBridge.alerts.resumed(); } catch (e) {}
     try { if (typeof playOnResume === 'function') playOnResume(); } catch (e) {}      // đóng hộp thoại mua của Google mà không trả lời → mở lại trang đăng ký
-    Sync.kick(0, { deep: true });      // mở lại app: kéo lùi đủ để bắt mọi bản ghi sót trong lúc app ngủ
+    // Nằm nền lâu (> 1 phút): phiên đăng nhập có thể đã hết hạn và yêu cầu làm mới chưa chắc đi được ngay — kiểm tra client kho còn trả lời (tối đa 8 giây),
+    // nếu kẹt thì tạo lại, RỒI mới đồng bộ. Không đợi: nếu máy chủ phản hồi chậm thì lượt đồng bộ thường vẫn chạy song song.
+    const away = window._pausedAt ? Date.now() - window._pausedAt : 0;
+    window._pausedAt = 0;
+    if (away > 60000 && Cloud.linked && Cloud.ensureFresh) Cloud.ensureFresh().catch(() => {}).then(() => Sync.kick(0, { deep: true }));
+    else Sync.kick(0, { deep: true });      // mở lại app: kéo lùi đủ để bắt mọi bản ghi sót trong lúc app ngủ
     ensureKeepAlive();
     const ls = License.status();
     recheckLicense(ls.state !== 'ok' || Date.now() - (ls.checkedAt || 0) > 6 * 3600000);   // sắp/đã quá hạn, hoặc lâu chưa hỏi máy chủ (quá 6 giờ) → hỏi lại ngay (máy chủ cũng hỏi lại Google)
   });
   // App chuyển nền: ghi ngay dữ liệu chưa kịp ghi (nhịp ghi thường là 250 ms) rồi mới có thể bị hệ điều hành tắt
-  if (NativeBridge.app.onPause) NativeBridge.app.onPause(() => { try { Persist.flush(); } catch (e) {} });
+  if (NativeBridge.app.onPause) NativeBridge.app.onPause(() => { window._pausedAt = Date.now(); try { Persist.flush(); } catch (e) {} });
   // Nút Back của Android: đóng hộp thoại → quay lại màn trước → thu nhỏ app
   NativeBridge.app.onBack(() => {
     if (qrZoomEl) { closeQrZoom(); return true; }

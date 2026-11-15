@@ -336,7 +336,8 @@ async function diagnoseAll() {
     if (!Cloud.store) throw new Error('chưa có kết nối kho');
     const { data } = await Cloud.store.auth.getSession();
     if (!data || !data.session) throw new Error('chưa có phiên đăng nhập');
-    return data.session.user.email || 'đã đăng nhập';
+    const left = data.session.expires_at ? Math.round(data.session.expires_at - Date.now() / 1000) : null;
+    return (data.session.user.email || 'đã đăng nhập') + (left == null ? '' : left > 0 ? ' · phiên còn ' + left + ' giây' : ' · phiên đã hết hạn ' + (-left) + ' giây (đang làm mới)');
   });
   await step('Quyền chủ quán (store_status)', async () => {
     const { data, error } = await Cloud.store.rpc('store_status');
